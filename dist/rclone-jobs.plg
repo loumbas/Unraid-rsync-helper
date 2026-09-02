@@ -1,0 +1,44 @@
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "rclone-jobs">
+<!ENTITY author    "P. Loumpardias">
+<!ENTITY version   "2026.09.02">
+<!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
+<!ENTITY bootDir   "/boot/config/plugins/&name;">
+]>
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="Settings/rclone-jobs" min="7.0.0">
+  <CHANGES>
+## rclone-jobs
+
+### 2026.09.02
+- Initial release (offline build - not yet executed on target box).
+- Scheduled rclone/rsync/custom jobs with dry-run gate, Telegram + Dynamix alerts,
+  self-diagnosing doctor, and strict share policy (all plugin data outside /mnt/user).
+  </CHANGES>
+  <!--
+    rclone-jobs: scheduled rclone/rsync jobs with dry-run gate and Telegram alerts.
+    Runs alongside (never inside) the 'rclone' plugin by Waseh.
+    License: GPL-2.0-or-later. All plugin state lives outside /mnt/user.
+  -->
+  <!-- FILE entries are generated at build time from src/MANIFEST (placeholder below). -->
+  <!-- PRE-BOOT / INSTALL SCRIPT (runs at plugin install and again at every boot; array may be down). -->
+  <FILE Run="/bin/bash" Method="install">
+    <INLINE>
+# Phase 3 replaces this stub with the real boot-safe install routine:
+# - mkdir &bootDir;/jobs, create default paths.env when missing (never overwrite)
+# - deploy engine to &pluginDir;/engine + $STORAGE_ROOT when array is up
+# - regenerate /etc/cron.d/rclone-jobs when array is up
+mkdir -p "&bootDir;/jobs"
+logger -t rclone-jobs "plugin &version; installed (stub lifecycle - replaced in Phase 3)"
+    </INLINE>
+  </FILE>
+  <!-- REMOVE SCRIPT (keeps /boot config + $STORAGE_ROOT data by design). -->
+  <FILE Run="/bin/bash" Method="remove">
+    <INLINE>
+# Phase 3 replaces this stub: kill running jobs, remove cron + code, keep data.
+rm -f /etc/cron.d/&name;
+rm -rf &pluginDir;
+logger -t rclone-jobs "plugin &name; removed (code + cron gone; /boot config and storage data kept)"
+    </INLINE>
+  </FILE>
+</PLUGIN>

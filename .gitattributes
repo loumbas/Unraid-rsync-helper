@@ -1,0 +1,15 @@
+# Default: normalize to LF in the repo, checkout with LF (files ship to Unraid).
+* text=auto eol=lf
+
+# Windows-only dev scripts must stay CRLF (they never ship).
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binaries.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.txz binary

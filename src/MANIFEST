@@ -1,0 +1,9 @@
+# rclone-jobs build manifest - single source of truth for build.ps1 AND build.sh.
+# Format:  <src-rel-path> <whitespace> <absolute-target-path-on-Unraid> <whitespace> <octal-mode>
+# '#' starts a comment. Every file under src/engine, src/emhttp, src/jobs MUST appear
+# here (offline-lint enforces this two-way). Target prefix must be
+# /usr/local/emhttp/plugins/rclone-jobs/
+#
+# Populated from Phase 1 onward. Example of the final shape:
+#   engine/rclone-jobs.sh /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh 0755
+#   emhttp/index.php /usr/local/emhttp/plugins/rclone-jobs/index.php 0644
