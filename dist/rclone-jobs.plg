@@ -499,7 +499,7 @@ classify() { # &lt;rc&gt; &lt;error text&gt; - headline used by log, UI and Tele
 }
 
 render_preview() { # &lt;logfile&gt; &lt;engine&gt; &lt;rc&gt; &lt;empty-dest yes|no&gt;
-  local lf="$1" eng="$2" rc="$3" ed="$4" out df
+  local lf="$1" eng="$2" rc="$3" ed="$4" out df txt
   if ! find_php; then say "(php CLI unavailable - structured preview disabled; raw log: $lf)"; return 0; fi
   df="$(dryrun_file "$JOB_NAME")"
   out="$("$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode json --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null)"
@@ -509,10 +509,13 @@ render_preview() { # &lt;logfile&gt; &lt;engine&gt; &lt;rc&gt; &lt;empty-dest ye
          --argjson warn "$J_WARN_DELETE" --arg log "$lf" \
          '. + {job:$job, stamp:$stamp, confhash:$chash, warnDelete:$warn, ack:false, log:$log}' \
     &gt; "$df.tmp" 2&gt;/dev/null &amp;&amp; mv -f "$df.tmp" "$df"
+  # text report generated from the CLEAN log (before appending), printed once,
+  # then appended - re-parsing after append would double-count
+  txt="$("$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null)"
   { printf -- '\n---- dry-run report ----\n'
-    "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null
+    printf '%s\n' "$txt"
   } &gt;&gt; "$lf"
-  "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null
+  printf '%s\n' "$txt"
   return 0
 }
 
@@ -885,7 +888,11 @@ function rj_preview_parse(string $file, string $engine): array
         $r['fatal'] = 'dry-run log could not be opened';
         return $r;
     }
-    $transRe = '/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]i?B)/i';
+    $newsDbg = 0; $deletesSum = -1; $copiesSum = -1; $skipsSum = -1;
+    $transBytesRe = '/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]i?B)/i';
+    $transFilesRe = '/^\s*Transferred:\s+(\d+) \/ (\d+)/';
+    $deletedSumRe = '/^\s*Deleted:\s+(\d+) \(files\)/';
+    $checksRe     = '/^\s*Checks:\s+(\d+) \/ \d+/';
     while (($line = fgets($fp)) !== false) {
         $line = rtrim($line, "\r\n");
         if ($engine === 'rsync') {
@@ -900,36 +907,55 @@ function rj_preview_parse(string $file, string $engine): array
             } elseif (preg_match('/ERROR/i', $line)) {
                 $r['fails']++;
                 if (count($r['fail_samples']) &lt; 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-            } elseif (preg_match($transRe, $line, $m)) {
+            } elseif (preg_match($transBytesRe, $line, $m)) {
                 $r['bytes'] = trim($m[1]);
             }
             continue;
         }
-        // rclone (-vv --dry-run)
-        if (preg_match('/ ERROR /', $line)) {
+        // rclone - markers verified against REAL v1.75.0 '-vv --dry-run' output:
+        //   NOTICE: &lt;file&gt;: Skipped copy as --dry-run is set (size N)
+        //   NOTICE: &lt;file&gt;: Skipped delete as --dry-run is set (size N)
+        //   summary: Transferred:/Deleted: N (files)/Checks: lines at column 0
+        if (preg_match('/^Transferred:\s+[0-9.]+ ?[KMGTPE]i?B/', $line)) {
+            if ($r['bytes'] === '' &amp;&amp; preg_match($transBytesRe, $line, $m)) { $r['bytes'] = trim($m[1]); }
+        } elseif (preg_match($transFilesRe, $line, $m)) {
+            $copiesSum = (int)$m[2];
+        } elseif (preg_match($deletedSumRe, $line, $m)) {
+            $deletesSum = (int)$m[1];
+        } elseif (preg_match($checksRe, $line, $m)) {
+            $skipsSum = (int)$m[1];
+        } elseif (preg_match('/ ERROR /', $line)) {
             $r['fails']++;
             if (count($r['fail_samples']) &lt; 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-        } elseif (preg_match('/Can\'t copy/i', $line)) {
+        } elseif (preg_match("/Can't copy/i", $line)) {
             $r['fails']++;
             if (count($r['fail_samples']) &lt; 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-        } elseif (preg_match('/\bDeleted\b/', $line)) {
+        } elseif (preg_match('/NOTICE: (.+?): Skipped delete as --dry-run/i', $line, $m)) {
             $r['deletes']++;
-            if (count($r['delete_samples']) &lt; 25) {
-                $p = preg_replace('/^.*? - /', '', $line);
-                $r['delete_samples'][] = substr(trim($p), 0, 300);
-            }
+            if (count($r['delete_samples']) &lt; 25) { $r['delete_samples'][] = substr(trim($m[1]), 0, 300); }
+        } elseif (preg_match('/Skipped (mkdir|delete dir|set directory)/i', $line)) {
+            // directory bookkeeping - not a file operation, counted nowhere
+        } elseif (preg_match('/NOTICE: .*: Skipped copy as --dry-run/i', $line)) {
+            $r['copies']++;
+        } elseif (preg_match('/File not found at Destination/', $line)) {
+            $newsDbg++;
         } elseif (preg_match('/\bCopied\b/', $line)) {
             $r['copies']++;
             if (stripos($line, '(new)') !== false) { $r['news']++; } else { $r['updates']++; }
-        } elseif (preg_match('/\bSkipped\b/i', $line)) {
-            $r['skips']++;
-        } elseif (preg_match($transRe, $line, $m)) {
-            $r['bytes'] = trim($m[1]);
         } elseif ($line !== '') {
             $r['other']++;
         }
     }
     fclose($fp);
+    // summary lines are authoritative when present
+    if ($engine === 'rclone') {
+        if ($deletesSum &gt;= 0) { $r['deletes'] = $deletesSum; }
+        if ($copiesSum &gt;= 0 &amp;&amp; $r['copies'] === 0) { $r['copies'] = $copiesSum; }
+        if ($skipsSum &gt;= 0)   { $r['skips'] = $skipsSum; }
+        if ($r['news'] === 0 &amp;&amp; $newsDbg &gt; 0) { $r['news'] = $newsDbg; }
+        if ($r['news'] &gt; $r['copies']) { $r['news'] = $r['copies']; }
+        $r['updates'] = $r['copies'] - $r['news'];
+    }
     // emptyDest is decided ONLY by the engine (--empty-dest: local destination
     // exists but is empty). A log-based heuristic would false-positive whenever
     // source and destination simply share no filenames.

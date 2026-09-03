@@ -23,7 +23,11 @@ function rj_preview_parse(string $file, string $engine): array
         $r['fatal'] = 'dry-run log could not be opened';
         return $r;
     }
-    $transRe = '/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]i?B)/i';
+    $newsDbg = 0; $deletesSum = -1; $copiesSum = -1; $skipsSum = -1;
+    $transBytesRe = '/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]i?B)/i';
+    $transFilesRe = '/^\s*Transferred:\s+(\d+) \/ (\d+)/';
+    $deletedSumRe = '/^\s*Deleted:\s+(\d+) \(files\)/';
+    $checksRe     = '/^\s*Checks:\s+(\d+) \/ \d+/';
     while (($line = fgets($fp)) !== false) {
         $line = rtrim($line, "\r\n");
         if ($engine === 'rsync') {
@@ -38,36 +42,55 @@ function rj_preview_parse(string $file, string $engine): array
             } elseif (preg_match('/ERROR/i', $line)) {
                 $r['fails']++;
                 if (count($r['fail_samples']) < 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-            } elseif (preg_match($transRe, $line, $m)) {
+            } elseif (preg_match($transBytesRe, $line, $m)) {
                 $r['bytes'] = trim($m[1]);
             }
             continue;
         }
-        // rclone (-vv --dry-run)
-        if (preg_match('/ ERROR /', $line)) {
+        // rclone - markers verified against REAL v1.75.0 '-vv --dry-run' output:
+        //   NOTICE: <file>: Skipped copy as --dry-run is set (size N)
+        //   NOTICE: <file>: Skipped delete as --dry-run is set (size N)
+        //   summary: Transferred:/Deleted: N (files)/Checks: lines at column 0
+        if (preg_match('/^Transferred:\s+[0-9.]+ ?[KMGTPE]i?B/', $line)) {
+            if ($r['bytes'] === '' && preg_match($transBytesRe, $line, $m)) { $r['bytes'] = trim($m[1]); }
+        } elseif (preg_match($transFilesRe, $line, $m)) {
+            $copiesSum = (int)$m[2];
+        } elseif (preg_match($deletedSumRe, $line, $m)) {
+            $deletesSum = (int)$m[1];
+        } elseif (preg_match($checksRe, $line, $m)) {
+            $skipsSum = (int)$m[1];
+        } elseif (preg_match('/ ERROR /', $line)) {
             $r['fails']++;
             if (count($r['fail_samples']) < 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-        } elseif (preg_match('/Can\'t copy/i', $line)) {
+        } elseif (preg_match("/Can't copy/i", $line)) {
             $r['fails']++;
             if (count($r['fail_samples']) < 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-        } elseif (preg_match('/\bDeleted\b/', $line)) {
+        } elseif (preg_match('/NOTICE: (.+?): Skipped delete as --dry-run/i', $line, $m)) {
             $r['deletes']++;
-            if (count($r['delete_samples']) < 25) {
-                $p = preg_replace('/^.*? - /', '', $line);
-                $r['delete_samples'][] = substr(trim($p), 0, 300);
-            }
+            if (count($r['delete_samples']) < 25) { $r['delete_samples'][] = substr(trim($m[1]), 0, 300); }
+        } elseif (preg_match('/Skipped (mkdir|delete dir|set directory)/i', $line)) {
+            // directory bookkeeping - not a file operation, counted nowhere
+        } elseif (preg_match('/NOTICE: .*: Skipped copy as --dry-run/i', $line)) {
+            $r['copies']++;
+        } elseif (preg_match('/File not found at Destination/', $line)) {
+            $newsDbg++;
         } elseif (preg_match('/\bCopied\b/', $line)) {
             $r['copies']++;
             if (stripos($line, '(new)') !== false) { $r['news']++; } else { $r['updates']++; }
-        } elseif (preg_match('/\bSkipped\b/i', $line)) {
-            $r['skips']++;
-        } elseif (preg_match($transRe, $line, $m)) {
-            $r['bytes'] = trim($m[1]);
         } elseif ($line !== '') {
             $r['other']++;
         }
     }
     fclose($fp);
+    // summary lines are authoritative when present
+    if ($engine === 'rclone') {
+        if ($deletesSum >= 0) { $r['deletes'] = $deletesSum; }
+        if ($copiesSum >= 0 && $r['copies'] === 0) { $r['copies'] = $copiesSum; }
+        if ($skipsSum >= 0)   { $r['skips'] = $skipsSum; }
+        if ($r['news'] === 0 && $newsDbg > 0) { $r['news'] = $newsDbg; }
+        if ($r['news'] > $r['copies']) { $r['news'] = $r['copies']; }
+        $r['updates'] = $r['copies'] - $r['news'];
+    }
     // emptyDest is decided ONLY by the engine (--empty-dest: local destination
     // exists but is empty). A log-based heuristic would false-positive whenever
     // source and destination simply share no filenames.

@@ -474,7 +474,7 @@ classify() { # <rc> <error text> - headline used by log, UI and Telegram
 }
 
 render_preview() { # <logfile> <engine> <rc> <empty-dest yes|no>
-  local lf="$1" eng="$2" rc="$3" ed="$4" out df
+  local lf="$1" eng="$2" rc="$3" ed="$4" out df txt
   if ! find_php; then say "(php CLI unavailable - structured preview disabled; raw log: $lf)"; return 0; fi
   df="$(dryrun_file "$JOB_NAME")"
   out="$("$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode json --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null)"
@@ -484,10 +484,13 @@ render_preview() { # <logfile> <engine> <rc> <empty-dest yes|no>
          --argjson warn "$J_WARN_DELETE" --arg log "$lf" \
          '. + {job:$job, stamp:$stamp, confhash:$chash, warnDelete:$warn, ack:false, log:$log}' \
     > "$df.tmp" 2>/dev/null && mv -f "$df.tmp" "$df"
+  # text report generated from the CLEAN log (before appending), printed once,
+  # then appended - re-parsing after append would double-count
+  txt="$("$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null)"
   { printf -- '\n---- dry-run report ----\n'
-    "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null
+    printf '%s\n' "$txt"
   } >> "$lf"
-  "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null
+  printf '%s\n' "$txt"
   return 0
 }
 
