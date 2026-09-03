@@ -107,7 +107,9 @@ detect_storage() { # first /mnt/diskN backed by /dev/md* (array; parity is never
     [ -d "$d" ] || continue
     src="$(findmnt -no SOURCE -T "$d" 2>/dev/null)" || continue
     case "$src" in
-      /dev/md*) printf '%s/%s\n' "$d" "$NAME"; return 0 ;;
+      # dot-folder: shfs hides dot-directories from the /mnt/user view, so the
+      # plugin folder never appears in the share namespace or in zero-touch diffs
+      /dev/md*) printf '%s/.%s\n' "$d" "$NAME"; return 0 ;;
     esac
   done
   return 1
@@ -289,7 +291,7 @@ validate_job() {
   [[ "$J_CHECKERS"    =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: CHECKERS must be 0-999"
   [[ "$J_MAXDELETE"   =~ ^[0-9]{1,9}$ ]] || die 78 "job $JOB_NAME: MAXDELETE must be numeric"
   [[ "$J_WARN_DELETE" =~ ^[0-9]{1,9}$ ]] || die 78 "job $JOB_NAME: WARN_DELETE must be numeric"
-  [[ "$J_UMASK"       =~ ^0[0-7]{3}$   ]] || die 78 "job $JOB_NAME: UMASK must be 0NNN octal"
+  [[ "$J_UMASK"       =~ ^0?[0-7]{3,4}$ ]] || die 78 "job $JOB_NAME: UMASK must be 3 or 4 octal digits (e.g. 022 or 0022)"
   if [ "$J_ENGINE" != custom ]; then
     [ -n "$J_SRC" ] && [ -n "$J_DST" ] || die 78 "job $JOB_NAME: SRC and DST are required"
     bad_field "$J_SRC" && die 78 "job $JOB_NAME: SRC contains forbidden characters"
