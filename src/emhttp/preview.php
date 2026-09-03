@@ -68,9 +68,9 @@ function rj_preview_parse(string $file, string $engine): array
         }
     }
     fclose($fp);
-    if ($engine === 'rclone' && $r['copies'] > 0 && $r['news'] === $r['copies'] && $r['updates'] === 0) {
-        $r['emptyDest'] = true;
-    }
+    // emptyDest is decided ONLY by the engine (--empty-dest: local destination
+    // exists but is empty). A log-based heuristic would false-positive whenever
+    // source and destination simply share no filenames.
     return $r;
 }
 

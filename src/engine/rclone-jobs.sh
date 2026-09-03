@@ -69,7 +69,10 @@ redact() { # stdin->stdout: mask anything secret-looking before it hits a log
 }
 
 # lexical normalization (realpath -m: no mkdir side effects) + fail-closed policy
-policy_ok() { # <path> -> 0 allowed / 1 forbidden
+policy_ok() { # <path> -> 0 allowed / 1 forbidden (checks RAW string AND normalized path)
+  # raw prefix gate first: a plugin-managed path may never START with a share
+  # prefix, even if '../' segments would lexically escape it afterwards
+  case "$1" in /mnt/user|/mnt/user/*) return 1 ;; esac
   local rp
   rp="$(realpath -m -- "$1" 2>/dev/null)" || return 1
   case "$rp" in
@@ -711,7 +714,7 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
     if [ -d "$STORAGE_ROOT" ]; then
       if touch "$STORAGE_ROOT/.rjprobe" 2>/dev/null; then rm -f "$STORAGE_ROOT/.rjprobe"; d_line PASS "STORAGE_ROOT writable"
       else d_line FAIL "STORAGE_ROOT not writable: $STORAGE_ROOT"; fi
-      d_line INFO "free space: $(df -h "$STORAGE_ROOT" 2>/dev/null | awk 'NR==2{print $4" free ("$5" used) on "$1"}')"
+      d_line INFO "free space: $(df -h "$STORAGE_ROOT" 2>/dev/null | awk 'NR==2{printf "%s free (%s used) on %s", $4, $5, $1}')"
       d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2>/dev/null)"
     else d_line WARN "STORAGE_ROOT does not exist yet (array stopped, or first run pending): $STORAGE_ROOT"; fi
     if [ -f "$STORAGE_ROOT/notify.env" ]; then
