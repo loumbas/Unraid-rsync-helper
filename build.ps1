@@ -97,9 +97,10 @@ $fileBlock = ($fileBlockParts -join "`n")
 
 # 4. assemble plg
 $tpl = Read-NormText (Join-Path $srcRoot 'rclone-jobs.plg.in')
-# NOTE: the token's own newline is absorbed (block text already ends with `n; empty block
-# must delete the whole line) so build.ps1 and build.sh agree byte-for-byte.
-$out = $tpl.Replace('{{VERSION}}', $version).Replace('{{CHANGES}}', $changes).Replace("{{FILES}}`n", $fileBlock)
+# NOTE: order matters and must mirror build.sh: embed FILES first (token's own newline is
+# absorbed; empty block deletes the whole line), then CHANGES, then VERSION LAST so that
+# {{VERSION}} inside embedded engine sources is stamped too.
+$out = $tpl.Replace("{{FILES}}`n", $fileBlock).Replace('{{CHANGES}}', $changes).Replace('{{VERSION}}', $version)
 $outBytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($out)
 
 if (-not (Test-Path -LiteralPath $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }

@@ -71,11 +71,9 @@ while IFS= read -r mline || [ -n "$mline" ]; do
 done < "$SRC/MANIFEST"
 
 # ------------------------------------------------------------- template ----
+# Order must mirror build.ps1: embed FILES/CHANGES first, stamp VERSION LAST so
+# {{VERSION}} inside embedded engine sources is replaced too.
 mkdir -p "$DIST"
-awk -v ver="$VERSION" '
-  { line = $0; gsub(/\{\{VERSION\}\}/, ver, line); print line }
-' "$SRC/rclone-jobs.plg.in" > "$TMP/step1"
-
 : > "$TMP/out"
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
@@ -83,8 +81,8 @@ while IFS= read -r line || [ -n "$line" ]; do
     '{{FILES}}')   cat "$TMP/files" >> "$TMP/out" ;;
     *)             printf '%s\n' "$line" >> "$TMP/out" ;;
   esac
-done < "$TMP/step1"
-cp "$TMP/out" "$PLG"
+done < "$SRC/rclone-jobs.plg.in"
+awk -v ver="$VERSION" '{ gsub(/\{\{VERSION\}\}/, ver); print }' "$TMP/out" > "$PLG"
 
 # ------------------------------------------------------------ dist lint ----
 LC_ALL=C grep -q $'\r' "$PLG" && fail "dist plg contains CR"

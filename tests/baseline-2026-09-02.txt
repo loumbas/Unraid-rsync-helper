@@ -1,0 +1,21 @@
+# Zero-touch baseline captured 2026-09-02 on LMBS-SRV (Unraid 7.3.2) BEFORE any
+# rclone-jobs code touched the box. Acceptance = re-hash and diff (must be empty).
+# Source: RUN-THIS-0 MASTER.sha256 paste.
+9c5c2018b6866f0dbcc5f4ca8c702166404c6246fde7c7e084c4b8b4e61abbcf  /tmp/rj-baseline/cron-ls.txt
+5ec047aebdffa015cc96ee020f37bdaf7bc95d1a5a75d25221793af578de2865  /tmp/rj-baseline/cron.sha256
+0695e5da22d773d46e6f2159a34f025bdd44115d828368d3b1def360182b5b2b  /tmp/rj-baseline/ls-Backups.txt
+a1c9fc2b142c143238ed7cd3e4e7d6bf977ea59b2e742aee2d912ef6ea99143a  /tmp/rj-baseline/ls-Downloads.txt
+5b0f76a863b964791b527e6c7c685c91114e060ee25e0280d81a49fa7775e411  /tmp/rj-baseline/ls-Immich.txt
+021965dee56f9faa08497fe14a39c6eaa358cff0419fbd57e66c129e055e4546  /tmp/rj-baseline/ls-Logs.txt
+2c6be5868d9245091b17348c6a7f6676b1dfbb269db93bfe5955b171645771ee  /tmp/rj-baseline/ls-Media.txt
+148ceaa00eb915211391f177d911d3442015cab9f4fe5ba932db2a612296fc98  /tmp/rj-baseline/ls-Onedrive.txt
+8e10ce521c464f7bf9d50a01f9a9df1a6d130a252df8ab0d0c1dad1662ca3d97  /tmp/rj-baseline/ls-Photos.txt
+6880bb92979746e0ba549e33178d47c19da8a08b5c5a5618107178975812de26  /tmp/rj-baseline/ls-Synology-Homes.txt
+4b19e61fd5211496219c97c64a6e32ea4c43d8ed3c8774cacfdb589a04b4636e  /tmp/rj-baseline/ls-UnorganizedFiles.txt
+011d2586ddd172082d09ce872d7aa7d8ae5251f139c155487fd6b0ad7a7ede2d  /tmp/rj-baseline/ls-VMs.txt
+8f8f32b86e790f55461ab949270f6dd97522edfe6119741268deef010f4aedc8  /tmp/rj-baseline/ls-appdata.txt
+a0226df9e8758ea69ac739e97fb98519773317b1ac59fa9177f123580ea66e05  /tmp/rj-baseline/ls-isos.txt
+a01c1a4e2617945a76208873d8444792852b70cecec8a2fd994d2b604d915305  /tmp/rj-baseline/ls-system.txt
+8b2b3ba7c06bbb7b74448baedeee47d76c23c0bbefc6d567da70d8e886916bb1  /tmp/rj-baseline/ls-vagia.txt
+2bbbe6aeb2c741da27b8c160e75e2cc311fc7f58b0a5a5ac8db4c5be4fd1ed97  /tmp/rj-baseline/mnt-user.txt
+fda932ca2c21217f3e9e1ec6813fb4c007809539cfd21d0071ded3e865eefda2  /tmp/rj-baseline/shares.sha256

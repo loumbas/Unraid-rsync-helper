@@ -7,3 +7,5 @@
 # Populated from Phase 1 onward. Example of the final shape:
 #   engine/rclone-jobs.sh /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh 0755
 #   emhttp/index.php /usr/local/emhttp/plugins/rclone-jobs/index.php 0644
+engine/rclone-jobs.sh /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh 0755
+emhttp/preview.php /usr/local/emhttp/plugins/rclone-jobs/preview.php 0644

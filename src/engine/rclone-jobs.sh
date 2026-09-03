@@ -1,31 +1,6 @@
-<?xml version="1.0" standalone="yes"?>
-<!DOCTYPE PLUGIN [
-<!ENTITY name      "rclone-jobs">
-<!ENTITY author    "P. Loumpardias">
-<!ENTITY version   "2026.09.02">
-<!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
-<!ENTITY bootDir   "/boot/config/plugins/&name;">
-]>
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="Settings/rclone-jobs" min="7.0.0">
-  <CHANGES>
-## rclone-jobs
-
-### 2026.09.02
-- Initial release (offline build - not yet executed on target box).
-- Scheduled rclone/rsync/custom jobs with dry-run gate, Telegram + Dynamix alerts,
-  self-diagnosing doctor, and strict share policy (all plugin data outside /mnt/user).
-  </CHANGES>
-  <!--
-    rclone-jobs: scheduled rclone/rsync jobs with dry-run gate and Telegram alerts.
-    Runs alongside (never inside) the 'rclone' plugin by Waseh.
-    License: GPL-2.0-or-later. All plugin state lives outside /mnt/user.
-  -->
-  <!-- FILE entries are generated at build time from src/MANIFEST (placeholder below). -->
-  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh" Mode="0755">
-<INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.02 - scheduled transfers with a dry-run gate
+# rclone-jobs engine v{{VERSION}} - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -35,7 +10,7 @@
 # it. 'set -u' and pipefail are on. PATH is hardened internally because
 # crond's PATH does not contain /usr/sbin, where the rclone plugin keeps
 # rcloneorig behind its wrapper (verified: env -i PATH=/usr/bin:/bin
-# /usr/sbin/rclone version -&gt; exit 127).
+# /usr/sbin/rclone version -> exit 127).
 #
 # Exit codes:
 #   0    success (or benign: overlap-blocked, rsync rc 24)
@@ -47,7 +22,7 @@
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.02"
+ENGINE_VERSION="{{VERSION}}"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -80,23 +55,23 @@ PHP_BIN=""
 say()         { printf '%s\n' "$*"; }
 stamp_now()   { date '+%F %T'; }
 unix_now()    { date +%s; }
-syslog_line() { logger -t rclone-jobs -- "$*" 2&gt;/dev/null || true; }
+syslog_line() { logger -t rclone-jobs -- "$*" 2>/dev/null || true; }
 
-die() { # &lt;exitcode&gt; &lt;message...&gt;
+die() { # <exitcode> <message...>
   local code="$1"; shift
   say "rclone-jobs: $*"
   syslog_line "ERROR $* (exit $code)"
   exit "$code"
 }
 
-redact() { # stdin-&gt;stdout: mask anything secret-looking before it hits a log
+redact() { # stdin->stdout: mask anything secret-looking before it hits a log
   sed -E 's/(token|secret|key|password)([=":])([^ ",]+)/\1\2***REDACTED***/Ig'
 }
 
 # lexical normalization (realpath -m: no mkdir side effects) + fail-closed policy
-policy_ok() { # &lt;path&gt; -&gt; 0 allowed / 1 forbidden
+policy_ok() { # <path> -> 0 allowed / 1 forbidden
   local rp
-  rp="$(realpath -m -- "$1" 2&gt;/dev/null)" || return 1
+  rp="$(realpath -m -- "$1" 2>/dev/null)" || return 1
   case "$rp" in
     /)                       return 1 ;;
     /mnt/user|/mnt/user/*)   return 1 ;;
@@ -107,9 +82,9 @@ policy_ok() { # &lt;path&gt; -&gt; 0 allowed / 1 forbidden
   esac
 }
 
-bad_field() { # &lt;value&gt; -&gt; 0 REJECT (shell metacharacters present)
+bad_field() { # <value> -> 0 REJECT (shell metacharacters present)
   case "$1" in
-    *'`'*|*'$'*|*';'*|*'|'*|*'&amp;'*|*'&lt;'*|*'&gt;'*|*'*'*|*'?'*|*'"'*|*"'"*|*'\\'*) return 0 ;;
+    *'`'*|*'$'*|*';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'*'*|*'?'*|*'"'*|*"'"*|*'\\'*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -127,7 +102,7 @@ detect_storage() { # first /mnt/diskN backed by /dev/md* (array; parity is never
   local d src
   for d in /mnt/disk[0-9]*; do
     [ -d "$d" ] || continue
-    src="$(findmnt -no SOURCE -T "$d" 2&gt;/dev/null)" || continue
+    src="$(findmnt -no SOURCE -T "$d" 2>/dev/null)" || continue
     case "$src" in
       /dev/md*) printf '%s/%s\n' "$d" "$NAME"; return 0 ;;
     esac
@@ -150,31 +125,31 @@ load_paths() {
         QUIET_START)    QUIET_START="$val" ;;
         QUIET_END)      QUIET_END="$val" ;;
       esac
-    done &lt; "$BOOT_DIR/paths.env"
+    done < "$BOOT_DIR/paths.env"
   fi
   # explicit environment wins (doctor/tests use these; cron never sets them)
-  [ -n "${RJ_STORAGE_ROOT:-}" ]   &amp;&amp; STORAGE_ROOT="$RJ_STORAGE_ROOT"
-  [ -n "${RJ_DRY_RUN_MASTER:-}" ] &amp;&amp; DRY_RUN_MASTER="$RJ_DRY_RUN_MASTER"
+  [ -n "${RJ_STORAGE_ROOT:-}" ]   && STORAGE_ROOT="$RJ_STORAGE_ROOT"
+  [ -n "${RJ_DRY_RUN_MASTER:-}" ] && DRY_RUN_MASTER="$RJ_DRY_RUN_MASTER"
   [ -n "$STORAGE_ROOT" ] || STORAGE_ROOT="$(detect_storage || true)"
 }
 
 storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
   [ -n "$STORAGE_ROOT" ] || die 78 "STORAGE_ROOT is not set and no array disk was found - start the array or set STORAGE_ROOT in $BOOT_DIR/paths.env"
   policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT '$STORAGE_ROOT' is REFUSED: plugin data must live outside /mnt/user, /etc, /usr, /var/log and outside / (share policy)"
-  [ -d "$STORAGE_ROOT" ] || mkdir -p "$STORAGE_ROOT" 2&gt;/dev/null || die 78 "cannot create STORAGE_ROOT '$STORAGE_ROOT' (array not started? read-only?)"
-  STORAGE_ROOT="$(realpath -- "$STORAGE_ROOT" 2&gt;/dev/null)" || die 78 "cannot resolve STORAGE_ROOT"
+  [ -d "$STORAGE_ROOT" ] || mkdir -p "$STORAGE_ROOT" 2>/dev/null || die 78 "cannot create STORAGE_ROOT '$STORAGE_ROOT' (array not started? read-only?)"
+  STORAGE_ROOT="$(realpath -- "$STORAGE_ROOT" 2>/dev/null)" || die 78 "cannot resolve STORAGE_ROOT"
   policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT resolves to '$STORAGE_ROOT' which the share policy forbids (possible ../ smuggling)"
   LOG_DIR="$STORAGE_ROOT/logs"
   STATUS_DIR="$STORAGE_ROOT/status"
   BACKUP_DIR="$STORAGE_ROOT/backup"
   NOTIFY_ENV="$STORAGE_ROOT/notify.env"
-  mkdir -p "$LOG_DIR" "$STATUS_DIR" "$BACKUP_DIR" 2&gt;/dev/null || die 78 "cannot create plugin directories under $STORAGE_ROOT"
-  touch "$LOG_DIR/.probe" 2&gt;/dev/null || die 78 "STORAGE_ROOT is not writable: $STORAGE_ROOT"
+  mkdir -p "$LOG_DIR" "$STATUS_DIR" "$BACKUP_DIR" 2>/dev/null || die 78 "cannot create plugin directories under $STORAGE_ROOT"
+  touch "$LOG_DIR/.probe" 2>/dev/null || die 78 "STORAGE_ROOT is not writable: $STORAGE_ROOT"
   rm -f "$LOG_DIR/.probe"
 }
 
 load_notify() { # reads secrets into memory; their values are NEVER echoed/logged
-  [ -n "$NOTIFY_ENV" ] &amp;&amp; [ -f "$NOTIFY_ENV" ] || return 0
+  [ -n "$NOTIFY_ENV" ] && [ -f "$NOTIFY_ENV" ] || return 0
   local line
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
@@ -187,7 +162,7 @@ load_notify() { # reads secrets into memory; their values are NEVER echoed/logge
       # literal assignment; this READS a value from notify.env, it is not one.
       TG_'TOKEN') TG_'TOKEN'="${line#*=}" ;;
     esac
-  done &lt; "$NOTIFY_ENV"
+  done < "$NOTIFY_ENV"
 }
 
 quiet_now() { # true inside the global quiet window (suppresses heartbeats only)
@@ -198,31 +173,31 @@ quiet_now() { # true inside the global quiet window (suppresses heartbeats only)
   e=$(( 10#${QUIET_END%:*}   * 100 + 10#${QUIET_END#*:} ))
   c=$(( 10#$(date +%H%M) ))
   if [ "$s" -le "$e" ]; then
-    [ "$c" -ge "$s" ] &amp;&amp; [ "$c" -lt "$e" ]
+    [ "$c" -ge "$s" ] && [ "$c" -lt "$e" ]
   else
     [ "$c" -ge "$s" ] || [ "$c" -lt "$e" ]
   fi
 }
 
-tg_send() { # &lt;plain text&gt; - one message; &amp; &lt; &gt; escaped via bash expansion; 3500 max
+tg_send() { # <plain text> - one message; & < > escaped via bash expansion; 3500 max
   local text="$1" esc resp
   [ "${TG_ENABLED:-no}" = "yes" ] || return 0
-  [ -n "$TG_TOKEN" ] &amp;&amp; [ -n "$TG_CHAT_ID" ] || return 0
-  esc="${text//&amp;/&amp;amp;}"; esc="${esc//&lt;/&amp;lt;}"; esc="${esc//&gt;/&amp;gt;}"
+  [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ] || return 0
+  esc="${text//&/&amp;}"; esc="${esc//</&lt;}"; esc="${esc//>/&gt;}"
   esc="${esc:0:3500}"
   resp="$(curl -s -m 15 --retry 2 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-      --data-urlencode "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${esc}" -d parse_mode=HTML 2&gt;/dev/null)"
+      --data-urlencode "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${esc}" -d parse_mode=HTML 2>/dev/null)"
   if printf '%s' "$resp" | grep -q '"ok":true'; then return 0; fi
-  printf '%s sendMessage failed: %s\n' "$(stamp_now)" "${resp:0:300}" &gt;&gt; "$LOG_DIR/send-error.log" 2&gt;/dev/null
+  printf '%s sendMessage failed: %s\n' "$(stamp_now)" "${resp:0:300}" >> "$LOG_DIR/send-error.log" 2>/dev/null
   return 1
 }
 
-notify_unraid() { # &lt;normal|warning|alert&gt; &lt;subject&gt; &lt;desc&gt;
+notify_unraid() { # <normal|warning|alert> <subject> <desc>
   [ -x "$NOTIFY_SCRIPT" ] || return 0
-  "$NOTIFY_SCRIPT" -e "$NAME" -s "$2" -d "$3" -i "$1" -x &gt;/dev/null 2&gt;&amp;1 || true
+  "$NOTIFY_SCRIPT" -e "$NAME" -s "$2" -d "$3" -i "$1" -x >/dev/null 2>&1 || true
 }
 
-alert_refuse() { # &lt;message&gt; - loud everywhere; used for pre-transfer refusals
+alert_refuse() { # <message> - loud everywhere; used for pre-transfer refusals
   syslog_line "REFUSED: $*"
   notify_unraid alert "rclone-jobs: refused to run $JOB_NAME" "$*"
   tg_send "🛑 rclone-jobs REFUSED: $JOB_NAME
@@ -233,23 +208,23 @@ Nothing was transferred or deleted." || true
 # ------------------------------------------------------------------- status --
 status_file() { printf '%s/%s.json\n' "$STATUS_DIR" "$1"; }
 dryrun_file() { printf '%s/%s-dryrun.json\n' "$STATUS_DIR" "$1"; }
-conf_hash()   { sha256sum "$1" 2&gt;/dev/null | cut -c1-16; }
+conf_hash()   { sha256sum "$1" 2>/dev/null | cut -c1-16; }
 
-status_set_running() { # &lt;job&gt; &lt;confhash&gt;
+status_set_running() { # <job> <confhash>
   local f tmp; f="$(status_file "$1")"; tmp="$f.tmp"
   if [ -s "$f" ]; then
-    jq --arg c "$2" '. + {running:true, confhash:$c}' "$f" &gt; "$tmp" 2&gt;/dev/null &amp;&amp; mv -f "$tmp" "$f"
+    jq --arg c "$2" '. + {running:true, confhash:$c}' "$f" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f"
   else
     jq -n --arg j "$1" --arg c "$2" \
       '{job:$j, rc:null, secs:null, errors:null, run:null, last_ok:0, last_ok_run:null, transferred:"", running:true, confhash:$c}' \
-      &gt; "$tmp" 2&gt;/dev/null &amp;&amp; mv -f "$tmp" "$f"
+      > "$tmp" 2>/dev/null && mv -f "$tmp" "$f"
   fi
 }
 
-status_finish() { # &lt;job&gt; &lt;rc&gt; &lt;secs&gt; &lt;errors&gt; &lt;transferred&gt; &lt;running true|false&gt; &lt;confhash&gt;
+status_finish() { # <job> <rc> <secs> <errors> <transferred> <running true|false> <confhash>
   local f ok_run="" last_ok=0
   f="$(status_file "$1")"
-  if [ -f "$f" ]; then last_ok="$(jq -r '.last_ok // 0' "$f" 2&gt;/dev/null || echo 0)"; fi
+  if [ -f "$f" ]; then last_ok="$(jq -r '.last_ok // 0' "$f" 2>/dev/null || echo 0)"; fi
   if [ "$2" -eq 0 ] || [ "$2" -eq 24 ]; then ok_run="$(stamp_now)"; last_ok="$(unix_now)"; fi
   jq -n \
     --arg job "$1" --argjson rc "$2" --argjson secs "$3" --argjson errors "${4:-0}" \
@@ -258,7 +233,7 @@ status_finish() { # &lt;job&gt; &lt;rc&gt; &lt;secs&gt; &lt;errors&gt; &lt;trans
     '{job:$job, rc:$rc, secs:$secs, errors:$errors, run:$run, last_ok:$last_ok,
       last_ok_run:(if $ok_run=="" then null else $ok_run end),
       transferred:$transferred, running:$running, confhash:$confhash}' \
-    &gt; "$f.tmp" 2&gt;/dev/null &amp;&amp; mv -f "$f.tmp" "$f"
+    > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f"
 }
 
 # --------------------------------------------------------------------- jobs --
@@ -268,7 +243,7 @@ J_MAXDELETE="$DEFAULT_MAX_DELETE"; J_BACKUPDIR=""; J_WARN_DELETE="$DEFAULT_WARN_
 J_UMASK="002"; J_HEARTBEAT="yes"; J_DESC=""; J_CUSTOM_SCRIPT=""
 JOB_NAME=""; JOB_CONF=""
 
-load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/&lt;name&gt;.conf; values never eval'd
+load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values never eval'd
   JOB_CONF="$BOOT_DIR/jobs/$JOB_NAME.conf"
   [ -f "$JOB_CONF" ] || die 78 "job '$JOB_NAME' not found ($JOB_CONF)"
   local line key val
@@ -298,7 +273,7 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/&lt;name&gt;.conf; 
       HEARTBEAT)     J_HEARTBEAT="$val" ;;
       CUSTOM_SCRIPT) J_CUSTOM_SCRIPT="$val" ;;
     esac
-  done &lt; "$JOB_CONF"
+  done < "$JOB_CONF"
   validate_job
 }
 
@@ -313,19 +288,19 @@ validate_job() {
   [[ "$J_WARN_DELETE" =~ ^[0-9]{1,9}$ ]] || die 78 "job $JOB_NAME: WARN_DELETE must be numeric"
   [[ "$J_UMASK"       =~ ^0[0-7]{3}$   ]] || die 78 "job $JOB_NAME: UMASK must be 0NNN octal"
   if [ "$J_ENGINE" != custom ]; then
-    [ -n "$J_SRC" ] &amp;&amp; [ -n "$J_DST" ] || die 78 "job $JOB_NAME: SRC and DST are required"
-    bad_field "$J_SRC" &amp;&amp; die 78 "job $JOB_NAME: SRC contains forbidden characters"
-    bad_field "$J_DST" &amp;&amp; die 78 "job $JOB_NAME: DST contains forbidden characters"
-    bad_field "$J_BWLIMIT" &amp;&amp; die 78 "job $JOB_NAME: BWLIMIT contains forbidden characters"
+    [ -n "$J_SRC" ] && [ -n "$J_DST" ] || die 78 "job $JOB_NAME: SRC and DST are required"
+    bad_field "$J_SRC" && die 78 "job $JOB_NAME: SRC contains forbidden characters"
+    bad_field "$J_DST" && die 78 "job $JOB_NAME: DST contains forbidden characters"
+    bad_field "$J_BWLIMIT" && die 78 "job $JOB_NAME: BWLIMIT contains forbidden characters"
     local a
-    for a in $J_ARGS; do bad_field "$a" &amp;&amp; die 78 "job $JOB_NAME: ARGS token '$a' contains forbidden characters"; done
+    for a in $J_ARGS; do bad_field "$a" && die 78 "job $JOB_NAME: ARGS token '$a' contains forbidden characters"; done
   fi
   case "$J_ENGINE" in
     rclone) case "$J_MODE" in sync|copy|check) ;; *) die 78 "job $JOB_NAME: MODE must be sync|copy|check" ;; esac ;;
     rsync)  [ -z "$J_MODE" ] || die 78 "job $JOB_NAME: rsync jobs have no MODE" ;;
   esac
   if [ -n "$J_BACKUPDIR" ]; then
-    bad_field "$J_BACKUPDIR" &amp;&amp; die 78 "job $JOB_NAME: BACKUPDIR contains forbidden characters"
+    bad_field "$J_BACKUPDIR" && die 78 "job $JOB_NAME: BACKUPDIR contains forbidden characters"
     case "$J_BACKUPDIR" in
       *:*) : ;;
       "$STORAGE_ROOT"/*) : ;;
@@ -338,22 +313,22 @@ validate_job() {
 is_local()  { case "$1" in *:*) return 1 ;; *) return 0 ;; esac; }
 remote_of() { case "$1" in *:*) printf '%s' "${1%%:*}" ;; *) printf '' ;; esac; }
 
-mount_guard() { # &lt;path&gt; &lt;src|dst&gt; - READ-ONLY checks; never mkdir -p. Exit 75 + alert.
+mount_guard() { # <path> <src|dst> - READ-ONLY checks; never mkdir -p. Exit 75 + alert.
   local d="$1" kind="${2:-dst}" fst src rootfst rootsrc
   if [ "$kind" = src ]; then
     [ -e "$d" ] || { alert_refuse "source '$d' does not exist - array not started / share not mounted - nothing was touched"; die 75 "mount guard: source '$d' does not exist"; }
   else
     [ -d "$d" ] || { alert_refuse "destination '$d' is not a mounted directory - array not started / share not mounted - nothing was touched (it will NOT be created)"; die 75 "mount guard: destination '$d' is not a directory"; }
   fi
-  fst="$(findmnt -no FSTYPE -T "$d" 2&gt;/dev/null)" \
+  fst="$(findmnt -no FSTYPE -T "$d" 2>/dev/null)" \
     || { alert_refuse "cannot resolve the mount of '$d' - array not started - nothing was touched"; die 75 "mount guard: findmnt failed for '$d'"; }
-  src="$(findmnt -no SOURCE -T "$d" 2&gt;/dev/null)"
+  src="$(findmnt -no SOURCE -T "$d" 2>/dev/null)"
   case "$fst" in
     tmpfs|rootfs) alert_refuse "'$d' sits on volatile RAM storage ($fst) - array not started / share not mounted - nothing was touched"; die 75 "mount guard: '$d' on $fst" ;;
   esac
-  rootfst="$(findmnt -no FSTYPE -T / 2&gt;/dev/null)"
-  rootsrc="$(findmnt -no SOURCE -T / 2&gt;/dev/null)"
-  if [ -n "$src" ] &amp;&amp; [ "$src" = "$rootsrc" ] &amp;&amp; [ "$fst" = "$rootfst" ]; then
+  rootfst="$(findmnt -no FSTYPE -T / 2>/dev/null)"
+  rootsrc="$(findmnt -no SOURCE -T / 2>/dev/null)"
+  if [ -n "$src" ] && [ "$src" = "$rootsrc" ] && [ "$fst" = "$rootfst" ]; then
     alert_refuse "'$d' resolves to the root filesystem ($src) - array not started - nothing was touched"
     die 75 "mount guard: '$d' on root overlay"
   fi
@@ -362,14 +337,14 @@ mount_guard() { # &lt;path&gt; &lt;src|dst&gt; - READ-ONLY checks; never mkdir -
 guard_rclone_available() {
   [ -x "$RCLONE_BIN" ] || { alert_refuse "the rclone wrapper '$RCLONE_BIN' is gone - reinstall the rclone plugin"; exit 127; }
   local cf
-  cf="$("$RCLONE_BIN" config file 2&gt;/dev/null | tr -d '\r' | grep -oE '/[^ ]+' | tail -1)"
+  cf="$("$RCLONE_BIN" config file 2>/dev/null | tr -d '\r' | grep -oE '/[^ ]+' | tail -1)"
   [ "$cf" = "$RCLONE_EXPECT_CONF" ] \
     || { alert_refuse "rclone config file is '$cf', expected '$RCLONE_EXPECT_CONF' - the rclone plugin config moved; refusing to guess"; exit 78; }
 }
 
 guard_remotes() {
   local remotes r
-  remotes="$("$RCLONE_BIN" listremotes 2&gt;/dev/null | tr -d ':\r')"
+  remotes="$("$RCLONE_BIN" listremotes 2>/dev/null | tr -d ':\r')"
   for r in "$(remote_of "$J_SRC")" "$(remote_of "$J_DST")"; do
     [ -n "$r" ] || continue
     valid_remote "$r" || die 78 "job $JOB_NAME: invalid remote name '$r'"
@@ -392,20 +367,20 @@ gate_check() { # refuse LIVE runs without a successful dry-run on the CURRENT co
   f="$(dryrun_file "$JOB_NAME")"
   chash="$(conf_hash "$JOB_CONF")"
   [ -f "$f" ] || block_gate "no dry-run on record. Run: $0 run $JOB_NAME --dry-run (or press [Dry run] in the UI)"
-  djok="$(jq -r '.ok // false' "$f" 2&gt;/dev/null)"
-  djhash="$(jq -r '.confhash // ""' "$f" 2&gt;/dev/null)"
-  djdel="$(jq -r '.deletes // 0' "$f" 2&gt;/dev/null)"
-  djack="$(jq -r '.ack // false' "$f" 2&gt;/dev/null)"
+  djok="$(jq -r '.ok // false' "$f" 2>/dev/null)"
+  djhash="$(jq -r '.confhash // ""' "$f" 2>/dev/null)"
+  djdel="$(jq -r '.deletes // 0' "$f" 2>/dev/null)"
+  djack="$(jq -r '.ack // false' "$f" 2>/dev/null)"
   [ "$djok" = "true" ] || block_gate "the last dry-run did not succeed - run it again"
   [ "$djhash" = "$chash" ] || block_gate "job config changed since the last dry-run - the gate re-armed; dry-run again"
-  if [ "${djdel:-0}" -gt "$J_WARN_DELETE" ] &amp;&amp; [ "$djack" != "true" ]; then
+  if [ "${djdel:-0}" -gt "$J_WARN_DELETE" ] && [ "$djack" != "true" ]; then
     block_gate "last dry-run predicts $djdel deletions (WARN_DELETE=$J_WARN_DELETE). Acknowledge: $0 ack $JOB_NAME (UI: type the job name)"
   fi
 }
 
 # -------------------------------------------------------------- command line --
 CMD=()
-build_command() { # &lt;dry yes|no&gt; - fills CMD array; nothing here is ever string-eval'd
+build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-eval'd
   local dry="$1" a
   CMD=()
   case "$J_ENGINE" in
@@ -413,8 +388,8 @@ build_command() { # &lt;dry yes|no&gt; - fills CMD array; nothing here is ever s
       CMD=("$RCLONE_BIN" "${J_MODE:-copy}" "$J_SRC" "$J_DST")
       CMD+=(--transfers "$J_TRANSFERS" --checkers "$J_CHECKERS")
       CMD+=(--max-delete "$J_MAXDELETE")
-      [ -n "$J_BACKUPDIR" ] &amp;&amp; CMD+=(--backup-dir "$J_BACKUPDIR")
-      [ -n "$J_BWLIMIT" ]   &amp;&amp; CMD+=(--bwlimit "$J_BWLIMIT")
+      [ -n "$J_BACKUPDIR" ] && CMD+=(--backup-dir "$J_BACKUPDIR")
+      [ -n "$J_BWLIMIT" ]   && CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
       if [ "$dry" = yes ]; then CMD+=(-vv --dry-run); else CMD+=(-v --stats 60s --stats-one-line); fi
       ;;
@@ -422,29 +397,29 @@ build_command() { # &lt;dry yes|no&gt; - fills CMD array; nothing here is ever s
       CMD=(rsync -aHAX --delete --ignore-missing-args)
       if [ "$dry" = yes ]; then CMD+=(-n -v --itemize-changes --info=stats2)
       else CMD+=(-v --info=stats2); fi
-      [ -n "$J_BWLIMIT" ] &amp;&amp; CMD+=(--bwlimit "$J_BWLIMIT")
+      [ -n "$J_BWLIMIT" ] && CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
       CMD+=("$J_SRC" "$J_DST")
       ;;
     custom)
       [ -n "$J_CUSTOM_SCRIPT" ] || die 78 "job $JOB_NAME: CUSTOM_SCRIPT is not set"
-      [ -f "$J_CUSTOM_SCRIPT" ] &amp;&amp; [ -x "$J_CUSTOM_SCRIPT" ] \
+      [ -f "$J_CUSTOM_SCRIPT" ] && [ -x "$J_CUSTOM_SCRIPT" ] \
         || die 78 "job $JOB_NAME: custom script '$J_CUSTOM_SCRIPT' is missing or not executable (custom engine executes a FILE, never a command string)"
       CMD=("$J_CUSTOM_SCRIPT")
-      [ -n "$J_SRC" ] &amp;&amp; CMD+=("$J_SRC")
-      [ -n "$J_DST" ] &amp;&amp; CMD+=("$J_DST")
-      [ "$dry" = yes ] &amp;&amp; CMD+=("--dry-run")
+      [ -n "$J_SRC" ] && CMD+=("$J_SRC")
+      [ -n "$J_DST" ] && CMD+=("$J_DST")
+      [ "$dry" = yes ] && CMD+=("--dry-run")
       ;;
   esac
 }
 
 find_php() {
-  [ -n "$PHP_BIN" ] &amp;&amp; return 0
+  [ -n "$PHP_BIN" ] && return 0
   PHP_BIN="$(command -v php || true)"
   if [ -z "$PHP_BIN" ]; then
     local p
     for p in /usr/bin/php /usr/local/bin/php; do
-      [ -x "$p" ] &amp;&amp; { PHP_BIN="$p"; break; }
+      [ -x "$p" ] && { PHP_BIN="$p"; break; }
     done
   fi
   [ -n "$PHP_BIN" ]
@@ -454,20 +429,20 @@ find_php() {
 ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
 CLS_EMOJI="!"; CLS_HEAD="Failed"
 
-parse_counters() { # &lt;logfile&gt;
+parse_counters() { # <logfile>
   local lf="$1" n t
   ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
-  n="$(grep -oE 'with [0-9]+ error' "$lf" 2&gt;/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)"
-  [ -n "$n" ] || n="$(grep -cE ' ERROR ' "$lf" 2&gt;/dev/null)"
+  n="$(grep -oE 'with [0-9]+ error' "$lf" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)"
+  [ -n "$n" ] || n="$(grep -cE ' ERROR ' "$lf" 2>/dev/null)"
   ERR_COUNT="${n:-0}"
-  ERR_LAST="$(grep -E ' ERROR ' "$lf" 2&gt;/dev/null | tail -3 | sed -E 's/^.*ERROR[ ]*:[ ]*//' | cut -c1-200 | paste -sd '|' -)"
-  ERR_FILES="$(grep -E ' ERROR ' "$lf" 2&gt;/dev/null | sed -E 's/^.*ERROR[ ]*:[ ]*//; s/[ :].*$//' | grep -E '/' | sort -u | head -5 | paste -sd '|' -)"
-  t="$(grep -E '^[[:space:]]*Transferred:' "$lf" 2&gt;/dev/null | tail -1 \
-       | sed -E 's/^[[:space:]]*Transferred:[[:space:]]+//' | cut -d, -f1 | cut -d'/' -f1 | xargs 2&gt;/dev/null)"
-  [ -n "$t" ] &amp;&amp; TR="$t"
+  ERR_LAST="$(grep -E ' ERROR ' "$lf" 2>/dev/null | tail -3 | sed -E 's/^.*ERROR[ ]*:[ ]*//' | cut -c1-200 | paste -sd '|' -)"
+  ERR_FILES="$(grep -E ' ERROR ' "$lf" 2>/dev/null | sed -E 's/^.*ERROR[ ]*:[ ]*//; s/[ :].*$//' | grep -E '/' | sort -u | head -5 | paste -sd '|' -)"
+  t="$(grep -E '^[[:space:]]*Transferred:' "$lf" 2>/dev/null | tail -1 \
+       | sed -E 's/^[[:space:]]*Transferred:[[:space:]]+//' | cut -d, -f1 | cut -d'/' -f1 | xargs 2>/dev/null)"
+  [ -n "$t" ] && TR="$t"
 }
 
-classify() { # &lt;rc&gt; &lt;error text&gt; - headline used by log, UI and Telegram
+classify() { # <rc> <error text> - headline used by log, UI and Telegram
   local rc="$1" e="$2"
   if printf '%s' "$e" | grep -Eqi 'invalid_grant|AADSTS|refresh token|status code 401|401 Unauthorized'; then
     CLS_EMOJI="LOCK";  CLS_HEAD="re-login needed for the remote - open the rclone plugin page and re-authenticate"
@@ -493,48 +468,48 @@ classify() { # &lt;rc&gt; &lt;error text&gt; - headline used by log, UI and Tele
   fi
 }
 
-render_preview() { # &lt;logfile&gt; &lt;engine&gt; &lt;rc&gt; &lt;empty-dest yes|no&gt;
+render_preview() { # <logfile> <engine> <rc> <empty-dest yes|no>
   local lf="$1" eng="$2" rc="$3" ed="$4" out df
   if ! find_php; then say "(php CLI unavailable - structured preview disabled; raw log: $lf)"; return 0; fi
   df="$(dryrun_file "$JOB_NAME")"
-  out="$("$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode json --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null)"
+  out="$("$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode json --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null)"
   if [ -z "$out" ]; then say "(preview renderer produced nothing - raw log kept: $lf)"; return 0; fi
   printf '%s\n' "$out" \
     | jq --arg job "$JOB_NAME" --arg stamp "$(stamp_now)" --arg chash "$(conf_hash "$JOB_CONF")" \
          --argjson warn "$J_WARN_DELETE" --arg log "$lf" \
          '. + {job:$job, stamp:$stamp, confhash:$chash, warnDelete:$warn, ack:false, log:$log}' \
-    &gt; "$df.tmp" 2&gt;/dev/null &amp;&amp; mv -f "$df.tmp" "$df"
+    > "$df.tmp" 2>/dev/null && mv -f "$df.tmp" "$df"
   { printf -- '\n---- dry-run report ----\n'
-    "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null
-  } &gt;&gt; "$lf"
-  "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2&gt;/dev/null
+    "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null
+  } >> "$lf"
+  "$PHP_BIN" "$EMHTTP_DIR/preview.php" --mode text --engine "$eng" --rc "$rc" --empty-dest "$ed" "$lf" 2>/dev/null
   return 0
 }
 
 # -------------------------------------------------------------- subcommands --
-cmd_run() { # &lt;job&gt; [--dry-run]
+cmd_run() { # <job> [--dry-run]
   JOB_NAME="${1:-}"
   local want_dry=no
-  [ "${2:-}" = "--dry-run" ] &amp;&amp; want_dry=yes
+  [ "${2:-}" = "--dry-run" ] && want_dry=yes
   valid_jobname "$JOB_NAME" || die 78 "invalid job name '$JOB_NAME' (allowed: letters, digits, underscore, hyphen; max 40)"
   load_paths
   storage_guard
   load_notify
   load_job
   local dry=no master_forced=no
-  [ "$want_dry" = yes ] &amp;&amp; dry=yes
-  [ "$J_DRYRUN" = yes ] &amp;&amp; dry=yes
-  if [ "$DRY_RUN_MASTER" = yes ] &amp;&amp; [ "$dry" = no ]; then dry=yes; master_forced=yes; fi
+  [ "$want_dry" = yes ] && dry=yes
+  [ "$J_DRYRUN" = yes ] && dry=yes
+  if [ "$DRY_RUN_MASTER" = yes ] && [ "$dry" = no ]; then dry=yes; master_forced=yes; fi
   if [ "$J_ENGINE" = rclone ]; then guard_rclone_available; guard_remotes; fi
-  if [ -n "$J_SRC" ]; then is_local "$J_SRC" &amp;&amp; mount_guard "$J_SRC" src; fi
-  if [ -n "$J_DST" ]; then is_local "$J_DST" &amp;&amp; mount_guard "$J_DST" dst; fi
-  [ "$dry" = no ] &amp;&amp; gate_check
+  if [ -n "$J_SRC" ]; then is_local "$J_SRC" && mount_guard "$J_SRC" src; fi
+  if [ -n "$J_DST" ]; then is_local "$J_DST" && mount_guard "$J_DST" dst; fi
+  [ "$dry" = no ] && gate_check
   if [ "$master_forced" = yes ]; then
-    say "rclone-jobs: DRY_RUN_MASTER=yes -&gt; forcing --dry-run (global master switch is ON)"
+    say "rclone-jobs: DRY_RUN_MASTER=yes -> forcing --dry-run (global master switch is ON)"
     syslog_line "MASTER-DRY job=$JOB_NAME real run downgraded to dry-run"
   fi
   local lock="$LOCKDIR/$NAME-$JOB_NAME.lock"
-  exec 200&gt;"$lock" || die 78 "cannot open lock file $lock"
+  exec 200>"$lock" || die 78 "cannot open lock file $lock"
   if ! flock -n 200; then
     say "rclone-jobs: $JOB_NAME is already running - overlap blocked, nothing was started"
     syslog_line "OVERLAP job=$JOB_NAME skipped (previous run still active)"
@@ -551,18 +526,18 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   if [ "$dry" = yes ]; then logfile="$LOG_DIR/$JOB_NAME-DRYRUN-$ts.log"; else logfile="$LOG_DIR/$JOB_NAME-$ts.log"; fi
   {
     printf 'rclone-jobs %s | job: %s | mode: %s | engine: %s | %s\n' \
-      "$ENGINE_VERSION" "$JOB_NAME" "$([ "$dry" = yes ] &amp;&amp; echo DRY-RUN || echo LIVE)" "$J_ENGINE" "$(stamp_now)"
+      "$ENGINE_VERSION" "$JOB_NAME" "$([ "$dry" = yes ] && echo DRY-RUN || echo LIVE)" "$J_ENGINE" "$(stamp_now)"
     printf 'command: %s\n' "${CMD[*]}" | redact
     printf 'config: %s | rclone config: %s\n' "$JOB_CONF" "$RCLONE_EXPECT_CONF"
     printf -- '----\n'
-  } &gt;&gt; "$logfile"
-  say "rclone-jobs: $JOB_NAME starting ($([ "$dry" = yes ] &amp;&amp; echo dry-run || echo live)) log=$logfile"
+  } >> "$logfile"
+  say "rclone-jobs: $JOB_NAME starting ($([ "$dry" = yes ] && echo dry-run || echo live)) log=$logfile"
   t0="$(unix_now)"
   if [ -t 1 ]; then
-    ( umask "$J_UMASK"; "${CMD[@]}" ) 2&gt;&amp;1 | tee -a "$logfile"
+    ( umask "$J_UMASK"; "${CMD[@]}" ) 2>&1 | tee -a "$logfile"
     rc="${PIPESTATUS[0]}"
   else
-    ( umask "$J_UMASK"; "${CMD[@]}" ) &gt;&gt; "$logfile" 2&gt;&amp;1
+    ( umask "$J_UMASK"; "${CMD[@]}" ) >> "$logfile" 2>&1
     rc=$?
   fi
   t1="$(unix_now)"
@@ -571,21 +546,21 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   classify "$rc" "$ERR_LAST"
   if [ "$dry" = yes ]; then
     local ed=no
-    if is_local "$J_DST" &amp;&amp; [ -d "$J_DST" ]; then
-      [ -z "$(ls -A "$J_DST" 2&gt;/dev/null | head -1)" ] &amp;&amp; ed=yes
+    if is_local "$J_DST" && [ -d "$J_DST" ]; then
+      [ -z "$(ls -A "$J_DST" 2>/dev/null | head -1)" ] && ed=yes
     fi
     render_preview "$logfile" "$J_ENGINE" "$rc" "$ed"
     local prc=0 perr=0 ptr=""
     if [ -s "$sj" ]; then
-      prc="$(jq -r '.rc // 0' "$sj" 2&gt;/dev/null)"
-      perr="$(jq -r '.errors // 0' "$sj" 2&gt;/dev/null)"
-      ptr="$(jq -r '.transferred // ""' "$sj" 2&gt;/dev/null)"
+      prc="$(jq -r '.rc // 0' "$sj" 2>/dev/null)"
+      perr="$(jq -r '.errors // 0' "$sj" 2>/dev/null)"
+      ptr="$(jq -r '.transferred // ""' "$sj" 2>/dev/null)"
     fi
     status_finish "$JOB_NAME" "${prc:-0}" 0 "${perr:-0}" "$ptr" false "$chash"
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
-      if [ "$J_HEARTBEAT" = yes ] &amp;&amp; ! quiet_now; then
+      if [ "$J_HEARTBEAT" = yes ] && ! quiet_now; then
         tg_send "OK rclone-jobs: $JOB_NAME finished in ${secs}s - ${TR} transferred" || true
         notify_unraid normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred"
       fi
@@ -600,7 +575,7 @@ log: $logfile" || true
     fi
   fi
   say "rclone-jobs: $JOB_NAME finished rc=$rc (${secs}s) - $CLS_HEAD"
-  [ "$rc" -eq 24 ] &amp;&amp; rc=0
+  [ "$rc" -eq 24 ] && rc=0
   exit "$rc"
 }
 
@@ -611,7 +586,7 @@ cmd_ack() { # acknowledge a deletion-heavy dry-run (UI confirms by typing the jo
   storage_guard
   local f; f="$(dryrun_file "$JOB_NAME")"
   [ -f "$f" ] || die 78 "no dry-run on record for $JOB_NAME - run a dry-run first"
-  jq '. + {ack:true}' "$f" &gt; "$f.tmp" 2&gt;/dev/null &amp;&amp; mv -f "$f.tmp" "$f" \
+  jq '. + {ack:true}' "$f" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f" \
     || die 78 "could not update $f"
   say "acknowledged the deletion preview for $JOB_NAME (stays valid until the next dry-run re-arms it)"
 }
@@ -640,13 +615,13 @@ cmd_status() {
     sj="$(status_file "$n")"; dj="$(dryrun_file "$n")"
     rc='-'; secs='-'; run='-'; lastok='never'; dry='-'
     if [ -f "$sj" ]; then
-      rc="$(jq -r 'if .running then "RUN" else (.rc // "-") | tostring end' "$sj" 2&gt;/dev/null)"
-      secs="$(jq -r '.secs // "-"' "$sj" 2&gt;/dev/null)"
-      run="$(jq -r '.run // "-"' "$sj" 2&gt;/dev/null)"
-      lastok="$(jq -r '.last_ok_run // "never"' "$sj" 2&gt;/dev/null)"
+      rc="$(jq -r 'if .running then "RUN" else (.rc // "-") | tostring end' "$sj" 2>/dev/null)"
+      secs="$(jq -r '.secs // "-"' "$sj" 2>/dev/null)"
+      run="$(jq -r '.run // "-"' "$sj" 2>/dev/null)"
+      lastok="$(jq -r '.last_ok_run // "never"' "$sj" 2>/dev/null)"
     fi
     if [ -f "$dj" ]; then
-      dry="$(jq -r '"\(.stamp) +\(.copies) -\(.deletes) fail:\(.fails)"' "$dj" 2&gt;/dev/null)"
+      dry="$(jq -r '"\(.stamp) +\(.copies) -\(.deletes) fail:\(.fails)"' "$dj" 2>/dev/null)"
     fi
     printf '%-20s %-4s %-4s %-6s %-17s %-17s %s\n' "$n" "$en" "${rc:-?}" "${secs:-?}" "${run:-?}" "${lastok:-never}" "${dry:--}"
   done
@@ -665,24 +640,24 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
     sj="$(status_file "$n")"
     [ -f "$sj" ] || continue
     dedup="$STATUS_DIR/.wd-$n"
-    running="$(jq -r '.running // false' "$sj" 2&gt;/dev/null)"
+    running="$(jq -r '.running // false' "$sj" 2>/dev/null)"
     if [ "$running" = "true" ]; then
       lk="$LOCKDIR/$NAME-$n.lock"
-      if [ -f "$lk" ] &amp;&amp; ! flock -n "$lk" true 2&gt;/dev/null; then
-        if [ $(( now - $(stat -c %Y "$sj" 2&gt;/dev/null || echo "$now") )) -gt 21600 ]; then
-          if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
+      if [ -f "$lk" ] && ! flock -n "$lk" true 2>/dev/null; then
+        if [ $(( now - $(stat -c %Y "$sj" 2>/dev/null || echo "$now") )) -gt 21600 ]; then
+          if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
             touch "$dedup"
-            syslog_line "WATCHDOG: $n looks stuck (running &gt;6h with lock held)"
+            syslog_line "WATCHDOG: $n looks stuck (running >6h with lock held)"
             notify_unraid alert "rclone-jobs: $n looks stuck" "running for over 6 hours with the lock held"
-            tg_send "STUCK rclone-jobs: $n running &gt;6h (lock held)" || true
+            tg_send "STUCK rclone-jobs: $n running >6h (lock held)" || true
           fi
         fi
       fi
       continue
     fi
-    last_ok="$(jq -r '.last_ok // 0' "$sj" 2&gt;/dev/null)"
-    if [ "${last_ok:-0}" -gt 0 ] &amp;&amp; [ $(( now - last_ok )) -gt 93600 ]; then
-      if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
+    last_ok="$(jq -r '.last_ok // 0' "$sj" 2>/dev/null)"
+    if [ "${last_ok:-0}" -gt 0 ] && [ $(( now - last_ok )) -gt 93600 ]; then
+      if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
         touch "$dedup"
         syslog_line "WATCHDOG: $n has no successful run in over 26h"
         notify_unraid warning "rclone-jobs: $n stale" "no successful run in over 26 hours"
@@ -690,64 +665,64 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
       fi
     fi
   done
-  find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +14 -delete 2&gt;/dev/null
+  find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +14 -delete 2>/dev/null
   return 0
 }
 
 DOCTOR_FAILS=0
 DOCTOR_BUF=""
-d_line() { # &lt;PASS|WARN|FAIL|INFO&gt; &lt;text&gt;
+d_line() { # <PASS|WARN|FAIL|INFO> <text>
   printf '%-4s %s\n' "$1" "$2"
-  printf '%-4s %s\n' "$1" "$2" &gt;&gt; "$DOCTOR_BUF"
-  [ "$1" = FAIL ] &amp;&amp; DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 ))
+  printf '%-4s %s\n' "$1" "$2" >> "$DOCTOR_BUF"
+  [ "$1" = FAIL ] && DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 ))
   return 0
 }
 
 cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
   local opt_tg=no a pv ro rv cf b missing rp perm regen drift drc probe_rc now sj lo jn save
-  for a in "$@"; do [ "$a" = "--telegram" ] &amp;&amp; opt_tg=yes; done
+  for a in "$@"; do [ "$a" = "--telegram" ] && opt_tg=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
   say ""
-  pv="$(sed -nE 's/.*&lt;!ENTITY[[:space:]]+version[[:space:]]+"([^"]+)".*/\1/p' "/boot/config/plugins/$NAME.plg" 2&gt;/dev/null | head -1)"
+  pv="$(sed -nE 's/.*<!ENTITY[[:space:]]+version[[:space:]]+"([^"]+)".*/\1/p' "/boot/config/plugins/$NAME.plg" 2>/dev/null | head -1)"
   if [ -n "$pv" ]; then
     if [ "$pv" = "$ENGINE_VERSION" ]; then d_line PASS "plugin package version matches engine ($pv)"
     else d_line WARN "plg version '$pv' differs from engine '$ENGINE_VERSION' (reinstall the plugin)" ; fi
   else d_line WARN "cannot read plugin version from /boot/config/plugins/$NAME.plg (plugin not installed?)"; fi
   if [ -x "$RCLONE_BIN" ]; then d_line PASS "rclone wrapper: $RCLONE_BIN"
   else d_line FAIL "rclone wrapper $RCLONE_BIN missing - reinstall the rclone plugin"; fi
-  ro="$(command -v rcloneorig 2&gt;/dev/null)"
+  ro="$(command -v rcloneorig 2>/dev/null)"
   if [ -n "$ro" ]; then d_line PASS "rcloneorig: $ro"; else d_line FAIL "rcloneorig not found on PATH - rclone binary missing/broken"; fi
   if [ -x "$RCLONE_BIN" ]; then
-    rv="$("$RCLONE_BIN" version 2&gt;/dev/null | head -1)"
+    rv="$("$RCLONE_BIN" version 2>/dev/null | head -1)"
     if [ -n "$rv" ]; then d_line PASS "rclone version: $rv"; else d_line FAIL "rclone wrapper produced no version output"; fi
-    cf="$("$RCLONE_BIN" config file 2&gt;/dev/null | tr -d '\r' | grep -oE '/[^ ]+' | tail -1)"
+    cf="$("$RCLONE_BIN" config file 2>/dev/null | tr -d '\r' | grep -oE '/[^ ]+' | tail -1)"
     if [ "$cf" = "$RCLONE_EXPECT_CONF" ]; then d_line PASS "rclone config path: $cf"
     else d_line FAIL "rclone config path is '$cf', expected '$RCLONE_EXPECT_CONF'"; fi
-    d_line INFO "remotes configured: $("$RCLONE_BIN" listremotes 2&gt;/dev/null | grep -c ':')"
+    d_line INFO "remotes configured: $("$RCLONE_BIN" listremotes 2>/dev/null | grep -c ':')"
   fi
   load_paths
   if [ -z "$STORAGE_ROOT" ]; then
     d_line FAIL "STORAGE_ROOT unset and no array disk (/mnt/diskN on /dev/md*) detected"
   else
-    rp="$(realpath -m -- "$STORAGE_ROOT" 2&gt;/dev/null)"
+    rp="$(realpath -m -- "$STORAGE_ROOT" 2>/dev/null)"
     if policy_ok "$STORAGE_ROOT"; then d_line PASS "STORAGE_ROOT policy: $rp"
     else d_line FAIL "STORAGE_ROOT '$STORAGE_ROOT' violates the share policy (outside /mnt/user, /etc, /usr, /var/log, /)"; fi
     if [ -d "$STORAGE_ROOT" ]; then
-      if touch "$STORAGE_ROOT/.rjprobe" 2&gt;/dev/null; then rm -f "$STORAGE_ROOT/.rjprobe"; d_line PASS "STORAGE_ROOT writable"
+      if touch "$STORAGE_ROOT/.rjprobe" 2>/dev/null; then rm -f "$STORAGE_ROOT/.rjprobe"; d_line PASS "STORAGE_ROOT writable"
       else d_line FAIL "STORAGE_ROOT not writable: $STORAGE_ROOT"; fi
-      d_line INFO "free space: $(df -h "$STORAGE_ROOT" 2&gt;/dev/null | awk 'NR==2{print $4" free ("$5" used) on "$1"}')"
-      d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2&gt;/dev/null)"
+      d_line INFO "free space: $(df -h "$STORAGE_ROOT" 2>/dev/null | awk 'NR==2{print $4" free ("$5" used) on "$1"}')"
+      d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2>/dev/null)"
     else d_line WARN "STORAGE_ROOT does not exist yet (array stopped, or first run pending): $STORAGE_ROOT"; fi
     if [ -f "$STORAGE_ROOT/notify.env" ]; then
-      perm="$(stat -c %a "$STORAGE_ROOT/notify.env" 2&gt;/dev/null)"
+      perm="$(stat -c %a "$STORAGE_ROOT/notify.env" 2>/dev/null)"
       if [ "$perm" = "600" ]; then d_line PASS "notify.env present with mode 600 (values never shown)"
       else d_line WARN "notify.env mode is $perm - should be 600: chmod 600 '$STORAGE_ROOT/notify.env'"; fi
     else d_line WARN "notify.env not configured - Telegram alerts disabled until set on the Alerts tab"; fi
   fi
   missing=""
   for b in jq flock rsync curl logger pgrep findmnt fuser sha256sum; do
-    command -v "$b" &gt;/dev/null 2&gt;&amp;1 || missing="$missing $b"
+    command -v "$b" >/dev/null 2>&1 || missing="$missing $b"
   done
   if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync curl logger pgrep findmnt fuser sha256sum)"
   else d_line FAIL "missing binaries:$missing"; fi
@@ -759,13 +734,13 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
     else d_line WARN "cron marker line missing - file may be hand-edited or foreign"; fi
     regen="$EMHTTP_DIR/scripts/regen-cron.sh"
     if [ -x "$regen" ]; then
-      drc=0; drift="$("$regen" --check 2&gt;&amp;1)" || drc=$?
+      drc=0; drift="$("$regen" --check 2>&1)" || drc=$?
       if [ "$drc" -eq 0 ]; then d_line PASS "cron file in sync with jobs/ (regen --check)"
       else d_line WARN "cron drift: $(printf '%s' "$drift" | tr '\n' ' ' | cut -c1-200)"; fi
     else d_line WARN "regen-cron.sh not deployed - cannot verify cron drift"; fi
   else d_line WARN "cron file not installed yet (created at install / array_started)"; fi
   probe_rc=0
-  env -i PATH=/usr/bin:/bin "$RCLONE_BIN" version &gt;/dev/null 2&gt;&amp;1 || probe_rc=$?
+  env -i PATH=/usr/bin:/bin "$RCLONE_BIN" version >/dev/null 2>&1 || probe_rc=$?
   if [ "$probe_rc" -eq 0 ]; then
     d_line INFO "minimal-PATH probe: rclone works even under cron's PATH (no compensation needed)"
   else
@@ -777,9 +752,9 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       [ -e "$sj" ] || continue
       lo="$(basename "$sj" .conf)"
       if ! valid_jobname "$lo"; then d_line FAIL "invalid job filename: $sj"; continue; fi
-      ( JOB_NAME="$lo"; load_job &gt;/dev/null 2&gt;&amp;1 ) || d_line FAIL "job $lo: config invalid (check $sj)"
+      ( JOB_NAME="$lo"; load_job >/dev/null 2>&1 ) || d_line FAIL "job $lo: config invalid (check $sj)"
     done
-    if [ -n "$STORAGE_ROOT" ] &amp;&amp; [ -d "$STORAGE_ROOT/status" ]; then
+    if [ -n "$STORAGE_ROOT" ] && [ -d "$STORAGE_ROOT/status" ]; then
       STATUS_DIR="$STORAGE_ROOT/status"
       for sj in "$BOOT_DIR/jobs"/*.conf; do
         [ -e "$sj" ] || continue
@@ -787,9 +762,9 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
         valid_jobname "$jn" || continue
         sj="$(status_file "$jn")"
         if [ -f "$sj" ]; then
-          d_line INFO "status $jn: $(jq -c '{rc,secs,run,last_ok_run,running}' "$sj" 2&gt;/dev/null | cut -c1-260)"
-          lo="$(jq -r '.last_ok // 0' "$sj" 2&gt;/dev/null)"
-          if { [ "${lo:-0}" -eq 0 ] || [ $(( now - lo )) -gt 93600 ]; } &amp;&amp; [ "$(jq -r '.running // false' "$sj" 2&gt;/dev/null)" != "true" ]; then
+          d_line INFO "status $jn: $(jq -c '{rc,secs,run,last_ok_run,running}' "$sj" 2>/dev/null | cut -c1-260)"
+          lo="$(jq -r '.last_ok // 0' "$sj" 2>/dev/null)"
+          if { [ "${lo:-0}" -eq 0 ] || [ $(( now - lo )) -gt 93600 ]; } && [ "$(jq -r '.running // false' "$sj" 2>/dev/null)" != "true" ]; then
             d_line WARN "job $jn has no successful run in over 26h"
           fi
         else d_line INFO "status $jn: never run"; fi
@@ -798,21 +773,21 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
   else d_line WARN "no jobs directory yet: $BOOT_DIR/jobs"; fi
   if [ "$opt_tg" = yes ]; then
     load_notify
-    if [ "${TG_ENABLED:-no}" = "yes" ] &amp;&amp; [ -n "$TG_TOKEN" ] &amp;&amp; [ -n "$TG_CHAT_ID" ]; then
-      [ -z "$LOG_DIR" ] &amp;&amp; [ -n "$STORAGE_ROOT" ] &amp;&amp; { LOG_DIR="$STORAGE_ROOT/logs"; mkdir -p "$LOG_DIR" 2&gt;/dev/null; }
+    if [ "${TG_ENABLED:-no}" = "yes" ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
+      [ -z "$LOG_DIR" ] && [ -n "$STORAGE_ROOT" ] && { LOG_DIR="$STORAGE_ROOT/logs"; mkdir -p "$LOG_DIR" 2>/dev/null; }
       if tg_send "rclone-jobs doctor: Telegram connectivity test $(stamp_now)"; then d_line PASS "telegram sendMessage accepted"
       else d_line FAIL "telegram sendMessage failed - see logs/send-error.log (values are never logged)"; fi
     else d_line WARN "telegram test skipped - not configured/enabled"; fi
   else d_line INFO "telegram connectivity test skipped (opt-in: doctor --telegram)"; fi
   say ""
-  if [ -n "$STORAGE_ROOT" ] &amp;&amp; [ -d "$STORAGE_ROOT/logs" ]; then
+  if [ -n "$STORAGE_ROOT" ] && [ -d "$STORAGE_ROOT/logs" ]; then
     local save="$STORAGE_ROOT/logs/doctor-$(date +%Y%m%d-%H%M%S).txt"
-    { printf 'rclone-jobs doctor v%s %s\n' "$ENGINE_VERSION" "$(stamp_now)"; cat "$DOCTOR_BUF"; } &gt; "$save" 2&gt;/dev/null \
-      &amp;&amp; say "(report saved: $save)"
+    { printf 'rclone-jobs doctor v%s %s\n' "$ENGINE_VERSION" "$(stamp_now)"; cat "$DOCTOR_BUF"; } > "$save" 2>/dev/null \
+      && say "(report saved: $save)"
   fi
   echo '```'
   printf 'rclone-jobs doctor v%s on %s (%s) kernel %s unraid %s\n' \
-    "$ENGINE_VERSION" "$(hostname 2&gt;/dev/null)" "$(stamp_now)" "$(uname -r 2&gt;/dev/null)" "$(cat /etc/unraid-version 2&gt;/dev/null)"
+    "$ENGINE_VERSION" "$(hostname 2>/dev/null)" "$(stamp_now)" "$(uname -r 2>/dev/null)" "$(cat /etc/unraid-version 2>/dev/null)"
   cat "$DOCTOR_BUF"
   echo '```'
   rm -f "$DOCTOR_BUF"
@@ -821,12 +796,12 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
 }
 
 usage() {
-  cat &lt;&lt;EOF
+  cat <<EOF
 rclone-jobs v$ENGINE_VERSION - scheduled transfers with a dry-run gate (Unraid)
 usage:
-  rclone-jobs.sh run &lt;job&gt; [--dry-run]   run a job (dry-run honors per-job + master switch)
-  rclone-jobs.sh preview &lt;job&gt;           alias of: run &lt;job&gt; --dry-run
-  rclone-jobs.sh ack &lt;job&gt;               acknowledge a deletion-heavy dry-run
+  rclone-jobs.sh run <job> [--dry-run]   run a job (dry-run honors per-job + master switch)
+  rclone-jobs.sh preview <job>           alias of: run <job> --dry-run
+  rclone-jobs.sh ack <job>               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
@@ -836,11 +811,11 @@ EOF
 
 main() {
   local sub="${1:-}"
-  [ $# -gt 0 ] &amp;&amp; shift
+  [ $# -gt 0 ] && shift
   case "$sub" in
-    run)      [ $# -ge 1 ] || die 78 "usage: $0 run &lt;job&gt; [--dry-run]"; cmd_run "$@" ;;
-    preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview &lt;job&gt;"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run ;;
-    ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack &lt;job&gt;"; cmd_ack "$1" ;;
+    run)      [ $# -ge 1 ] || die 78 "usage: $0 run <job> [--dry-run]"; cmd_run "$@" ;;
+    preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview <job>"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run ;;
+    ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack <job>"; cmd_ack "$1" ;;
     status)   cmd_status ;;
     list)     cmd_list ;;
     watchdog) cmd_watchdog ;;
@@ -850,169 +825,3 @@ main() {
 }
 
 main "$@"
-</INLINE>
-  </FILE>
-
-  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
-<INLINE>
-&lt;?php
-/*
- * rclone-jobs preview renderer - turns rclone/rsync dry-run logs into a
- * structured report (JSON for status/&lt;job&gt;-dryrun.json, text for humans).
- * Used by the engine via PHP CLI and by the WebUI via include.
- *
- * License: GPL-2.0-or-later. PHP 8.x clean.
- * CLI: preview.php --mode json|text [--engine rclone|rsync] [--rc N]
- *                   [--empty-dest yes|no] &lt;logfile&gt;
- */
-
-function rj_preview_parse(string $file, string $engine): array
-{
-    $r = ['copies' =&gt; 0, 'news' =&gt; 0, 'updates' =&gt; 0, 'skips' =&gt; 0, 'deletes' =&gt; 0,
-          'fails' =&gt; 0, 'other' =&gt; 0, 'bytes' =&gt; '', 'delete_samples' =&gt; [],
-          'fail_samples' =&gt; [], 'emptyDest' =&gt; false, 'fatal' =&gt; '', 'ok' =&gt; false];
-    if (!is_readable($file)) {
-        $r['fatal'] = 'dry-run log not readable';
-        return $r;
-    }
-    $fp = fopen($file, 'r');
-    if ($fp === false) {
-        $r['fatal'] = 'dry-run log could not be opened';
-        return $r;
-    }
-    $transRe = '/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]i?B)/i';
-    while (($line = fgets($fp)) !== false) {
-        $line = rtrim($line, "\r\n");
-        if ($engine === 'rsync') {
-            if (preg_match('/^(deleting |\*deleting\b)/', $line)) {
-                $r['deletes']++;
-                if (count($r['delete_samples']) &lt; 25) { $r['delete_samples'][] = substr(trim(substr($line, strlen('deleting '))), 0, 300); }
-            } elseif (preg_match('/^[&lt;&gt;.chLpgoatD*+.][f.dD][c^+][sA-Za-z.][i.][x+.][pP][oO][gG][tTuU]/', $line)) {
-                if (str_starts_with($line, '&lt;f+++++++++')) { $r['copies']++; $r['news']++; }
-                elseif ($line[0] === '&lt;')                 { $r['copies']++; $r['updates']++; }
-                elseif ($line[0] === '.')                 { $r['skips']++; }
-                else                                      { $r['other']++; }
-            } elseif (preg_match('/ERROR/i', $line)) {
-                $r['fails']++;
-                if (count($r['fail_samples']) &lt; 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-            } elseif (preg_match($transRe, $line, $m)) {
-                $r['bytes'] = trim($m[1]);
-            }
-            continue;
-        }
-        // rclone (-vv --dry-run)
-        if (preg_match('/ ERROR /', $line)) {
-            $r['fails']++;
-            if (count($r['fail_samples']) &lt; 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-        } elseif (preg_match('/Can\'t copy/i', $line)) {
-            $r['fails']++;
-            if (count($r['fail_samples']) &lt; 10) { $r['fail_samples'][] = substr($line, 0, 300); }
-        } elseif (preg_match('/\bDeleted\b/', $line)) {
-            $r['deletes']++;
-            if (count($r['delete_samples']) &lt; 25) {
-                $p = preg_replace('/^.*? - /', '', $line);
-                $r['delete_samples'][] = substr(trim($p), 0, 300);
-            }
-        } elseif (preg_match('/\bCopied\b/', $line)) {
-            $r['copies']++;
-            if (stripos($line, '(new)') !== false) { $r['news']++; } else { $r['updates']++; }
-        } elseif (preg_match('/\bSkipped\b/i', $line)) {
-            $r['skips']++;
-        } elseif (preg_match($transRe, $line, $m)) {
-            $r['bytes'] = trim($m[1]);
-        } elseif ($line !== '') {
-            $r['other']++;
-        }
-    }
-    fclose($fp);
-    if ($engine === 'rclone' &amp;&amp; $r['copies'] &gt; 0 &amp;&amp; $r['news'] === $r['copies'] &amp;&amp; $r['updates'] === 0) {
-        $r['emptyDest'] = true;
-    }
-    return $r;
-}
-
-function rj_preview_text(array $r, int $rc, bool $emptyDestArg, int $warnDelete): string
-{
-    $out = [];
-    $out[] = 'DRY RUN - nothing was changed';
-    $out[] = 'will copy     : ' . $r['copies'] . ($r['bytes'] !== '' ? '  (' . $r['bytes'] . ')' : '');
-    $out[] = '  of which new: ' . $r['news'] . ', updates: ' . $r['updates'];
-    $out[] = 'will skip     : ' . $r['skips'];
-    $out[] = 'will DELETE   : ' . $r['deletes'];
-    $out[] = 'will fail     : ' . $r['fails'] . '  (fix these before the real run)';
-    $out[] = 'unparsed lines: ' . $r['other'];
-    if ($r['deletes'] &gt; 0) {
-        $out[] = '';
-        $out[] = '--- deletions (max 25) ---';
-        foreach ($r['delete_samples'] as $s) { $out[] = '  DELETE  ' . $s; }
-    }
-    if ($r['fails'] &gt; 0) {
-        $out[] = '';
-        $out[] = '--- will-fail samples ---';
-        foreach ($r['fail_samples'] as $s) { $out[] = '  FAIL  ' . $s; }
-    }
-    if ($r['emptyDest'] || $emptyDestArg) {
-        $out[] = '';
-        $out[] = '*** WARNING: destination looks EMPTY or new - a live sync would now mirror the source onto it.';
-        $out[] = '*** If the source is wrong or partially missing, this is exactly how destinations get wiped.';
-        $out[] = '*** Check SRC and DST before ever running live.';
-    }
-    if ($warnDelete &gt; 0 &amp;&amp; $r['deletes'] &gt; $warnDelete) {
-        $out[] = '';
-        $out[] = '*** RED BLOCK: this run would DELETE ' . $r['deletes'] . ' files (threshold WARN_DELETE=' . $warnDelete . ').';
-        $out[] = '*** The live [Run] button stays blocked until you acknowledge this number.';
-    }
-    if ($rc !== 0) {
-        $out[] = '';
-        $out[] = '*** Dry-run exited with code ' . $rc . ' - treat the source/destination state as UNRELIABLE.';
-    }
-    return implode("\n", $out) . "\n";
-}
-
-if (PHP_SAPI === 'cli') {
-    $mode = 'json'; $engine = 'rclone'; $rc = 0; $ed = false; $file = '';
-    $argv0 = array_shift($argv);
-    while (count($argv) &gt; 0) {
-        $a = array_shift($argv);
-        if ($a === '--mode')        { $mode = (string)array_shift($argv); }
-        elseif ($a === '--engine')  { $engine = (string)array_shift($argv); }
-        elseif ($a === '--rc')      { $rc = (int)array_shift($argv); }
-        elseif ($a === '--empty-dest') { $ed = ((string)array_shift($argv)) === 'yes'; }
-        else                        { $file = $a; }
-    }
-    if ($file === '' || !is_readable($file)) { fwrite(STDERR, "preview.php: unreadable log file\n"); exit(2); }
-    $r = rj_preview_parse($file, $engine);
-    $r['ok'] = ($rc === 0 &amp;&amp; $r['fails'] === 0 &amp;&amp; $r['fatal'] === '');
-    $r['rc'] = $rc;
-    $r['engine'] = $engine;
-    if ($ed) { $r['emptyDest'] = true; }
-    if ($mode === 'text') {
-        echo rj_preview_text($r, $rc, $ed, 0);
-    } else {
-        echo json_encode($r, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";
-    }
-    exit(0);
-}
-</INLINE>
-  </FILE>
-  <!-- PRE-BOOT / INSTALL SCRIPT (runs at plugin install and again at every boot; array may be down). -->
-  <FILE Run="/bin/bash" Method="install">
-    <INLINE>
-# Phase 3 replaces this stub with the real boot-safe install routine:
-# - mkdir &bootDir;/jobs, create default paths.env when missing (never overwrite)
-# - deploy engine to &pluginDir;/engine + $STORAGE_ROOT when array is up
-# - regenerate /etc/cron.d/rclone-jobs when array is up
-mkdir -p "&bootDir;/jobs"
-logger -t rclone-jobs "plugin &version; installed (stub lifecycle - replaced in Phase 3)"
-    </INLINE>
-  </FILE>
-  <!-- REMOVE SCRIPT (keeps /boot config + $STORAGE_ROOT data by design). -->
-  <FILE Run="/bin/bash" Method="remove">
-    <INLINE>
-# Phase 3 replaces this stub: kill running jobs, remove cron + code, keep data.
-rm -f /etc/cron.d/&name;
-rm -rf &pluginDir;
-logger -t rclone-jobs "plugin &name; removed (code + cron gone; /boot config and storage data kept)"
-    </INLINE>
-  </FILE>
-</PLUGIN>
