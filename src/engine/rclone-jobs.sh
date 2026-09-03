@@ -203,7 +203,7 @@ notify_unraid() { # <normal|warning|alert> <subject> <desc>
 alert_refuse() { # <message> - loud everywhere; used for pre-transfer refusals
   syslog_line "REFUSED: $*"
   notify_unraid alert "rclone-jobs: refused to run $JOB_NAME" "$*"
-  tg_send "🛑 rclone-jobs REFUSED: $JOB_NAME
+  tg_send "STOP rclone-jobs REFUSED: $JOB_NAME
 $*
 Nothing was transferred or deleted." || true
 }
@@ -361,7 +361,7 @@ block_gate() {
   say "rclone-jobs: GATE BLOCKED for $JOB_NAME: $*"
   syslog_line "GATE-BLOCKED job=$JOB_NAME: $*"
   notify_unraid warning "rclone-jobs gate: $JOB_NAME" "$*"
-  tg_send "⛔ rclone-jobs GATE BLOCKED: $JOB_NAME - $*" || true
+  tg_send "STOP rclone-jobs GATE BLOCKED: $JOB_NAME - $*" || true
   exit 77
 }
 
