@@ -5,7 +5,12 @@
 # files. Nothing outside rclone-jobs territory is touched.
 set -u
 NAME="rclone-jobs"
-logger -t "$NAME" -- "uninstalling event: removing cron, stopping jobs (data kept)" 2>/dev/null || true
-rm -f "/etc/cron.d/$NAME"
+logger -t "$NAME" -- "uninstalling event: removing schedule block, stopping jobs (data kept)" 2>/dev/null || true
+CT=/var/spool/cron/crontabs/root
+if [ -f "$CT" ] && grep -qF "# $NAME BEGIN" "$CT"; then
+  sed -i "/^# $NAME BEGIN/,/^# $NAME END/d" "$CT"
+  /etc/rc.d/rc.crond restart >/dev/null 2>&1 || true
+fi
+rm -f "/etc/cron.d/$NAME"   # legacy location, harmless if absent
 pkill -f 'rclone-jobs\.sh run ' 2>/dev/null || true
 exit 0

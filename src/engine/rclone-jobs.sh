@@ -28,7 +28,7 @@ BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
 RCLONE_BIN="/usr/sbin/rclone"
 RCLONE_EXPECT_CONF="/boot/config/plugins/rclone/.rclone.conf"
-CRON_FILE="/etc/cron.d/rclone-jobs"
+CRON_FILE="${RJ_CRON_FILE:-/var/spool/cron/crontabs/root}"  # Unraid scheduler = Dillon cron: user crontabs only, no /etc/cron.d
 NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
 LOCKDIR="/var/run"
 DEFAULT_MAX_DELETE="100"
@@ -736,17 +736,19 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
   else d_line FAIL "missing binaries:$missing"; fi
   if find_php; then d_line PASS "php CLI: $PHP_BIN"; else d_line WARN "php CLI not found - structured dry-run previews disabled"; fi
   if [ -f "$CRON_FILE" ]; then
-    if head -2 "$CRON_FILE" | grep -q '^PATH='; then d_line PASS "cron file contains the PATH= line"
-    else d_line FAIL "cron file lacks the PATH= line - cron cannot find rcloneorig"; fi
-    if head -1 "$CRON_FILE" | grep -q 'managed by rclone-jobs'; then d_line PASS "cron management marker present"
-    else d_line WARN "cron marker line missing - file may be hand-edited or foreign"; fi
+    if grep -qF '# rclone-jobs BEGIN' "$CRON_FILE"; then d_line PASS "managed block present in $CRON_FILE"
+    else d_line WARN "no managed block in $CRON_FILE - scheduled jobs are INACTIVE (save any job or run regen-cron.sh)"; fi
     regen="$EMHTTP_DIR/scripts/regen-cron.sh"
     if [ -x "$regen" ]; then
       drc=0; drift="$("$regen" --check 2>&1)" || drc=$?
-      if [ "$drc" -eq 0 ]; then d_line PASS "cron file in sync with jobs/ (regen --check)"
-      else d_line WARN "cron drift: $(printf '%s' "$drift" | tr '\n' ' ' | cut -c1-200)"; fi
-    else d_line WARN "regen-cron.sh not deployed - cannot verify cron drift"; fi
-  else d_line WARN "cron file not installed yet (created at install / array_started)"; fi
+      if [ "$drc" -eq 0 ]; then d_line PASS "crontab block in sync with jobs/ (regen --check)"
+      else d_line WARN "crontab drift: $(printf '%s' "$drift" | tr '\n' ' ' | cut -c1-200)"; fi
+    else d_line WARN "regen-cron.sh not deployed - cannot verify crontab drift"; fi
+    if [ -x "/etc/rc.d/rc.crond" ]; then
+      if pgrep -x crond >/dev/null 2>&1; then d_line PASS "cron daemon running (Dillon)"
+      else d_line FAIL "crond not running - no schedule fires: /etc/rc.d/rc.crond start"; fi
+    fi
+  else d_line WARN "crontab file not found: $CRON_FILE"; fi
   probe_rc=0
   env -i PATH=/usr/bin:/bin "$RCLONE_BIN" version >/dev/null 2>&1 || probe_rc=$?
   if [ "$probe_rc" -eq 0 ]; then
