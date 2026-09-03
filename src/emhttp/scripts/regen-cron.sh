@@ -51,7 +51,7 @@ engine_path() { # prefer the emhttp copy (exists even before storage guard), fal
   printf '%s' "$e"
 }
 
-re_sched='^[0-9*,-]+( [0-9*,-]+){4}$'
+re_sched='^[0-9,*/-]+( [0-9,*/-]+){4}$'
 re_name='^[A-Za-z0-9_-]{1,40}$'
 
 out="$(mktemp)" || { log "$NAME regen: mktemp failed"; exit 1; }

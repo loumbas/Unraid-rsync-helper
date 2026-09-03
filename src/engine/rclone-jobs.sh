@@ -96,7 +96,7 @@ valid_jobname() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; }
 valid_remote()  { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
 valid_schedule() { # 5 cron fields, numerics plus * , - / only (cron-injection defense)
-  local re='^[0-9*,-]+( [0-9*,-]+){4}$'
+  local re='^[0-9,*/-]+( [0-9,*/-]+){4}$'
   [[ "$1" =~ $re ]]
 }
 

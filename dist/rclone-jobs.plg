@@ -121,7 +121,7 @@ valid_jobname() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; }
 valid_remote()  { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
 valid_schedule() { # 5 cron fields, numerics plus * , - / only (cron-injection defense)
-  local re='^[0-9*,-]+( [0-9*,-]+){4}$'
+  local re='^[0-9,*/-]+( [0-9,*/-]+){4}$'
   [[ "$1" =~ $re ]]
 }
 
@@ -889,7 +889,7 @@ function rj_preview_parse(string $file, string $engine): array
         return $r;
     }
     $newsDbg = 0; $deletesSum = -1; $copiesSum = -1; $skipsSum = -1;
-    $transBytesRe = '/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]i?B)/i';
+    $transBytesRe = '/^\s*Transferred:\s+([0-9.]+ ?(?:[KMGTPE]i?)?B)/i';
     $transFilesRe = '/^\s*Transferred:\s+(\d+) \/ (\d+)/';
     $deletedSumRe = '/^\s*Deleted:\s+(\d+) \(files\)/';
     $checksRe     = '/^\s*Checks:\s+(\d+) \/ \d+/';
@@ -916,7 +916,7 @@ function rj_preview_parse(string $file, string $engine): array
         //   NOTICE: &lt;file&gt;: Skipped copy as --dry-run is set (size N)
         //   NOTICE: &lt;file&gt;: Skipped delete as --dry-run is set (size N)
         //   summary: Transferred:/Deleted: N (files)/Checks: lines at column 0
-        if (preg_match('/^\s*Transferred:\s+[0-9.]+ ?[KMGTPE]i?B/', $line)) {
+        if (preg_match('/^\s*Transferred:\s+[0-9.]+ ?(?:[KMGTPE]i?)?B/', $line)) {
             if ($r['bytes'] === '' &amp;&amp; preg_match($transBytesRe, $line, $m)) { $r['bytes'] = trim($m[1]); }
         } elseif (preg_match($transFilesRe, $line, $m)) {
             $copiesSum = (int)$m[2];
@@ -1082,7 +1082,7 @@ engine_path() { # prefer the emhttp copy (exists even before storage guard), fal
   printf '%s' "$e"
 }
 
-re_sched='^[0-9*,-]+( [0-9*,-]+){4}$'
+re_sched='^[0-9,*/-]+( [0-9,*/-]+){4}$'
 re_name='^[A-Za-z0-9_-]{1,40}$'
 
 out="$(mktemp)" || { log "$NAME regen: mktemp failed"; exit 1; }
