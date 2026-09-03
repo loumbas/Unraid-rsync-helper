@@ -1,0 +1,10 @@
+#!/bin/bash
+# rclone-jobs 'array_started' event - storage disks are mounted now: deploy the
+# engine copy, create the storage tree + notify.env template, write the cron file.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+logger -t "$NAME" -- "array_started event" 2>/dev/null || true
+[ -x "$D/scripts/install-engine.sh" ] && "$D/scripts/install-engine.sh" >/dev/null 2>&1
+[ -x "$D/scripts/regen-cron.sh" ]     && "$D/scripts/regen-cron.sh" >/dev/null 2>&1
+exit 0

@@ -1,0 +1,11 @@
+#!/bin/bash
+# rclone-jobs 'uninstalling' event - remove OUR cron file and stop OUR running
+# jobs. User data (jobs/, paths.env, logs, status, backups, notify.env) is kept
+# on the storage disk; the .plg remove script deletes only plugin-owned system
+# files. Nothing outside rclone-jobs territory is touched.
+set -u
+NAME="rclone-jobs"
+logger -t "$NAME" -- "uninstalling event: removing cron, stopping jobs (data kept)" 2>/dev/null || true
+rm -f "/etc/cron.d/$NAME"
+pkill -f 'rclone-jobs\.sh run ' 2>/dev/null || true
+exit 0

@@ -1,0 +1,10 @@
+#!/bin/bash
+# rclone-jobs 'updating' event - plugin files were just replaced; refresh the
+# storage-side CLI copy of the engine and re-validate the cron file.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+logger -t "$NAME" -- "updating event" 2>/dev/null || true
+[ -x "$D/scripts/install-engine.sh" ] && "$D/scripts/install-engine.sh" >/dev/null 2>&1
+[ -x "$D/scripts/regen-cron.sh" ]     && "$D/scripts/regen-cron.sh" >/dev/null 2>&1
+exit 0

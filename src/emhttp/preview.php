@@ -51,7 +51,7 @@ function rj_preview_parse(string $file, string $engine): array
         //   NOTICE: <file>: Skipped copy as --dry-run is set (size N)
         //   NOTICE: <file>: Skipped delete as --dry-run is set (size N)
         //   summary: Transferred:/Deleted: N (files)/Checks: lines at column 0
-        if (preg_match('/^Transferred:\s+[0-9.]+ ?[KMGTPE]i?B/', $line)) {
+        if (preg_match('/^\s*Transferred:\s+[0-9.]+ ?[KMGTPE]i?B/', $line)) {
             if ($r['bytes'] === '' && preg_match($transBytesRe, $line, $m)) { $r['bytes'] = trim($m[1]); }
         } elseif (preg_match($transFilesRe, $line, $m)) {
             $copiesSum = (int)$m[2];

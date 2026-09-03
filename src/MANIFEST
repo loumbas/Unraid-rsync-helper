@@ -9,3 +9,9 @@
 #   emhttp/index.php /usr/local/emhttp/plugins/rclone-jobs/index.php 0644
 engine/rclone-jobs.sh /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh 0755
 emhttp/preview.php /usr/local/emhttp/plugins/rclone-jobs/preview.php 0644
+emhttp/scripts/regen-cron.sh /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh 0755
+emhttp/scripts/install-engine.sh /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh 0755
+emhttp/event/installed /usr/local/emhttp/plugins/rclone-jobs/event/installed 0755
+emhttp/event/updating /usr/local/emhttp/plugins/rclone-jobs/event/updating 0755
+emhttp/event/array_started /usr/local/emhttp/plugins/rclone-jobs/event/array_started 0755
+emhttp/event/uninstalling /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling 0755
