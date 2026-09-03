@@ -120,7 +120,7 @@ load_paths() {
       line="${line%$'\r'}"
       case "$line" in ''|'#'*) continue ;; esac
       case "$line" in *=*) ;; *) continue ;; esac
-      key="${line%%=}"; val="${line#*=}"
+      key="${line%%=*}"; val="${line#*=}"
       val="${val#\"}"; val="${val%\"}"
       case "$key" in
         STORAGE_ROOT)   STORAGE_ROOT="$val" ;;
@@ -254,7 +254,7 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values
     line="${line%$'\r'}"
     case "$line" in ''|'#'*) continue ;; esac
     case "$line" in *=*) ;; *) continue ;; esac
-    key="${line%%=}"; val="${line#*=}"
+    key="${line%%=*}"; val="${line#*=}"
     val="${val#\"}"; val="${val%\"}"
     case "$key" in
       DESC)          J_DESC="$val" ;;
