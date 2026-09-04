@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
-<!ENTITY version   "2026.09.04f">
+<!ENTITY version   "2026.09.04g">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
@@ -11,13 +11,11 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
-## 2026.09.04f
-- Settings forms rebuilt on the native Unraid pattern (definition-list rows plus
-  inline-help blockquotes toggled by the sidebar Help button): no more table overflow,
-  explanation text is never cropped.
-- Help text added for every field on both tabs: cron syntax, engines, mode,
-  source/destination rules, delete limits, backup dir, master switch, quiet window,
-  Telegram token/chat id storage.
+## 2026.09.04g
+- WebUI restyled to the native settings-page anatomy: icon .title section headers
+  replace all fieldsets/legends (Add job, Safety, Telegram notifications, Doctor);
+  button rows are now dl rows aligned with the fields; wide inputs use the webgui
+  'variable' class; jobs table gains click-to-sort headers (native tablesorter).
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
@@ -45,7 +43,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.04f - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.04g - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -67,7 +65,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.04f"
+ENGINE_VERSION="2026.09.04g"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1163,7 +1161,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.04f - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.04g - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1213,7 +1211,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.04f',
+    'version'    =&gt; '2026.09.04g',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1233,7 +1231,7 @@ $rjdata = [
   #tab_rj_jobs td [data-act] { white-space:nowrap; }
 &lt;/style&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04f"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04g"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1246,7 +1244,7 @@ $rjdata = [
 
   &lt;!-- ======================= JOBS TAB ======================= --&gt;
   &lt;div id="tab_rj_jobs"&gt;
-    &lt;table class="rclone-jobs view-table"&gt;
+    &lt;table class="rclone-jobs view-table sortable"&gt;
       &lt;thead&gt;&lt;tr&gt;
         &lt;th&gt;Job&lt;/th&gt;&lt;th&gt;Enabled&lt;/th&gt;&lt;th&gt;Schedule&lt;/th&gt;&lt;th&gt;Engine&lt;/th&gt;
         &lt;th&gt;Source → Destination&lt;/th&gt;&lt;th&gt;Last run&lt;/th&gt;&lt;th&gt;Last OK&lt;/th&gt;&lt;th&gt;Last dry-run&lt;/th&gt;&lt;th&gt;Actions&lt;/th&gt;
@@ -1293,8 +1291,11 @@ $rjdata = [
     &lt;div id="rj-result" style="display:none;margin-top:10px"&gt;&lt;pre id="rj-result-pre" style="white-space:pre-wrap"&gt;&lt;/pre&gt;&lt;/div&gt;
     &lt;div id="rj-preview" style="display:none;margin-top:10px"&gt;&lt;pre id="rj-preview-pre" style="white-space:pre-wrap"&gt;&lt;/pre&gt;&lt;/div&gt;
 
-    &lt;fieldset style="margin-top:14px"&gt;&lt;legend id="rj-form-title"&gt;Add job&lt;/legend&gt;
-      &lt;form id="rj-jobform" autocomplete="off"&gt;
+    &lt;div class="title" style="margin-top:14px"&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-wrench title'&gt;&lt;/i&gt;&lt;span id="rj-form-title"&gt;Add job&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p&gt;&lt;/p&gt;
+    &lt;form id="rj-jobform" autocomplete="off"&gt;
         &lt;input type="hidden" id="f_orig" value=""&gt;
         &lt;dl&gt;&lt;dt&gt;Name:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Unique job id - letters, digits, dash and underscore, max 40 characters. It names the config file and the schedule entry, so it cannot be changed afterwards; to rename a job create a new one and delete the old.&lt;/p&gt;&lt;/blockquote&gt;
@@ -1309,13 +1310,13 @@ $rjdata = [
         &lt;div class="rj-eng"&gt;
         &lt;dl&gt;&lt;dt&gt;Mode (rclone):&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_mode"&gt;&lt;option value="sync"&gt;sync&lt;/option&gt;&lt;option value="copy"&gt;copy&lt;/option&gt;&lt;option value="check"&gt;check&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;sync&lt;/em&gt; makes destination identical to source (may delete). &lt;em&gt;copy&lt;/em&gt; only adds/updates, never deletes. &lt;em&gt;check&lt;/em&gt; only compares and reports differences.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Source:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_src" class="rj-path" placeholder="/mnt/user/data or remote:bucket/folder"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Source:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_src" class="variable rj-path" placeholder="/mnt/user/data or remote:bucket/folder"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Folder on this server (shares, array disks, mounts) or an rclone remote path like &lt;em&gt;gdrive:Data&lt;/em&gt;. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Destination:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_dst" class="rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Destination:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_dst" class="variable rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;/div&gt;
         &lt;div class="rj-custom" style="display:none"&gt;
-        &lt;dl&gt;&lt;dt&gt;Script:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_script" class="rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Script:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Absolute path of an executable script; Browse... shows &lt;em&gt;.sh&lt;/em&gt; files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;/div&gt;
         &lt;dl&gt;&lt;dt&gt;Per-job dry-run:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
@@ -1327,55 +1328,64 @@ $rjdata = [
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone syntax, e.g. &lt;em&gt;10M&lt;/em&gt; (10 MByte/s) or &lt;em&gt;off&lt;/em&gt; for unlimited. Only affects the rclone engine.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;dl&gt;&lt;dt&gt;Max deletes / Warn deletes:&lt;/dt&gt;&lt;dd&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Sync modes only. &lt;em&gt;Max deletes&lt;/em&gt; is a hard cap - rclone aborts rather than deleting more. &lt;em&gt;Warn deletes&lt;/em&gt; makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Backup dir (optional):&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_backupdir" class="rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Backup dir (optional):&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone &lt;em&gt;--backup-dir&lt;/em&gt;: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like &lt;em&gt;gdrive:trash&lt;/em&gt; or a subfolder of the storage folder work well; leave empty to disable.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;/div&gt;
-        &lt;p&gt;
-          &lt;input type="submit" value="Save job" class="rj-btn"&gt;
-          &lt;input type="button" id="rj-form-cancel" value="Cancel"&gt;
-        &lt;/p&gt;
+      &lt;dl&gt;
+        &lt;dt&gt;&amp;nbsp;&lt;/dt&gt;
+        &lt;dd&gt;&lt;input type="submit" value="Save job" class="rj-btn"&gt; &lt;input type="button" id="rj-form-cancel" value="Cancel"&gt;&lt;/dd&gt;
+      &lt;/dl&gt;
       &lt;/form&gt;
-    &lt;/fieldset&gt;
   &lt;/div&gt;
 
   &lt;!-- ======================= ALERTS TAB ======================= --&gt;
   &lt;div id="tab_rj_alerts"&gt;
-    &lt;fieldset&gt;&lt;legend&gt;Safety&lt;/legend&gt;
+    &lt;div class="title"&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-lock title'&gt;&lt;/i&gt;Safety&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p&gt;&lt;/p&gt;
       &lt;dl&gt;&lt;dt&gt;Master dry-run switch:&lt;/dt&gt;
         &lt;dd&gt;&lt;select id="a_master"&gt;&lt;option value="yes"&gt;YES - all scheduled runs are dry-runs&lt;/option&gt;&lt;option value="no"&gt;no - scheduled runs transfer for real&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;When YES, nothing is ever written by the schedule, regardless of per-job settings - every scheduled run is a simulation. Turn it off only after dry-runs of all jobs look right.&lt;/p&gt;&lt;/blockquote&gt;
       &lt;dl&gt;&lt;dt&gt;Quiet window (heartbeats):&lt;/dt&gt;
         &lt;dd&gt;&lt;input type="text" id="a_qstart" size="6" placeholder="23:00"&gt; to &lt;input type="text" id="a_qend" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;24-hour clock. Inside this window the daily OK heartbeats are suppressed; failures and dry-run alerts are always sent.&lt;/p&gt;&lt;/blockquote&gt;
-    &lt;/fieldset&gt;
-    &lt;fieldset&gt;&lt;legend&gt;Telegram alerts (optional)&lt;/legend&gt;
+    &lt;div class="title"&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-send title'&gt;&lt;/i&gt;Telegram notifications (optional)&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p&gt;&lt;/p&gt;
       &lt;dl&gt;&lt;dt&gt;Enable Telegram:&lt;/dt&gt;&lt;dd&gt;&lt;select id="a_tg"&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;Send job results and failures as Telegram messages in addition to the Unraid (Dynamix) notification.&lt;/p&gt;&lt;/blockquote&gt;
-      &lt;dl&gt;&lt;dt&gt;Bot token:&lt;/dt&gt;&lt;dd&gt;&lt;input type="password" id="a_token" size="40" placeholder=""&gt; &lt;span class="gray" id="a_token_state"&gt;&lt;/span&gt;&lt;/dd&gt;&lt;/dl&gt;
+      &lt;dl&gt;&lt;dt&gt;Bot token:&lt;/dt&gt;&lt;dd&gt;&lt;input type="password" id="a_token" class="variable" placeholder=""&gt; &lt;span class="gray" id="a_token_state"&gt;&lt;/span&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;From @BotFather, format &lt;em&gt;digits:secret&lt;/em&gt;. Leave blank to keep the stored token. It is saved to &lt;i&gt;notify.env&lt;/i&gt; (mode 600) on the storage disk - never in /boot, and never sent back to the browser after save.&lt;/p&gt;&lt;/blockquote&gt;
-      &lt;dl&gt;&lt;dt&gt;Chat id:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="a_chatid" size="30"&gt;&lt;/dd&gt;&lt;/dl&gt;
+      &lt;dl&gt;&lt;dt&gt;Chat id:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="a_chatid" class="variable"&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;Numeric chat id of the user or group to notify (negative for groups). Send your bot a message first, then check &lt;em&gt;getUpdates&lt;/em&gt; to find it.&lt;/p&gt;&lt;/blockquote&gt;
-    &lt;/fieldset&gt;
-    &lt;p&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt;
-       &lt;input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"&gt;&lt;/p&gt;
+    &lt;dl&gt;
+      &lt;dt&gt;&amp;nbsp;&lt;/dt&gt;
+      &lt;dd&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt; &lt;input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"&gt;&lt;/dd&gt;
+    &lt;/dl&gt;
     &lt;div id="rj-alerts-result" style="display:none"&gt;&lt;pre&gt;&lt;/pre&gt;&lt;/div&gt;
   &lt;/div&gt;
 
   &lt;!-- ======================= DOCTOR TAB ======================= --&gt;
   &lt;div id="tab_rj_doctor"&gt;
+    &lt;div class="title"&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-stethoscope title'&gt;&lt;/i&gt;Doctor&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p&gt;&lt;/p&gt;
     &lt;p&gt;&lt;input type="button" id="rj-doctor" value="Run doctor" class="rj-btn"&gt;
        &lt;input type="checkbox" id="rj-doctor-tg"&gt; include live Telegram test (sends a message if enabled)&lt;/p&gt;
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.04f &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.04g &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.04f - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.04g - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1628,7 +1638,7 @@ default:
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.04f - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.04g - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1981,7 +1991,7 @@ $(function () {
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04f - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.04g - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2139,7 +2149,7 @@ exit "$errs"
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04f - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.04g - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
 set -uo pipefail
@@ -2234,7 +2244,7 @@ exit 0
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04f - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.04g - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.

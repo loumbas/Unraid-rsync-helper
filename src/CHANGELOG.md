@@ -1,3 +1,9 @@
+## 2026.09.04g
+- WebUI restyled to the native settings-page anatomy: icon .title section headers
+  replace all fieldsets/legends (Add job, Safety, Telegram notifications, Doctor);
+  button rows are now dl rows aligned with the fields; wide inputs use the webgui
+  'variable' class; jobs table gains click-to-sort headers (native tablesorter).
+
 ## 2026.09.04f
 - Settings forms rebuilt on the native Unraid pattern (definition-list rows plus
   inline-help blockquotes toggled by the sidebar Help button): no more table overflow,
