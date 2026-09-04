@@ -41,7 +41,7 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 
 ## WebUI
 
-**Utilities (User Utilities) → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete), Alerts & Safety
+**Settings → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete), Alerts & Safety
 (master switch, quiet window, Telegram), Doctor (one-click self-test).
 
 ## CLI

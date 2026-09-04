@@ -3,7 +3,7 @@
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
 <!ENTITY version   "2026.09.02">
-<!ENTITY launchApp "Utilities/rclone-jobs">
+<!ENTITY launchApp "Settings/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
 ]>

@@ -11,7 +11,7 @@ Requirements: Unraid 7.x, the `rclone` plugin installed (any version), array sta
    /usr/local/emhttp/plugins/dynamix.plugin.manager/scripts/plugin install /tmp/rclone-jobs.plg
    ```
    Or in the WebGUI: Plugins → Install Plugin → upload/select the file.
-3. Open **Utilities (User Utilities) → rclone-jobs**. Start with the master dry-run switch ON (default):
+3. Open **Settings → rclone-jobs**. Start with the master dry-run switch ON (default):
    create jobs, press **Dry-run**, read the preview, then turn the master switch off
    when you trust the set.
 
