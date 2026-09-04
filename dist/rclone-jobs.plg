@@ -1042,6 +1042,8 @@ Title=rclone-jobs
 Icon=exchange
 File=plugins/rclone-jobs/index.php
 TableWidth=1000px
+---
+Scheduled rclone / rsync / custom transfers with a dry-run gate, Telegram + Dynamix alerts and a self-diagnosing doctor.
 </INLINE>
   </FILE>
 
