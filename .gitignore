@@ -7,6 +7,7 @@ Thumbs.db
 # dist/ is intentionally committed: it is the deliverable that gets scp'd.
 console-export*
 Screenshot *.png
+Screenshot*
 settings-page-source.html
 
 plugin-docs/
