@@ -3,11 +3,15 @@
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
 <!ENTITY version   "{{VERSION}}">
-<!ENTITY launchApp "Settings/rclone-jobs">
+<!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
+<!-- TODO(phase-2): replace CHANGE-ME with the GitHub owner once the repo exists.
+     pluginURL must be the RAW url of this .plg file (required for Check for Updates). -->
+<!ENTITY repoURL   "https://github.com/CHANGE-ME/rclone-jobs">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/CHANGE-ME/rclone-jobs/main/rclone-jobs.plg">
 ]>
-<PLUGIN name="&name;" service="no" category="Utilities" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0">
+<PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
 {{CHANGES}}
   </CHANGES>
@@ -21,6 +25,17 @@
     disk). License: GPL-2.0-or-later. No phone-home: the plugin performs outbound
     network requests ONLY when Telegram alerts are explicitly enabled.
   -->
+  <!-- UPDATE pre-clean: runs ONLY on plugin update (never on fresh install). Wipes the
+       RAM-resident emhttp copy so files deleted between releases cannot linger as stale
+       leftovers; the FILE blocks below re-deploy everything right after. Config on /boot
+       and storage data are untouched. -->
+  <FILE Run="/bin/bash" Method="update">
+    <INLINE>
+rm -rf "&pluginDir;"
+logger -t rclone-jobs "update: stale emhttp copy cleared"
+true
+    </INLINE>
+  </FILE>
   <!-- FILE entries are generated at build time from src/MANIFEST. -->
 {{FILES}}
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every

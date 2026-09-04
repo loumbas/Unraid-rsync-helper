@@ -1,6 +1,6 @@
 Menu="Utilities"
-Title=rclone-jobs
-Icon=exchange
+Title="rclone-jobs"
+Icon="exchange"
 ---
 <?php
 /* rclone-jobs v{{VERSION}} - WebUI page (Settings tab).

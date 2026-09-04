@@ -18,6 +18,16 @@ function rjData() {
   try { return JSON.parse($('#rj-data').text()); } catch (e) { return { jobs: {} }; }
 }
 
+/* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
+function rjConfirm(title, text, btn, danger, cb) {
+  if (typeof swal === 'function') {
+    swal({ title: title, text: text, type: 'warning', showCancelButton: true,
+           confirmButtonText: btn, cancelButtonText: 'Cancel',
+           confirmButtonColor: danger ? '#d33' : '#2e97c2' },
+         function (ok) { if (ok) cb(); });
+  } else if (window.confirm(title + '\n' + text + '\n\n-> ' + btn + '?')) { cb(); }
+}
+
 $(function () {
   var D = rjData();
 
@@ -35,7 +45,7 @@ $(function () {
     $('.rj-eng').toggle(e !== 'custom');
     $('.rj-custom').toggle(e === 'custom');
   }
-  $('#f_engine').on('change', engRows);
+  $('#f_engine').off('.rclonejobs').on('change.rclonejobs', engRows);
   engRows();
 
   function showForm(title, j) {
@@ -61,23 +71,26 @@ $(function () {
     $('#rj-form-title')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  $('#rj-form-cancel').on('click', function () {
+  $('#rj-form-cancel').off('.rclonejobs').on('click.rclonejobs', function () {
     showForm('Add job', null);
     $('#rj-result').hide();
   });
 
   /* table buttons */
-  $('.rj-btn').on('click', function () {
+  $('.rj-btn').off('.rclonejobs').on('click.rclonejobs', function () {
     var act = $(this).data('act'), job = $(this).data('job');
     if (act === 'edit') {
       var j = D.jobs[job]; if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
       return;
     }
     if (act === 'del') {
-      if (!confirm('Delete job "' + job + '"?\nIts schedule line is removed; config file is kept as a .removed-* backup; transfer data is never deleted here.')) return;
-      rjPost({ action: 'delete_job', job: job }, function (res) {
-        rjPanel('rj-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
-        if (res.ok) setTimeout(function () { location.reload(); }, 1200);
+      rjConfirm('Delete job "' + job + '"?',
+                'Its schedule line is removed; config file is kept as a .removed-* backup; transfer data is never deleted here.',
+                'Delete', true, function () {
+        rjPost({ action: 'delete_job', job: job }, function (res) {
+          rjPanel('rj-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
+          if (res.ok) setTimeout(function () { location.reload(); }, 1200);
+        });
       });
       return;
     }
@@ -90,12 +103,20 @@ $(function () {
       return;
     }
     if (act === 'run') {
+      var doRun = function () {
+        rjPost({ action: 'run_job', job: job }, function (res) {
+          rjPanel('rj-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
+        });
+      };
       if (D.master !== 'no') {
-        if (!confirm('Master dry-run switch is ON, so this will only simulate.\n(Turn it off on the Alerts & Safety tab for real transfers.)\n\nRun simulated now?')) return;
-      } else if (!confirm('Run "' + job + '" FOR REAL now?\nScheduled safety still applies (dry-run gate + delete limits).')) return;
-      rjPost({ action: 'run_job', job: job }, function (res) {
-        rjPanel('rj-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
-      });
+        rjConfirm('Simulate "' + job + '"?',
+                  'Master dry-run switch is ON, so this will only simulate.\n(Turn it off on the Alerts & Safety tab for real transfers.)',
+                  'Run simulated', false, doRun);
+      } else {
+        rjConfirm('Run "' + job + '" FOR REAL now?',
+                  'Scheduled safety still applies (dry-run gate + delete limits).',
+                  'Run for real', true, doRun);
+      }
       return;
     }
     if (act === 'ack') {
@@ -109,7 +130,7 @@ $(function () {
   });
 
   /* save job */
-  $('#rj-jobform').on('submit', function (ev) {
+  $('#rj-jobform').off('.rclonejobs').on('submit.rclonejobs', function (ev) {
     ev.preventDefault();
     var job = $('#f_orig').val() || $('#f_name').val().trim();
     if (!job) return;
@@ -134,7 +155,7 @@ $(function () {
   });
 
   /* alerts tab */
-  $('#rj-save-alerts').on('click', function () {
+  $('#rj-save-alerts').off('.rclonejobs').on('click.rclonejobs', function () {
     rjPost({
       action: 'save_alerts',
       master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val(),
@@ -144,7 +165,7 @@ $(function () {
       if (res.ok) { $('#a_token').val(''); }
     });
   });
-  $('#rj-tg-test').on('click', function () {
+  $('#rj-tg-test').off('.rclonejobs').on('click.rclonejobs', function () {
     rjPanel('rj-alerts-result', 'sending...', false);
     rjPost({ action: 'tg_test' }, function (res) {
       rjPanel('rj-alerts-result', res.out || res.error || 'done', !res.ok);
@@ -152,7 +173,7 @@ $(function () {
   });
 
   /* doctor tab */
-  $('#rj-doctor').on('click', function () {
+  $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');
     $('#rj-doctor-pre').text('running tests (~seconds)...');
     rjPost({ action: 'doctor', telegram: $('#rj-doctor-tg').is(':checked') ? 'yes' : 'no' }, function (res) {

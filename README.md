@@ -41,7 +41,7 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 
 ## WebUI
 
-**Settings → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete), Alerts & Safety
+**Utilities → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete), Alerts & Safety
 (master switch, quiet window, Telegram), Doctor (one-click self-test).
 
 ## CLI
@@ -70,6 +70,23 @@ deployed files; config and all job data survive a remove).
 | `/var/spool/cron/crontabs/root` | managed block (BEGIN/END markers) |
 
 See `src/CHANGELOG.md` for release notes and `INSTALL.md` for install instructions.
+
+## Deviations from the community plugin guidelines
+
+This plugin follows the standard Unraid plugin guidelines (single .plg with INLINE
+files, CSRF-checked POST-only ajax, dynamix `notify` levels, LF-only + shebangs,
+doc-prescribed file modes, `<CHANGES>` changelog). Three deliberate deviations,
+each box-verified on Unraid 7.3.2:
+
+| Deviation | Guideline says | Why here |
+|---|---|---|
+| Cron in `/var/spool/cron/crontabs/root` marker block | `<plugin>.cron` in /boot + `update_cron`, or `/etc/cron.d/` | Unraid's Dillon cron reads neither location and never re-reads changed crontabs; the marker block + restart-on-change (same approach as Dynamix Scheduler) is the only mechanism observed to actually fire. All other doc cron rules (logger redirect, overlap lock, array-state deferral) are followed. |
+| Data in `/mnt/diskN/.rclone-jobs` dot-folder | `/mnt/user/appdata/<plugin>/` | Intentional product policy: plugin data must not be traversable by share tools or snapshotted by share-level jobs. Stricter than the docs' path allowlist, never looser. |
+| No `set -e` in the engine | `set -e` + ERR trap | A failing job must not abort the run of the remaining jobs or the reporting; `set -uo pipefail` plus per-job error capture + contract exit codes (0/75/77/78/127) implements the same "fail loud, survive" goal. PLG INLINE blocks still end with `true` so a non-zero exit never aborts install/update. |
+
+The `installed` / `updating` / `uninstalling` handlers in `event/` are plugin
+lifecycle hooks (fired by Unraid's plugin manager, not the 16 emhttp array
+events); they are quiet, idempotent and always `exit 0`.
 
 ## License
 
