@@ -37,12 +37,16 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 | Mount guard | source must exist, destination must be an already-mounted non-tmpfs directory; never auto-creates destinations |
 | Config injection | job names, schedules and paths are whitelist-validated; config values are never shell-evaluated |
 | WebUI | POST-only ajax, CSRF-checked, values re-validated server-side |
+| Path browser | read-only listing; confined to `/mnt/user`, `/mnt/diskN`, `/mnt/remotes` (plus the plugins dir for Script), symlink-escaped paths rejected, dot-folders hidden, 500-entry cap, rclone calls time-bounded |
 | Uninstall | removes code + schedule block; keeps your configs, logs, status and Telegram file |
 
 ## WebUI
 
 **Utilities → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete), Alerts & Safety
-(master switch, quiet window, Telegram), Doctor (one-click self-test).
+(master switch, quiet window, Telegram), Doctor (one-click self-test). Source, Destination,
+Backup dir and Script fields have a **Browse...** picker: modal dialog with a Server tab
+(shares/array disks/mounts) and an Rclone remotes tab (folders via `rclone lsf`); free
+typing stays possible for not-yet-existing destinations.
 
 ## CLI
 

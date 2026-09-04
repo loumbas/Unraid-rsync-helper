@@ -172,6 +172,161 @@ $(function () {
     });
   });
 
+  /* ---------------- path browser modal ---------------- */
+  var rjB = { scope: 'local', path: '', parent: '', files: false, allowRclone: true, target: '', req: 0, built: false };
+
+  function rjBrowseBuild() {
+    if (rjB.built) return;
+    var css = '#rj-browse-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:none}'
+      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:#23292e;border:1px solid #5a6570;border-radius:6px;color:#e8e8e8;box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
+      + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #444e57}'
+      + '#rj-browse-title{font-weight:bold;margin-right:auto}'
+      + '.rj-b-tab{padding:3px 10px;border:1px solid #5a6570;background:transparent;color:#cfd6dc;cursor:pointer;border-radius:3px}'
+      + '.rj-b-tab.on{background:#2e97c2;border-color:#2e97c2;color:#fff}'
+      + '#rj-browse-pathbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid #444e57;flex-wrap:wrap}'
+      + '#rj-browse-crumbs{display:flex;gap:2px;flex-wrap:wrap;align-items:center}'
+      + '.rj-b-crumb{cursor:pointer;color:#7fc7e8;text-decoration:underline}'
+      + '#rj-browse-list{max-height:46vh;overflow:auto;padding:4px 0}'
+      + '.rj-b-row{padding:3px 12px;cursor:pointer;white-space:nowrap;display:flex;gap:6px}'
+      + '.rj-b-row:hover{background:#2e97c2;color:#fff}'
+      + '.rj-b-row:hover .rj-b-ic{color:#fff}'
+      + '.rj-b-row .rj-b-ic{width:14px;color:#9aa7b2}'
+      + '.rj-b-note{padding:8px 12px;color:#9aa7b2}'
+      + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #444e57}'
+      + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:#cfe3ef}'
+      + '.rj-b-x{background:transparent;border:none;color:#cfd6dc;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}';
+    $('<style>').text(css).appendTo('head');
+    var ov = $('<div id="rj-browse-ov"></div>');
+    var box = $('<div id="rj-browse" role="dialog" aria-modal="true"></div>');
+    var head = $('<div id="rj-browse-head"></div>');
+    head.append($('<span id="rj-browse-title">Select path</span>'));
+    head.append($('<button type="button" class="rj-b-tab" id="rj-b-tab-local">Server</button>'));
+    head.append($('<button type="button" class="rj-b-tab" id="rj-b-tab-rclone">Rclone remotes</button>'));
+    head.append($('<button type="button" class="rj-b-x" id="rj-b-close" aria-label="Close">&#10005;</button>'));
+    var pb = $('<div id="rj-browse-pathbar"></div>');
+    pb.append($('<input type="button" value="&#8593; Up" id="rj-b-up">'));
+    pb.append($('<span id="rj-browse-crumbs"></span>'));
+    pb.append($('<input type="button" value="Refresh" id="rj-b-refresh" style="margin-left:auto">'));
+    box.append(head, pb, $('<div id="rj-browse-list"></div>'));
+    var foot = $('<div id="rj-browse-foot"></div>');
+    foot.append($('<span id="rj-browse-cur"></span>'));
+    foot.append($('<input type="button" value="Select this folder" id="rj-b-select" class="rj-btn">'));
+    box.append(foot);
+    ov.append(box).appendTo('body');
+    rjB.built = true;
+  }
+
+  function rjBrowseOpen(target, opts) {
+    rjBrowseBuild();
+    opts = opts || {};
+    rjB.target = target; rjB.files = !!opts.files; rjB.allowRclone = opts.rclone !== false;
+    $('#rj-b-tab-rclone').toggle(rjB.allowRclone);
+    var v = $('#' + target).val() || '';
+    if (rjB.allowRclone && /^[A-Za-z0-9._-]+:/.test(v)) { rjB.scope = 'rclone'; rjB.path = v; }
+    else { rjB.scope = 'local'; rjB.path = v.charAt(0) === '/' ? v : ''; }
+    rjB.parent = '';
+    $('#rj-browse-ov').fadeIn(80);
+    $('#rj-b-close').trigger('focus');
+    rjBrowseLoad(rjB.scope, rjB.path);
+  }
+
+  function rjBrowseClose() { rjB.req++; $('#rj-browse-ov').fadeOut(60); }
+
+  function rjBrowseLoad(scope, path) {
+    var req = ++rjB.req;
+    rjB.scope = scope;
+    $('#rj-b-tab-local').toggleClass('on', scope === 'local');
+    $('#rj-b-tab-rclone').toggleClass('on', scope === 'rclone');
+    $('#rj-browse-list').empty().append($('<div class="rj-b-note"></div>').text('loading ' + (path || '(roots)') + ' ...'));
+    rjPost({ action: 'browse', scope: scope, path: path, files: rjB.files ? '1' : '' }, function (res) {
+      if (req !== rjB.req) return;
+      if (!res.ok) {
+        $('#rj-browse-list').empty().append($('<div class="rj-b-note" style="color:#e6867e"></div>')
+          .text('ERROR: ' + (res.error || '?') + ' - use Up / tabs / crumbs to go back, or type the path manually.'));
+        return;
+      }
+      rjBrowseRender(res);
+    });
+  }
+
+  function rjBrowseCrumb(c, label, scope, path) {
+    if (c.children().length) c.append($('<span style="color:#9aa7b2">/</span>'));
+    c.append($('<span class="rj-b-crumb"></span>').text(label).data({ scope: scope, path: path }));
+  }
+
+  function rjBrowseCrumbs(res) {
+    var c = $('#rj-browse-crumbs').empty(), acc;
+    if (res.scope === 'local') {
+      rjBrowseCrumb(c, 'roots', 'local', '');
+      acc = '';
+      (res.path || '').split('/').filter(Boolean).forEach(function (p) {
+        acc += '/' + p; rjBrowseCrumb(c, p, 'local', acc);
+      });
+    } else {
+      rjBrowseCrumb(c, 'remotes', 'rclone', '');
+      if (res.path) {
+        var m = /^([^:]+):(.*)$/.exec(res.path);
+        rjBrowseCrumb(c, m[1] + ':', 'rclone', m[1] + ':');
+        acc = m[1] + ':';
+        (m[2] || '').split('/').filter(Boolean).forEach(function (p) {
+          acc += '/' + p; rjBrowseCrumb(c, p, 'rclone', acc);
+        });
+      }
+    }
+  }
+
+  function rjBrowseRender(res) {
+    rjB.path = res.path || ''; rjB.parent = res.parent || ''; rjB.scope = res.scope;
+    rjBrowseCrumbs(res);
+    $('#rj-browse-cur').text(rjB.path || (res.scope === 'rclone' ? '(pick a remote first)' : '(pick a root)'));
+    var $l = $('#rj-browse-list').empty();
+    var ents = res.entries || [];
+    if (!ents.length) $l.append($('<div class="rj-b-note"></div>').text('empty folder'));
+    ents.forEach(function (en) {
+      var isFile = rjB.files && res.scope === 'local' && /\.sh$/i.test(en.name);
+      var $row = $('<div class="rj-b-row"></div>');
+      $('<span class="rj-b-ic"></span>').text(isFile ? '-' : '>').appendTo($row);
+      $('<span></span>').text(en.name).appendTo($row);
+      $row.data('path', en.path).data('file', isFile);
+      $row.on('click', function () {
+        if ($(this).data('file')) rjBrowsePick($(this).data('path'));
+        else rjBrowseLoad(rjB.scope, $(this).data('path'));
+      }).on('dblclick', function () { rjBrowsePick($(this).data('path')); });
+      $l.append($row);
+    });
+    if (res.truncated) $l.append($('<div class="rj-b-note"></div>').text('listing truncated at 500 entries - narrow down or type the path manually'));
+  }
+
+  function rjBrowsePick(p) {
+    $('#' + rjB.target).val(p).focus();
+    rjBrowseClose();
+  }
+
+  $(document).on('click.rclonejobs', '.rj-browse-btn', function () {
+    var t = String($(this).data('target'));
+    rjBrowseOpen(t, { files: t === 'f_script', rclone: t !== 'f_script' });
+  });
+  $(document).on('click.rclonejobs', '#rj-browse-ov', function (ev) { if (ev.target === this) rjBrowseClose(); });
+  $(document).on('click.rclonejobs', '#rj-b-close', rjBrowseClose);
+  $(document).on('click.rclonejobs', '#rj-b-tab-local', function () { if (rjB.scope !== 'local') rjBrowseLoad('local', ''); });
+  $(document).on('click.rclonejobs', '#rj-b-tab-rclone', function () { if (rjB.scope !== 'rclone') rjBrowseLoad('rclone', ''); });
+  $(document).on('click.rclonejobs', '#rj-b-up', function () { rjBrowseLoad(rjB.scope, rjB.parent || ''); });
+  $(document).on('click.rclonejobs', '#rj-b-refresh', function () { rjBrowseLoad(rjB.scope, rjB.path); });
+  $(document).on('click.rclonejobs', '#rj-b-select', function () { if (rjB.path) rjBrowsePick(rjB.path); });
+  $(document).on('click.rclonejobs', '.rj-b-crumb', function () { var d = $(this).data(); rjBrowseLoad(d.scope, d.path); });
+  $(document).on('keydown.rclonejobs', function (ev) {
+    if (!rjB.built || !$('#rj-browse-ov').is(':visible')) return;
+    if (ev.key === 'Escape') { rjBrowseClose(); return; }
+    if (ev.key === 'Tab') { /* focus trap inside the dialog */
+      var $f = $('#rj-browse').find('button:visible,input[type="button"]:visible');
+      if (!$f.length) return;
+      ev.preventDefault();
+      var i = $f.index(document.activeElement);
+      var n = ev.shiftKey ? (i <= 0 ? $f.length - 1 : i - 1) : (i >= $f.length - 1 ? 0 : i + 1);
+      $f.eq(n).trigger('focus');
+    }
+  });
+
   /* doctor tab */
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');

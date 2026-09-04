@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
-<!ENTITY version   "2026.09.04a">
+<!ENTITY version   "2026.09.04b">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
@@ -11,12 +11,14 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
-## 2026.09.04a
-- pluginURL/support/project now point to the public GitHub repo - Check for Updates
-  and one-click install-from-URL work.
-- Method="update" pre-clean: updates wipe the stale RAM copy before redeploying files.
-- launch fixed to Utilities/rclone-jobs; deprecated category attribute removed.
-- JS handlers namespaced (.rclonejobs); destructive actions use swal confirmations.
+## 2026.09.04b
+- WebUI: path browser for Source, Destination, Backup dir and Script fields - modal
+  picker with Server tab (/mnt/user shares, array disks, mounts) and Rclone remotes
+  tab (bucket/folder listing), breadcrumbs, Up/Refresh, double-click select.
+- Engine: new read-only 'browse' subcommand (single JSON object): whitelisted roots,
+  realpath containment (symlink/.. escape rejected), dot-folders hidden, 500-entry cap,
+  time-bounded rclone listings; Script mode additionally lists *.sh under the plugins dir.
+- ajax: new 'browse' action (POST+CSRF, thin dispatch to the engine).
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
@@ -44,7 +46,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.04a - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.04b - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -66,7 +68,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.04a"
+ENGINE_VERSION="2026.09.04b"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -849,6 +851,111 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
   exit 0
 }
 
+# -------------------------------------------------------------------- browse --
+# Read-only directory listing for the WebUI path picker. NEVER writes, NEVER
+# creates anything, listing is confined to whitelisted roots (local) or to the
+# user's own rclone remotes. Output: exactly one JSON object on stdout.
+BROWSE_MAX=500
+
+bj_json_err() { # error JSON WITHOUT jq (jq may be the very thing that failed)
+  local e="${1//\\/\\\\}"; e="${e//\"/\\\"}"; e="${e//$'\n'/ }"; e="${e//$'\r'/ }"
+  [ -n "${jf:-}" ] &amp;&amp; rm -f "$jf"
+  printf '{"ok":false,"error":"%s"}\n' "$e"
+  exit 0
+}
+
+bj_run() { # &lt;secs&gt; &lt;cmd...&gt; - run with 'timeout' when coreutils provides it
+  if command -v timeout &gt;/dev/null 2&gt;&amp;1; then timeout "$@"; else shift; "$@"; fi
+}
+
+cmd_browse() { # browse &lt;local|rclone&gt; &lt;path&gt; [files]
+  local scope="${1:-local}" p="${2:-}" with_files="${3:-}"
+  local jf rc rp pp n cnt=0 truncated=false outs lo child
+
+  case "$scope" in local|rclone) ;; *) bj_json_err "scope must be local|rclone" ;; esac
+  command -v jq &gt;/dev/null 2&gt;&amp;1 || bj_json_err "jq not available"
+  bad_field "$p" &amp;&amp; bj_json_err "path contains forbidden characters"
+  [ ${#p} -le 1024 ] || bj_json_err "path too long"
+
+  jf="$(mktemp /tmp/rj-browse.XXXXXX)" || bj_json_err "mktemp failed"
+  bj_emit() { jq -c -n --arg n "$1" --arg p "$2" '{name:$n,path:$p}' &gt;&gt; "$jf"; cnt=$((cnt+1)); }
+  bj_out() { # &lt;scope&gt; &lt;path&gt; &lt;parent&gt;
+    local entries; entries="$(jq -s -c '.' "$jf" 2&gt;/dev/null)"
+    rm -f "$jf"
+    jq -c -n --arg scope "$1" --arg path "$2" --arg parent "$3" \
+       --argjson entries "${entries:-[]}" --argjson truncated "$truncated" \
+       '{ok:true,scope:$scope,path:$path,parent:$parent,entries:$entries,truncated:$truncated}'
+    exit 0
+  }
+
+  if [ "$scope" = local ]; then
+    if [ -z "$p" ]; then # virtual root: shares + array disks + mounts (+ plugins dir for script picking)
+      [ -d /mnt/user ] &amp;&amp; bj_emit "user (shares)" "/mnt/user"
+      for lo in /mnt/disk[0-9]*; do [ -d "$lo" ] &amp;&amp; bj_emit "${lo##*/}" "$lo"; done
+      [ -d /mnt/remotes ] &amp;&amp; bj_emit "remotes (mounts)" "/mnt/remotes"
+      [ "$with_files" = files ] &amp;&amp; [ -d /usr/local/emhttp/plugins ] &amp;&amp; bj_emit "plugins (scripts)" "/usr/local/emhttp/plugins"
+      bj_out local "" ""
+    fi
+    rp="$(realpath -- "$p" 2&gt;/dev/null)" || bj_json_err "path does not exist: $p"
+    case "$rp" in
+      /mnt/user|/mnt/user/*|/mnt/disk[0-9]*|/mnt/disk[0-9]*/*|/mnt/remotes|/mnt/remotes/*) : ;;
+      /usr/local/emhttp/plugins|/usr/local/emhttp/plugins/*)
+        [ "$with_files" = files ] || bj_json_err "only the Script field may browse under /usr/local/emhttp/plugins" ;;
+      *) bj_json_err "browsing outside /mnt/user, /mnt/diskN, /mnt/remotes is not allowed" ;;
+    esac
+    [ -d "$rp" ] || bj_json_err "not a directory: $rp"
+    pp="$(dirname "$rp")"
+    case "$pp" in
+      /mnt/user|/mnt/user/*|/mnt/disk[0-9]*|/mnt/disk[0-9]*/*|/mnt/remotes|/mnt/remotes/*|/usr/local/emhttp/plugins|/usr/local/emhttp/plugins/*) : ;;
+      *) pp="" ;;
+    esac
+    # glob does not match dotfiles - plugin/status folders stay invisible
+    shopt -s nullglob
+    for lo in "$rp"/*; do
+      if [ -d "$lo" ]; then :
+      elif [ "$with_files" = files ] &amp;&amp; [ -f "$lo" ]; then case "$lo" in *.sh) : ;; *) continue ;; esac
+      else continue
+      fi
+      if [ "$cnt" -ge "$BROWSE_MAX" ]; then truncated=true; break; fi
+      bj_emit "${lo##*/}" "$lo"
+    done
+    shopt -u nullglob
+    bj_out local "$rp" "$pp"
+  fi
+
+  # ---- rclone scope ----
+  [ -x "$RCLONE_BIN" ] || bj_json_err "rclone not installed - install the rclone plugin first"
+  if [ -z "$p" ]; then
+    outs="$(bj_run 15 "$RCLONE_BIN" listremotes 2&gt;&amp;1)" || \
+      bj_json_err "rclone listremotes failed: $(printf '%s' "$outs" | tail -n1 | cut -c1-200)"
+    while IFS= read -r lo; do
+      [ -n "$lo" ] || continue
+      if [ "$cnt" -ge "$BROWSE_MAX" ]; then truncated=true; break; fi
+      bj_emit "${lo%:}" "$lo"
+    done &lt;&lt;&lt; "$outs"
+    bj_out rclone "" ""
+  fi
+  case "$p" in *:*) : ;; *) bj_json_err "rclone path must look like remote:folder" ;; esac
+  valid_remote "${p%%:*}" || bj_json_err "invalid remote name in '$p'"
+  p="${p%/}"   # normalize: never keep a trailing slash (remote: stays as-is)
+  outs="$(bj_run 25 "$RCLONE_BIN" lsf -d --timeout 20s "$p" 2&gt;&amp;1)"; rc=$?
+  if [ "$rc" -eq 124 ]; then bj_json_err "rclone timed out on '$p' (25s) - enter the path manually instead"
+  elif [ "$rc" -ne 0 ]; then bj_json_err "rclone failed on '$p' (rc $rc): $(printf '%s' "$outs" | tail -n1 | cut -c1-200)"; fi
+  case "$p" in
+    *:) child="$p" ;;   # remote: -&gt; children are remote:name
+    *)  child="$p/" ;;  # remote:a or remote:/a -&gt; remote:a/name
+  esac
+  pp=""
+  if [[ "$p" == *:*/* ]]; then pp="${p%/*}"                       # remote:a/b -&gt; remote:a
+  elif [[ "$p" == *:* &amp;&amp; "$p" != *: ]]; then pp="${p%%:*}:"; fi   # remote:a   -&gt; remote:
+  while IFS= read -r lo; do
+    lo="${lo%/}"; [ -n "$lo" ] || continue
+    if [ "$cnt" -ge "$BROWSE_MAX" ]; then truncated=true; break; fi
+    bj_emit "$lo" "${child}$lo"
+  done &lt;&lt;&lt; "$outs"
+  bj_out rclone "$p" "$pp"
+}
+
 usage() {
   cat &lt;&lt;EOF
 rclone-jobs v$ENGINE_VERSION - scheduled transfers with a dry-run gate (Unraid)
@@ -858,6 +965,7 @@ usage:
   rclone-jobs.sh ack &lt;job&gt;               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh list                    list job names
+  rclone-jobs.sh browse &lt;local|rclone&gt; &lt;path&gt; [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
   rclone-jobs.sh doctor [--telegram]     self-test (PASS/FAIL table + paste-back block)
 EOF
@@ -872,6 +980,7 @@ main() {
     ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack &lt;job&gt;"; cmd_ack "$1" ;;
     status)   cmd_status ;;
     list)     cmd_list ;;
+    browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
     doctor)   cmd_doctor "$@" ;;
     *)        usage; exit 78 ;;
@@ -1055,7 +1164,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.04a - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.04b - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1105,7 +1214,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.04a',
+    'version'    =&gt; '2026.09.04b',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1116,7 +1225,7 @@ $rjdata = [
 ];
 ?&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04a"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04b"&gt;&lt;/script&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?&gt;&lt;/script&gt;
 
 &lt;ul class="tabs"&gt;
@@ -1183,14 +1292,14 @@ $rjdata = [
           &lt;tr&gt;&lt;td&gt;Schedule (cron)&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"&gt; &lt;span class="gray"&gt;min hour dom mon dow; numbers, * , - / only&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
           &lt;tr&gt;&lt;td&gt;Engine&lt;/td&gt;&lt;td&gt;&lt;select id="f_engine"&gt;&lt;option value="rclone"&gt;rclone&lt;/option&gt;&lt;option value="rsync"&gt;rsync&lt;/option&gt;&lt;option value="custom"&gt;custom script&lt;/option&gt;&lt;/select&gt;&lt;/td&gt;&lt;/tr&gt;
           &lt;tr class="rj-eng"&gt;&lt;td&gt;Mode (rclone)&lt;/td&gt;&lt;td&gt;&lt;select id="f_mode"&gt;&lt;option value="sync"&gt;sync&lt;/option&gt;&lt;option value="copy"&gt;copy&lt;/option&gt;&lt;option value="check"&gt;check&lt;/option&gt;&lt;/select&gt;&lt;/td&gt;&lt;/tr&gt;
-          &lt;tr class="rj-eng"&gt;&lt;td&gt;Source&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"&gt;&lt;/td&gt;&lt;/tr&gt;
-          &lt;tr class="rj-eng"&gt;&lt;td&gt;Destination&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt;&lt;/td&gt;&lt;/tr&gt;
-          &lt;tr class="rj-custom" style="display:none"&gt;&lt;td&gt;Script&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Source&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Destination&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-custom" style="display:none"&gt;&lt;td&gt;Script&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"&gt;&lt;/td&gt;&lt;/tr&gt;
           &lt;tr&gt;&lt;td&gt;Per-job dry-run&lt;/td&gt;&lt;td&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt; &lt;span class="gray"&gt;master switch on the Alerts tab always wins&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
           &lt;tr class="rj-eng"&gt;&lt;td&gt;Transfers / Checkers&lt;/td&gt;&lt;td&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/td&gt;&lt;/tr&gt;
           &lt;tr class="rj-eng"&gt;&lt;td&gt;Bandwidth limit&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_bwlimit" size="10" placeholder="off"&gt; &lt;span class="gray"&gt;e.g. 10M (rclone syntax)&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
           &lt;tr class="rj-eng"&gt;&lt;td&gt;Max deletes / Warn deletes&lt;/td&gt;&lt;td&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt; &lt;span class="gray"&gt;sync modes only&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
-          &lt;tr class="rj-eng"&gt;&lt;td&gt;Backup dir (optional)&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Backup dir (optional)&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"&gt;&lt;/td&gt;&lt;/tr&gt;
         &lt;/table&gt;
         &lt;p&gt;
           &lt;input type="submit" value="Save job" class="rj-btn"&gt;
@@ -1236,7 +1345,7 @@ $rjdata = [
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.04a - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.04b - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1399,6 +1508,20 @@ case 'run_dry':
     rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
     rj_out(['ok' =&gt; true, 'out' =&gt; implode("\n", $eo), 'rc' =&gt; $erc]);
 
+case 'browse':
+    /* read-only path picker listing; all confinement happens in the engine */
+    $bscope = ($_POST['scope'] ?? '') === 'rclone' ? 'rclone' : 'local';
+    $bpath  = trim((string)($_POST['path'] ?? ''));
+    if ($bpath !== '' &amp;&amp; rj_badfield($bpath)) rj_out(['ok' =&gt; false, 'error' =&gt; 'path contains forbidden characters']);
+    if (strlen($bpath) &gt; 1024) rj_out(['ok' =&gt; false, 'error' =&gt; 'path too long']);
+    if ($bscope === 'local' &amp;&amp; $bpath !== '' &amp;&amp; $bpath[0] !== '/') rj_out(['ok' =&gt; false, 'error' =&gt; 'local paths must start with /']);
+    $eo = []; $erc = 0;
+    rj_engine('browse ' . escapeshellarg($bscope) . ' ' . escapeshellarg($bpath)
+              . (($_POST['files'] ?? '') === '1' ? ' files' : ''), $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' =&gt; false, 'error' =&gt; 'bad browse response (rc ' . $erc . ')']);
+    rj_out($bj);
+
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
@@ -1463,7 +1586,7 @@ default:
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.04a - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.04b - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1637,6 +1760,161 @@ $(function () {
     });
   });
 
+  /* ---------------- path browser modal ---------------- */
+  var rjB = { scope: 'local', path: '', parent: '', files: false, allowRclone: true, target: '', req: 0, built: false };
+
+  function rjBrowseBuild() {
+    if (rjB.built) return;
+    var css = '#rj-browse-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:none}'
+      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:#23292e;border:1px solid #5a6570;border-radius:6px;color:#e8e8e8;box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
+      + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #444e57}'
+      + '#rj-browse-title{font-weight:bold;margin-right:auto}'
+      + '.rj-b-tab{padding:3px 10px;border:1px solid #5a6570;background:transparent;color:#cfd6dc;cursor:pointer;border-radius:3px}'
+      + '.rj-b-tab.on{background:#2e97c2;border-color:#2e97c2;color:#fff}'
+      + '#rj-browse-pathbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid #444e57;flex-wrap:wrap}'
+      + '#rj-browse-crumbs{display:flex;gap:2px;flex-wrap:wrap;align-items:center}'
+      + '.rj-b-crumb{cursor:pointer;color:#7fc7e8;text-decoration:underline}'
+      + '#rj-browse-list{max-height:46vh;overflow:auto;padding:4px 0}'
+      + '.rj-b-row{padding:3px 12px;cursor:pointer;white-space:nowrap;display:flex;gap:6px}'
+      + '.rj-b-row:hover{background:#2e97c2;color:#fff}'
+      + '.rj-b-row:hover .rj-b-ic{color:#fff}'
+      + '.rj-b-row .rj-b-ic{width:14px;color:#9aa7b2}'
+      + '.rj-b-note{padding:8px 12px;color:#9aa7b2}'
+      + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #444e57}'
+      + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:#cfe3ef}'
+      + '.rj-b-x{background:transparent;border:none;color:#cfd6dc;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}';
+    $('&lt;style&gt;').text(css).appendTo('head');
+    var ov = $('&lt;div id="rj-browse-ov"&gt;&lt;/div&gt;');
+    var box = $('&lt;div id="rj-browse" role="dialog" aria-modal="true"&gt;&lt;/div&gt;');
+    var head = $('&lt;div id="rj-browse-head"&gt;&lt;/div&gt;');
+    head.append($('&lt;span id="rj-browse-title"&gt;Select path&lt;/span&gt;'));
+    head.append($('&lt;button type="button" class="rj-b-tab" id="rj-b-tab-local"&gt;Server&lt;/button&gt;'));
+    head.append($('&lt;button type="button" class="rj-b-tab" id="rj-b-tab-rclone"&gt;Rclone remotes&lt;/button&gt;'));
+    head.append($('&lt;button type="button" class="rj-b-x" id="rj-b-close" aria-label="Close"&gt;&amp;#10005;&lt;/button&gt;'));
+    var pb = $('&lt;div id="rj-browse-pathbar"&gt;&lt;/div&gt;');
+    pb.append($('&lt;input type="button" value="&amp;#8593; Up" id="rj-b-up"&gt;'));
+    pb.append($('&lt;span id="rj-browse-crumbs"&gt;&lt;/span&gt;'));
+    pb.append($('&lt;input type="button" value="Refresh" id="rj-b-refresh" style="margin-left:auto"&gt;'));
+    box.append(head, pb, $('&lt;div id="rj-browse-list"&gt;&lt;/div&gt;'));
+    var foot = $('&lt;div id="rj-browse-foot"&gt;&lt;/div&gt;');
+    foot.append($('&lt;span id="rj-browse-cur"&gt;&lt;/span&gt;'));
+    foot.append($('&lt;input type="button" value="Select this folder" id="rj-b-select" class="rj-btn"&gt;'));
+    box.append(foot);
+    ov.append(box).appendTo('body');
+    rjB.built = true;
+  }
+
+  function rjBrowseOpen(target, opts) {
+    rjBrowseBuild();
+    opts = opts || {};
+    rjB.target = target; rjB.files = !!opts.files; rjB.allowRclone = opts.rclone !== false;
+    $('#rj-b-tab-rclone').toggle(rjB.allowRclone);
+    var v = $('#' + target).val() || '';
+    if (rjB.allowRclone &amp;&amp; /^[A-Za-z0-9._-]+:/.test(v)) { rjB.scope = 'rclone'; rjB.path = v; }
+    else { rjB.scope = 'local'; rjB.path = v.charAt(0) === '/' ? v : ''; }
+    rjB.parent = '';
+    $('#rj-browse-ov').fadeIn(80);
+    $('#rj-b-close').trigger('focus');
+    rjBrowseLoad(rjB.scope, rjB.path);
+  }
+
+  function rjBrowseClose() { rjB.req++; $('#rj-browse-ov').fadeOut(60); }
+
+  function rjBrowseLoad(scope, path) {
+    var req = ++rjB.req;
+    rjB.scope = scope;
+    $('#rj-b-tab-local').toggleClass('on', scope === 'local');
+    $('#rj-b-tab-rclone').toggleClass('on', scope === 'rclone');
+    $('#rj-browse-list').empty().append($('&lt;div class="rj-b-note"&gt;&lt;/div&gt;').text('loading ' + (path || '(roots)') + ' ...'));
+    rjPost({ action: 'browse', scope: scope, path: path, files: rjB.files ? '1' : '' }, function (res) {
+      if (req !== rjB.req) return;
+      if (!res.ok) {
+        $('#rj-browse-list').empty().append($('&lt;div class="rj-b-note" style="color:#e6867e"&gt;&lt;/div&gt;')
+          .text('ERROR: ' + (res.error || '?') + ' - use Up / tabs / crumbs to go back, or type the path manually.'));
+        return;
+      }
+      rjBrowseRender(res);
+    });
+  }
+
+  function rjBrowseCrumb(c, label, scope, path) {
+    if (c.children().length) c.append($('&lt;span style="color:#9aa7b2"&gt;/&lt;/span&gt;'));
+    c.append($('&lt;span class="rj-b-crumb"&gt;&lt;/span&gt;').text(label).data({ scope: scope, path: path }));
+  }
+
+  function rjBrowseCrumbs(res) {
+    var c = $('#rj-browse-crumbs').empty(), acc;
+    if (res.scope === 'local') {
+      rjBrowseCrumb(c, 'roots', 'local', '');
+      acc = '';
+      (res.path || '').split('/').filter(Boolean).forEach(function (p) {
+        acc += '/' + p; rjBrowseCrumb(c, p, 'local', acc);
+      });
+    } else {
+      rjBrowseCrumb(c, 'remotes', 'rclone', '');
+      if (res.path) {
+        var m = /^([^:]+):(.*)$/.exec(res.path);
+        rjBrowseCrumb(c, m[1] + ':', 'rclone', m[1] + ':');
+        acc = m[1] + ':';
+        (m[2] || '').split('/').filter(Boolean).forEach(function (p) {
+          acc += '/' + p; rjBrowseCrumb(c, p, 'rclone', acc);
+        });
+      }
+    }
+  }
+
+  function rjBrowseRender(res) {
+    rjB.path = res.path || ''; rjB.parent = res.parent || ''; rjB.scope = res.scope;
+    rjBrowseCrumbs(res);
+    $('#rj-browse-cur').text(rjB.path || (res.scope === 'rclone' ? '(pick a remote first)' : '(pick a root)'));
+    var $l = $('#rj-browse-list').empty();
+    var ents = res.entries || [];
+    if (!ents.length) $l.append($('&lt;div class="rj-b-note"&gt;&lt;/div&gt;').text('empty folder'));
+    ents.forEach(function (en) {
+      var isFile = rjB.files &amp;&amp; res.scope === 'local' &amp;&amp; /\.sh$/i.test(en.name);
+      var $row = $('&lt;div class="rj-b-row"&gt;&lt;/div&gt;');
+      $('&lt;span class="rj-b-ic"&gt;&lt;/span&gt;').text(isFile ? '-' : '&gt;').appendTo($row);
+      $('&lt;span&gt;&lt;/span&gt;').text(en.name).appendTo($row);
+      $row.data('path', en.path).data('file', isFile);
+      $row.on('click', function () {
+        if ($(this).data('file')) rjBrowsePick($(this).data('path'));
+        else rjBrowseLoad(rjB.scope, $(this).data('path'));
+      }).on('dblclick', function () { rjBrowsePick($(this).data('path')); });
+      $l.append($row);
+    });
+    if (res.truncated) $l.append($('&lt;div class="rj-b-note"&gt;&lt;/div&gt;').text('listing truncated at 500 entries - narrow down or type the path manually'));
+  }
+
+  function rjBrowsePick(p) {
+    $('#' + rjB.target).val(p).focus();
+    rjBrowseClose();
+  }
+
+  $(document).on('click.rclonejobs', '.rj-browse-btn', function () {
+    var t = String($(this).data('target'));
+    rjBrowseOpen(t, { files: t === 'f_script', rclone: t !== 'f_script' });
+  });
+  $(document).on('click.rclonejobs', '#rj-browse-ov', function (ev) { if (ev.target === this) rjBrowseClose(); });
+  $(document).on('click.rclonejobs', '#rj-b-close', rjBrowseClose);
+  $(document).on('click.rclonejobs', '#rj-b-tab-local', function () { if (rjB.scope !== 'local') rjBrowseLoad('local', ''); });
+  $(document).on('click.rclonejobs', '#rj-b-tab-rclone', function () { if (rjB.scope !== 'rclone') rjBrowseLoad('rclone', ''); });
+  $(document).on('click.rclonejobs', '#rj-b-up', function () { rjBrowseLoad(rjB.scope, rjB.parent || ''); });
+  $(document).on('click.rclonejobs', '#rj-b-refresh', function () { rjBrowseLoad(rjB.scope, rjB.path); });
+  $(document).on('click.rclonejobs', '#rj-b-select', function () { if (rjB.path) rjBrowsePick(rjB.path); });
+  $(document).on('click.rclonejobs', '.rj-b-crumb', function () { var d = $(this).data(); rjBrowseLoad(d.scope, d.path); });
+  $(document).on('keydown.rclonejobs', function (ev) {
+    if (!rjB.built || !$('#rj-browse-ov').is(':visible')) return;
+    if (ev.key === 'Escape') { rjBrowseClose(); return; }
+    if (ev.key === 'Tab') { /* focus trap inside the dialog */
+      var $f = $('#rj-browse').find('button:visible,input[type="button"]:visible');
+      if (!$f.length) return;
+      ev.preventDefault();
+      var i = $f.index(document.activeElement);
+      var n = ev.shiftKey ? (i &lt;= 0 ? $f.length - 1 : i - 1) : (i &gt;= $f.length - 1 ? 0 : i + 1);
+      $f.eq(n).trigger('focus');
+    }
+  });
+
   /* doctor tab */
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');
@@ -1653,7 +1931,7 @@ $(function () {
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04a - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.04b - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -1811,7 +2089,7 @@ exit "$errs"
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04a - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.04b - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
 set -uo pipefail
@@ -1906,7 +2184,7 @@ exit 0
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04a - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.04b - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.

@@ -805,6 +805,111 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
   exit 0
 }
 
+# -------------------------------------------------------------------- browse --
+# Read-only directory listing for the WebUI path picker. NEVER writes, NEVER
+# creates anything, listing is confined to whitelisted roots (local) or to the
+# user's own rclone remotes. Output: exactly one JSON object on stdout.
+BROWSE_MAX=500
+
+bj_json_err() { # error JSON WITHOUT jq (jq may be the very thing that failed)
+  local e="${1//\\/\\\\}"; e="${e//\"/\\\"}"; e="${e//$'\n'/ }"; e="${e//$'\r'/ }"
+  [ -n "${jf:-}" ] && rm -f "$jf"
+  printf '{"ok":false,"error":"%s"}\n' "$e"
+  exit 0
+}
+
+bj_run() { # <secs> <cmd...> - run with 'timeout' when coreutils provides it
+  if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi
+}
+
+cmd_browse() { # browse <local|rclone> <path> [files]
+  local scope="${1:-local}" p="${2:-}" with_files="${3:-}"
+  local jf rc rp pp n cnt=0 truncated=false outs lo child
+
+  case "$scope" in local|rclone) ;; *) bj_json_err "scope must be local|rclone" ;; esac
+  command -v jq >/dev/null 2>&1 || bj_json_err "jq not available"
+  bad_field "$p" && bj_json_err "path contains forbidden characters"
+  [ ${#p} -le 1024 ] || bj_json_err "path too long"
+
+  jf="$(mktemp /tmp/rj-browse.XXXXXX)" || bj_json_err "mktemp failed"
+  bj_emit() { jq -c -n --arg n "$1" --arg p "$2" '{name:$n,path:$p}' >> "$jf"; cnt=$((cnt+1)); }
+  bj_out() { # <scope> <path> <parent>
+    local entries; entries="$(jq -s -c '.' "$jf" 2>/dev/null)"
+    rm -f "$jf"
+    jq -c -n --arg scope "$1" --arg path "$2" --arg parent "$3" \
+       --argjson entries "${entries:-[]}" --argjson truncated "$truncated" \
+       '{ok:true,scope:$scope,path:$path,parent:$parent,entries:$entries,truncated:$truncated}'
+    exit 0
+  }
+
+  if [ "$scope" = local ]; then
+    if [ -z "$p" ]; then # virtual root: shares + array disks + mounts (+ plugins dir for script picking)
+      [ -d /mnt/user ] && bj_emit "user (shares)" "/mnt/user"
+      for lo in /mnt/disk[0-9]*; do [ -d "$lo" ] && bj_emit "${lo##*/}" "$lo"; done
+      [ -d /mnt/remotes ] && bj_emit "remotes (mounts)" "/mnt/remotes"
+      [ "$with_files" = files ] && [ -d /usr/local/emhttp/plugins ] && bj_emit "plugins (scripts)" "/usr/local/emhttp/plugins"
+      bj_out local "" ""
+    fi
+    rp="$(realpath -- "$p" 2>/dev/null)" || bj_json_err "path does not exist: $p"
+    case "$rp" in
+      /mnt/user|/mnt/user/*|/mnt/disk[0-9]*|/mnt/disk[0-9]*/*|/mnt/remotes|/mnt/remotes/*) : ;;
+      /usr/local/emhttp/plugins|/usr/local/emhttp/plugins/*)
+        [ "$with_files" = files ] || bj_json_err "only the Script field may browse under /usr/local/emhttp/plugins" ;;
+      *) bj_json_err "browsing outside /mnt/user, /mnt/diskN, /mnt/remotes is not allowed" ;;
+    esac
+    [ -d "$rp" ] || bj_json_err "not a directory: $rp"
+    pp="$(dirname "$rp")"
+    case "$pp" in
+      /mnt/user|/mnt/user/*|/mnt/disk[0-9]*|/mnt/disk[0-9]*/*|/mnt/remotes|/mnt/remotes/*|/usr/local/emhttp/plugins|/usr/local/emhttp/plugins/*) : ;;
+      *) pp="" ;;
+    esac
+    # glob does not match dotfiles - plugin/status folders stay invisible
+    shopt -s nullglob
+    for lo in "$rp"/*; do
+      if [ -d "$lo" ]; then :
+      elif [ "$with_files" = files ] && [ -f "$lo" ]; then case "$lo" in *.sh) : ;; *) continue ;; esac
+      else continue
+      fi
+      if [ "$cnt" -ge "$BROWSE_MAX" ]; then truncated=true; break; fi
+      bj_emit "${lo##*/}" "$lo"
+    done
+    shopt -u nullglob
+    bj_out local "$rp" "$pp"
+  fi
+
+  # ---- rclone scope ----
+  [ -x "$RCLONE_BIN" ] || bj_json_err "rclone not installed - install the rclone plugin first"
+  if [ -z "$p" ]; then
+    outs="$(bj_run 15 "$RCLONE_BIN" listremotes 2>&1)" || \
+      bj_json_err "rclone listremotes failed: $(printf '%s' "$outs" | tail -n1 | cut -c1-200)"
+    while IFS= read -r lo; do
+      [ -n "$lo" ] || continue
+      if [ "$cnt" -ge "$BROWSE_MAX" ]; then truncated=true; break; fi
+      bj_emit "${lo%:}" "$lo"
+    done <<< "$outs"
+    bj_out rclone "" ""
+  fi
+  case "$p" in *:*) : ;; *) bj_json_err "rclone path must look like remote:folder" ;; esac
+  valid_remote "${p%%:*}" || bj_json_err "invalid remote name in '$p'"
+  p="${p%/}"   # normalize: never keep a trailing slash (remote: stays as-is)
+  outs="$(bj_run 25 "$RCLONE_BIN" lsf -d --timeout 20s "$p" 2>&1)"; rc=$?
+  if [ "$rc" -eq 124 ]; then bj_json_err "rclone timed out on '$p' (25s) - enter the path manually instead"
+  elif [ "$rc" -ne 0 ]; then bj_json_err "rclone failed on '$p' (rc $rc): $(printf '%s' "$outs" | tail -n1 | cut -c1-200)"; fi
+  case "$p" in
+    *:) child="$p" ;;   # remote: -> children are remote:name
+    *)  child="$p/" ;;  # remote:a or remote:/a -> remote:a/name
+  esac
+  pp=""
+  if [[ "$p" == *:*/* ]]; then pp="${p%/*}"                       # remote:a/b -> remote:a
+  elif [[ "$p" == *:* && "$p" != *: ]]; then pp="${p%%:*}:"; fi   # remote:a   -> remote:
+  while IFS= read -r lo; do
+    lo="${lo%/}"; [ -n "$lo" ] || continue
+    if [ "$cnt" -ge "$BROWSE_MAX" ]; then truncated=true; break; fi
+    bj_emit "$lo" "${child}$lo"
+  done <<< "$outs"
+  bj_out rclone "$p" "$pp"
+}
+
 usage() {
   cat <<EOF
 rclone-jobs v$ENGINE_VERSION - scheduled transfers with a dry-run gate (Unraid)
@@ -814,6 +919,7 @@ usage:
   rclone-jobs.sh ack <job>               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh list                    list job names
+  rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
   rclone-jobs.sh doctor [--telegram]     self-test (PASS/FAIL table + paste-back block)
 EOF
@@ -828,6 +934,7 @@ main() {
     ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack <job>"; cmd_ack "$1" ;;
     status)   cmd_status ;;
     list)     cmd_list ;;
+    browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
     doctor)   cmd_doctor "$@" ;;
     *)        usage; exit 78 ;;

@@ -1,3 +1,12 @@
+## 2026.09.04b
+- WebUI: path browser for Source, Destination, Backup dir and Script fields - modal
+  picker with Server tab (/mnt/user shares, array disks, mounts) and Rclone remotes
+  tab (bucket/folder listing), breadcrumbs, Up/Refresh, double-click select.
+- Engine: new read-only 'browse' subcommand (single JSON object): whitelisted roots,
+  realpath containment (symlink/.. escape rejected), dot-folders hidden, 500-entry cap,
+  time-bounded rclone listings; Script mode additionally lists *.sh under the plugins dir.
+- ajax: new 'browse' action (POST+CSRF, thin dispatch to the engine).
+
 ## 2026.09.04a
 - pluginURL/support/project now point to the public GitHub repo - Check for Updates
   and one-click install-from-URL work.

@@ -162,6 +162,20 @@ case 'run_dry':
     rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
     rj_out(['ok' => true, 'out' => implode("\n", $eo), 'rc' => $erc]);
 
+case 'browse':
+    /* read-only path picker listing; all confinement happens in the engine */
+    $bscope = ($_POST['scope'] ?? '') === 'rclone' ? 'rclone' : 'local';
+    $bpath  = trim((string)($_POST['path'] ?? ''));
+    if ($bpath !== '' && rj_badfield($bpath)) rj_out(['ok' => false, 'error' => 'path contains forbidden characters']);
+    if (strlen($bpath) > 1024) rj_out(['ok' => false, 'error' => 'path too long']);
+    if ($bscope === 'local' && $bpath !== '' && $bpath[0] !== '/') rj_out(['ok' => false, 'error' => 'local paths must start with /']);
+    $eo = []; $erc = 0;
+    rj_engine('browse ' . escapeshellarg($bscope) . ' ' . escapeshellarg($bpath)
+              . (($_POST['files'] ?? '') === '1' ? ' files' : ''), $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad browse response (rc ' . $erc . ')']);
+    rj_out($bj);
+
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);

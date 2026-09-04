@@ -131,14 +131,14 @@ $rjdata = [
           <tr><td>Schedule (cron)</td><td><input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"> <span class="gray">min hour dom mon dow; numbers, * , - / only</span></td></tr>
           <tr><td>Engine</td><td><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></td></tr>
           <tr class="rj-eng"><td>Mode (rclone)</td><td><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></td></tr>
-          <tr class="rj-eng"><td>Source</td><td><input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"></td></tr>
-          <tr class="rj-eng"><td>Destination</td><td><input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"></td></tr>
-          <tr class="rj-custom" style="display:none"><td>Script</td><td><input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"></td></tr>
+          <tr class="rj-eng"><td>Source</td><td><input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></td></tr>
+          <tr class="rj-eng"><td>Destination</td><td><input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></td></tr>
+          <tr class="rj-custom" style="display:none"><td>Script</td><td><input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></td></tr>
           <tr><td>Per-job dry-run</td><td><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select> <span class="gray">master switch on the Alerts tab always wins</span></td></tr>
           <tr class="rj-eng"><td>Transfers / Checkers</td><td><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></td></tr>
           <tr class="rj-eng"><td>Bandwidth limit</td><td><input type="text" id="f_bwlimit" size="10" placeholder="off"> <span class="gray">e.g. 10M (rclone syntax)</span></td></tr>
           <tr class="rj-eng"><td>Max deletes / Warn deletes</td><td><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"> <span class="gray">sync modes only</span></td></tr>
-          <tr class="rj-eng"><td>Backup dir (optional)</td><td><input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"></td></tr>
+          <tr class="rj-eng"><td>Backup dir (optional)</td><td><input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></td></tr>
         </table>
         <p>
           <input type="submit" value="Save job" class="rj-btn">
