@@ -63,9 +63,21 @@ $rjdata = [
     'jobs'       => $jobs,
 ];
 ?>
+<style>
+  /* keep form fields inside their table cells on every screen width */
+  #tab_rj_jobs input[type=text], #tab_rj_jobs input[type=number],
+  #tab_rj_alerts input[type=text], #tab_rj_alerts input[type=password]
+    { box-sizing:border-box; max-width:100%; }
+  #tab_rj_jobs input.rj-path { width:100%; max-width:560px; }
+  #tab_rj_jobs table.rclone-jobs { width:100%; }
+  #tab_rj_jobs td { word-break:break-word; }
+  #tab_rj_jobs td [data-act] { white-space:nowrap; }
+</style>
 <script>var rj_csrf = <?= json_encode($csrf_token) ?>;</script>
 <script src="/plugins/rclone-jobs/js/rclone-jobs.js?v={{VERSION}}"></script>
-<script type="application/json" id="rj-data"><?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?></script>
+<?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
+         goes out unescaped but with < > & ' " hex-escaped (no </script> breakout). */ ?>
+<script type="application/json" id="rj-data"><?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
 <ul class="tabs">
   <li><a href="#tab_rj_jobs">Jobs</a></li>
@@ -102,8 +114,9 @@ $rjdata = [
           <td><?= $en ?></td>
           <td><?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?></td>
           <td><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></td>
-          <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= htmlspecialchars(($c['SRC'] ?? '').' -> '.($c['DST'] ?? '')) ?>">
-            <?= htmlspecialchars($c['SRC'] ?? '') ?> → <?= htmlspecialchars($c['DST'] ?? '') ?></td>
+          <!-- max-width must sit on a div: <td> ignores it in auto table layout -->
+          <td><div style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= htmlspecialchars(($c['SRC'] ?? '').' -> '.($c['DST'] ?? '')) ?>">
+            <?= htmlspecialchars($c['SRC'] ?? '') ?> → <?= htmlspecialchars($c['DST'] ?? '') ?></div></td>
           <td><?= htmlspecialchars((string)$rc) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?></td>
           <td><?= htmlspecialchars((string)$lastok) ?></td>
           <td><?= htmlspecialchars($drysum) ?></td>
@@ -131,14 +144,14 @@ $rjdata = [
           <tr><td>Schedule (cron)</td><td><input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"> <span class="gray">min hour dom mon dow; numbers, * , - / only</span></td></tr>
           <tr><td>Engine</td><td><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></td></tr>
           <tr class="rj-eng"><td>Mode (rclone)</td><td><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></td></tr>
-          <tr class="rj-eng"><td>Source</td><td><input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></td></tr>
-          <tr class="rj-eng"><td>Destination</td><td><input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></td></tr>
-          <tr class="rj-custom" style="display:none"><td>Script</td><td><input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></td></tr>
+          <tr class="rj-eng"><td>Source</td><td><input type="text" id="f_src" class="rj-path" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></td></tr>
+          <tr class="rj-eng"><td>Destination</td><td><input type="text" id="f_dst" class="rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></td></tr>
+          <tr class="rj-custom" style="display:none"><td>Script</td><td><input type="text" id="f_script" class="rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></td></tr>
           <tr><td>Per-job dry-run</td><td><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select> <span class="gray">master switch on the Alerts tab always wins</span></td></tr>
           <tr class="rj-eng"><td>Transfers / Checkers</td><td><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></td></tr>
           <tr class="rj-eng"><td>Bandwidth limit</td><td><input type="text" id="f_bwlimit" size="10" placeholder="off"> <span class="gray">e.g. 10M (rclone syntax)</span></td></tr>
           <tr class="rj-eng"><td>Max deletes / Warn deletes</td><td><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"> <span class="gray">sync modes only</span></td></tr>
-          <tr class="rj-eng"><td>Backup dir (optional)</td><td><input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></td></tr>
+          <tr class="rj-eng"><td>Backup dir (optional)</td><td><input type="text" id="f_backupdir" class="rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></td></tr>
         </table>
         <p>
           <input type="submit" value="Save job" class="rj-btn">
@@ -178,3 +191,5 @@ $rjdata = [
        <input type="checkbox" id="rj-doctor-tg"> include live Telegram test (sends a message if enabled)</p>
     <pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px">Not run yet.</pre>
   </div>
+
+<p class="gray" style="margin-top:16px;font-size:11px">rclone-jobs v{{VERSION}} &middot; storage: <?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?></p>

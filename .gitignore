@@ -5,7 +5,7 @@ Thumbs.db
 .DS_Store
 
 # dist/ is intentionally committed: it is the deliverable that gets scp'd.
-console-export-*.log
+console-export*
 Screenshot *.png
 settings-page-source.html
 

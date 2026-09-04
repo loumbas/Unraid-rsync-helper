@@ -1,3 +1,18 @@
+## 2026.09.04d
+- Fix: WebUI state blob (#rj-data) was HTML-escaped inside a raw-text script tag, so
+  JSON.parse failed and the whole page JS died on startup (Browse/Save/Run never bound).
+  State now ships as real JSON with only the five risky characters hex-escaped.
+- JS hardening: rjData() falls back to complete defaults - a bad blob can no longer
+  kill the ready handler.
+- Jobs table: Source-to-Destination ellipsis moved to a div wrapper (max-width on a
+  table cell is ignored in auto table layout); table set width:100%.
+
+## 2026.09.04c
+- Page footer: plugin version + storage path shown at the bottom of every tab (makes a
+  stale over-install obvious at a glance - updates need remove-then-install on this box).
+- Form CSS: path fields and other inputs are width-capped and box-sizing:border-box,
+  so they no longer crop at the settings-table edge on narrow screens.
+
 ## 2026.09.04b
 - WebUI: path browser for Source, Destination, Backup dir and Script fields - modal
   picker with Server tab (/mnt/user shares, array disks, mounts) and Rclone remotes

@@ -15,7 +15,15 @@ function rjPanel(id, text, isError) {
 }
 
 function rjData() {
-  try { return JSON.parse($('#rj-data').text()); } catch (e) { return { jobs: {} }; }
+  /* never let a malformed/missing state blob kill the ready handler */
+  var d = null;
+  try { d = JSON.parse($('#rj-data').text()); } catch (e) { d = null; }
+  if (!d || typeof d !== 'object') d = {};
+  if (!d.jobs || typeof d.jobs !== 'object') d.jobs = {};
+  if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
+  if (!d.telegram || typeof d.telegram !== 'object') d.telegram = {};
+  if (d.master === undefined) d.master = 'yes';
+  return d;
 }
 
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
