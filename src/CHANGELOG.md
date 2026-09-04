@@ -1,3 +1,14 @@
+## 2026.09.04h
+- Storage-overlap guard: a job whose SRC or DST is inside the plugin storage folder
+  is now REFUSED (exit 78 + alert) - logs/status/notify.env can no longer be uploaded
+  or --delete-erased by a misconfigured job. A job whose SRC/DST contains the storage
+  folder (the hosting disk root, or /mnt/user - shfs surfaces the dot-folder there)
+  runs with the storage top folder auto-excluded: rclone gets two anchored --exclude
+  patterns, rsync gets an anchored --exclude (which also shields it from --delete).
+  ARGS --delete-excluded is refused; custom-engine jobs warn once per change (Telegram
+  + notify + syslog) because no exclude can be injected there. Doctor reports the
+  overlap per job; the job form shows an inline hint on SRC/DST.
+
 ## 2026.09.04g
 - WebUI restyled to the native settings-page anatomy: icon .title section headers
   replace all fieldsets/legends (Add job, Safety, Telegram notifications, Doctor);

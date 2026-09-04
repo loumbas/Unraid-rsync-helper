@@ -56,6 +56,35 @@ $(function () {
   $('#f_engine').off('.rclonejobs').on('change.rclonejobs', engRows);
   engRows();
 
+  /* storage-overlap hint: client-side mirror of the engine's overlap_check */
+  function rjNorm(p) { return p.length > 1 ? p.replace(/\/+$/, '') : p; }
+  function rjOverlap(p) {
+    var s = D.storage ? rjNorm(D.storage) : '';
+    if (!s || !p || p.charAt(0) !== '/' || /^[A-Za-z0-9._-]+:/.test(p)) return '';
+    p = rjNorm(p);
+    if (p === s || p.indexOf(s + '/') === 0) return 'inside';
+    if (s.indexOf(p + '/') === 0) return 'ancestor';
+    if (p === '/mnt/user' && /^\/mnt\/disk\d+\/\./.test(s)) return 'ancestor';
+    return '';
+  }
+  function rjOvHint() {
+    var msgs = [], warn = false, top = '';
+    if (D.storage) top = '/' + D.storage.split('/').filter(Boolean).pop();
+    [['source', $('#f_src').val().trim()], ['destination', $('#f_dst').val().trim()]].forEach(function (x) {
+      var kind = rjOverlap(x[1]);
+      if (kind === 'inside') { warn = true; msgs.push('WARNING: ' + x[0] + ' is inside the plugin storage folder - runs will be REFUSED.'); }
+      else if (kind === 'ancestor') {
+        if ($('#f_engine').val() === 'custom') { warn = true; msgs.push('WARNING: a custom script cannot receive an auto-exclude - ' + top + ' is NOT shielded inside this ' + x[0] + '.'); }
+        else msgs.push('Note: this ' + x[0] + ' contains the plugin storage folder - ' + top + ' is auto-excluded on runs.');
+      }
+    });
+    var $n = $('#rj-ov-note');
+    if (!msgs.length) { $n.hide(); return; }
+    $n.text(msgs.join(' ')).css('color', warn ? '#e6867e' : '#9aa7b2').show();
+  }
+  $('#f_src, #f_dst').off('.rjov').on('input.rjov change.rjov', rjOvHint);
+  $('#f_engine').off('.rjov').on('change.rjov', rjOvHint);
+
   function showForm(title, j) {
     $('#rj-form-title').text(title);
     $('#f_orig').val(j ? j.name : '');
@@ -76,6 +105,7 @@ $(function () {
     $('#f_warndelete').val(j && j.conf.WARN_DELETE !== undefined ? j.conf.WARN_DELETE : 100);
     $('#f_backupdir').val(j && j.conf.BACKUPDIR ? j.conf.BACKUPDIR : '');
     engRows();
+    rjOvHint();
     $('#rj-form-title')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 

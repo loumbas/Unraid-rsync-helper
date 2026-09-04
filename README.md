@@ -35,6 +35,7 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 | Per-job gate | real run requires a fresh matching dry-run |
 | Share policy | plugin data lives in a hidden dot-folder (`/mnt/diskN/.rclone-jobs`), never under `/mnt/user`, `/etc`, `/usr`, `/var/log`, `/` |
 | Mount guard | source must exist, destination must be an already-mounted non-tmpfs directory; never auto-creates destinations |
+| Storage overlap | a job with SRC/DST **inside** the storage folder is refused; a job whose SRC/DST **contains** it (hosting disk root, `/mnt/user`) runs with `/.rclone-jobs` auto-excluded (custom engine: warned, cannot exclude) |
 | Config injection | job names, schedules and paths are whitelist-validated; config values are never shell-evaluated |
 | WebUI | POST-only ajax, CSRF-checked, values re-validated server-side |
 | Path browser | read-only listing; confined to `/mnt/user`, `/mnt/diskN`, `/mnt/remotes` (plus the plugins dir for Script), symlink-escaped paths rejected, dot-folders hidden, 500-entry cap, rclone calls time-bounded |
@@ -58,9 +59,10 @@ A copy of the engine is kept in the storage folder (`/mnt/diskN/.rclone-jobs/rcl
 ## Storage location & upgrades
 
 Job data lives in a hidden dot-folder directly on an array disk
-(`/mnt/diskN/.rclone-jobs`). It is not a share and share tools never traverse it;
-note shfs does surface the path (`/mnt/user/.rclone-jobs`) to `ls -a`/`find` —
-cosmetic only. To upgrade: **remove the plugin, then install the new .plg**
+(`/mnt/diskN/.rclone-jobs`). It is not a share; note shfs does surface the path
+(`/mnt/user/.rclone-jobs`) to `ls -a`/`find` — cosmetic only, and any job whose
+SRC/DST is the hosting disk root or `/mnt/user` auto-excludes the folder (see
+Safety model), so even this plugin's own whole-disk jobs never touch it. To upgrade: **remove the plugin, then install the new .plg**
 (installing over an existing install may refresh the saved .plg but not the
 deployed files; config and all job data survive a remove).
 

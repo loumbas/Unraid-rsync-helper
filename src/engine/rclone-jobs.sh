@@ -299,7 +299,10 @@ validate_job() {
     bad_field "$J_DST" && die 78 "job $JOB_NAME: DST contains forbidden characters"
     bad_field "$J_BWLIMIT" && die 78 "job $JOB_NAME: BWLIMIT contains forbidden characters"
     local a
-    for a in $J_ARGS; do bad_field "$a" && die 78 "job $JOB_NAME: ARGS token '$a' contains forbidden characters"; done
+    for a in $J_ARGS; do
+      bad_field "$a" && die 78 "job $JOB_NAME: ARGS token '$a' contains forbidden characters"
+      case "$a" in --delete-excluded*) die 78 "job $JOB_NAME: ARGS '$a' is refused (it would defeat the storage auto-exclude)" ;; esac
+    done
   fi
   case "$J_ENGINE" in
     rclone) case "$J_MODE" in sync|copy|check) ;; *) die 78 "job $JOB_NAME: MODE must be sync|copy|check" ;; esac ;;
@@ -337,6 +340,95 @@ mount_guard() { # <path> <src|dst> - READ-ONLY checks; never mkdir -p. Exit 75 +
   if [ -n "$src" ] && [ "$src" = "$rootsrc" ] && [ "$fst" = "$rootfst" ]; then
     alert_refuse "'$d' resolves to the root filesystem ($src) - array not started - nothing was touched"
     die 75 "mount guard: '$d' on root overlay"
+  fi
+}
+
+# ------------------------------------------------------- storage overlap --
+# A job must never swallow the plugin's own storage folder. INSIDE (SRC/DST is
+# STORAGE_ROOT or below it): refused outright - logs/status/notify.env would be
+# uploaded and --delete could erase the plugin's own data. ANCESTOR (SRC/DST
+# CONTAINS STORAGE_ROOT, e.g. the hosting disk root): the run proceeds with the
+# storage top folder auto-excluded on both sides of the transfer.
+STORAGE_TOP=""   # e.g. /.rclone-jobs when a side is an ancestor; '' otherwise
+
+storage_classify() { # <local path> -> echo '' | inside | ancestor:<top>
+  local p="$1" rp rel
+  [ -n "$STORAGE_ROOT" ] || { printf ''; return 0; }
+  rp="$(realpath -m -- "$p" 2>/dev/null)" || { printf ''; return 0; }
+  case "$rp" in
+    "$STORAGE_ROOT"|"$STORAGE_ROOT"/*) printf 'inside'; return 0 ;;
+  esac
+  case "$STORAGE_ROOT" in
+    "$rp"/*)
+      rel="${STORAGE_ROOT#"$rp"/}"
+      printf 'ancestor:/%s' "${rel%%/*}"
+      return 0 ;;
+  esac
+  # shfs quirk (verified on-box): readdir of /mnt/user surfaces the dot-folder
+  # at each disk ROOT, so share-wide jobs traverse it just like disk roots.
+  # Only applies when the storage top segment IS that disk-root dot-folder.
+  case "$rp" in
+    /mnt/user)
+      case "$STORAGE_ROOT" in
+        /mnt/disk[0-9]*)
+          rel="${STORAGE_ROOT#"/mnt/disk"}"; rel="${rel#*/}"
+          case "$rel" in
+            .*) printf 'ancestor:/%s' "${rel%%/*}"; return 0 ;;
+          esac ;;
+      esac ;;
+  esac
+  printf ''
+}
+
+ov_report() { # doctor use: one line per overlapping side (JOB_* set by load_job)
+  local p cls
+  for p in "$J_SRC" "$J_DST"; do
+    [ -n "$p" ] || continue
+    is_local "$p" || continue
+    cls="$(storage_classify "$p")"
+    case "$cls" in
+      inside)     printf 'job %s: path %s is INSIDE the storage folder - runs will be refused\n' "$JOB_NAME" "$p" ;;
+      ancestor:*) printf 'job %s: path %s contains the storage folder - %s is auto-excluded on runs\n' "$JOB_NAME" "$p" "${cls#ancestor:}" ;;
+    esac
+  done
+}
+
+overlap_check() { # after storage_guard + load_job; fills STORAGE_TOP; refuses INSIDE
+  STORAGE_TOP=""
+  [ -n "$STORAGE_ROOT" ] || return 0
+  local p cls top anc=""
+  for p in "$J_SRC" "$J_DST"; do
+    [ -n "$p" ] || continue
+    is_local "$p" || continue
+    cls="$(storage_classify "$p")"
+    case "$cls" in
+      inside)
+        alert_refuse "job $JOB_NAME: '$p' is inside the plugin storage folder ($STORAGE_ROOT) - logs, status and notify.env must never be synced or deleted by a job"
+        die 78 "job $JOB_NAME: SRC/DST inside STORAGE_ROOT - nothing was touched" ;;
+      ancestor:*)
+        top="${cls#ancestor:}"
+        if [ -n "$STORAGE_TOP" ] && [ "$STORAGE_TOP" != "$top" ]; then
+          die 78 "job $JOB_NAME: SRC and DST both contain the storage folder under different names ('$STORAGE_TOP' vs '$top') - unsupported, split the job"
+        fi
+        [ -n "$anc" ] || anc="$p"
+        STORAGE_TOP="$top" ;;
+    esac
+  done
+  if [ -z "$STORAGE_TOP" ]; then
+    rm -f "$STATUS_DIR/$JOB_NAME-overlap" 2>/dev/null || true
+    return 0
+  fi
+  syslog_line "AUTOEXCLUDE job=$JOB_NAME: '$STORAGE_TOP' shielded (SRC/DST '$anc' contains $STORAGE_ROOT)"
+  if [ "$J_ENGINE" = custom ]; then
+    say "rclone-jobs: $JOB_NAME: custom engine cannot receive an auto-exclude - '$STORAGE_TOP' is NOT shielded under '$anc'"
+    local mark="$STATUS_DIR/$JOB_NAME-overlap" cur="$anc|$STORAGE_TOP"
+    if [ ! -f "$mark" ] || [ "$(cat "$mark" 2>/dev/null)" != "$cur" ]; then
+      printf '%s\n' "$cur" > "$mark" 2>/dev/null || true
+      notify_unraid warning "rclone-jobs: $JOB_NAME storage overlap" "custom engine syncs '$anc' which contains $STORAGE_ROOT; $STORAGE_TOP is not shielded there"
+      tg_send "WARN rclone-jobs: $JOB_NAME - custom engine syncs '$anc' containing $STORAGE_ROOT; no auto-exclude is possible there" || true
+    fi
+  else
+    say "rclone-jobs: $JOB_NAME: '$STORAGE_TOP' is auto-excluded (SRC/DST '$anc' contains the plugin storage folder)"
   fi
 }
 
@@ -397,6 +489,7 @@ build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-
       [ -n "$J_BACKUPDIR" ] && CMD+=(--backup-dir "$J_BACKUPDIR")
       [ -n "$J_BWLIMIT" ]   && CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
+      [ -n "$STORAGE_TOP" ] && CMD+=(--exclude "$STORAGE_TOP" --exclude "$STORAGE_TOP/**")
       if [ "$dry" = yes ]; then CMD+=(-vv --dry-run); else CMD+=(-v --stats 60s --stats-one-line); fi
       ;;
     rsync)
@@ -405,6 +498,7 @@ build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-
       else CMD+=(-v --info=stats2); fi
       [ -n "$J_BWLIMIT" ] && CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
+      [ -n "$STORAGE_TOP" ] && CMD+=(--exclude="$STORAGE_TOP/")
       CMD+=("$J_SRC" "$J_DST")
       ;;
     custom)
@@ -512,6 +606,7 @@ cmd_run() { # <job> [--dry-run]
   if [ "$J_ENGINE" = rclone ]; then guard_rclone_available; guard_remotes; fi
   if [ -n "$J_SRC" ]; then is_local "$J_SRC" && mount_guard "$J_SRC" src; fi
   if [ -n "$J_DST" ]; then is_local "$J_DST" && mount_guard "$J_DST" dst; fi
+  overlap_check
   [ "$dry" = no ] && gate_check
   if [ "$master_forced" = yes ]; then
     say "rclone-jobs: DRY_RUN_MASTER=yes -> forcing --dry-run (global master switch is ON)"
@@ -687,7 +782,7 @@ d_line() { # <PASS|WARN|FAIL|INFO> <text> - buffered once, printed once in the f
 }
 
 cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
-  local opt_tg=no a pv ro rv cf b missing rp perm regen drift drc probe_rc now sj lo jn save
+  local opt_tg=no a pv ro rv cf b missing rp perm regen drift drc probe_rc now sj lo jn save ov ovl
   for a in "$@"; do [ "$a" = "--telegram" ] && opt_tg=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
@@ -728,6 +823,7 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       else d_line WARN "notify.env mode is $perm - should be 600: chmod 600 '$STORAGE_ROOT/notify.env'"; fi
     else d_line WARN "notify.env not configured - Telegram alerts disabled until set on the Alerts tab"; fi
   fi
+  [ -n "$STORAGE_ROOT" ] && STORAGE_ROOT="$(realpath -m -- "$STORAGE_ROOT" 2>/dev/null || printf '%s' "$STORAGE_ROOT")"
   missing=""
   for b in jq flock rsync curl logger pgrep findmnt fuser sha256sum; do
     command -v "$b" >/dev/null 2>&1 || missing="$missing $b"
@@ -762,7 +858,9 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       [ -e "$sj" ] || continue
       lo="$(basename "$sj" .conf)"
       if ! valid_jobname "$lo"; then d_line FAIL "invalid job filename: $sj"; continue; fi
-      ( JOB_NAME="$lo"; load_job >/dev/null 2>&1 ) || d_line FAIL "job $lo: config invalid (check $sj)"
+      if ov="$( JOB_NAME="$lo"; load_job >/dev/null 2>&1 && ov_report 2>/dev/null )"; then
+        while IFS= read -r ovl; do [ -n "$ovl" ] && d_line WARN "$ovl"; done <<< "$ov"
+      else d_line FAIL "job $lo: config invalid (check $sj)"; fi
     done
     if [ -n "$STORAGE_ROOT" ] && [ -d "$STORAGE_ROOT/status" ]; then
       STATUS_DIR="$STORAGE_ROOT/status"

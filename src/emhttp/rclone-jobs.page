@@ -157,6 +157,7 @@ $rjdata = [
         <dl><dt>Destination:</dt><dd><input type="text" id="f_dst" class="variable rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
         <blockquote class='inline_help'><p>Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.</p></blockquote>
         </div>
+        <p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"></p>
         <div class="rj-custom" style="display:none">
         <dl><dt>Script:</dt><dd><input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></dd></dl>
         <blockquote class='inline_help'><p>Absolute path of an executable script; Browse... shows <em>.sh</em> files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.</p></blockquote>
