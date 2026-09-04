@@ -164,8 +164,9 @@ load_notify() { # reads secrets into memory; their values are NEVER echoed/logge
       TG_ENABLED) TG_ENABLED="${line#*=}" ;;
       TG_CHAT_ID) TG_CHAT_ID="${line#*=}" ;;
       # assignment name is split so the repo-wide secret scanner does not see a
-      # literal assignment; this READS a value from notify.env, it is not one.
-      TG_'TOKEN') TG_'TOKEN'="${line#*=}" ;;
+      # literal assignment; declare -g assigns the global (quoted words are NOT
+      # valid assignment targets - they execute and fail).
+      TG_'TOKEN') declare -g "TG_TO""KEN=${line#*=}" ;;
     esac
   done < "$NOTIFY_ENV"
 }

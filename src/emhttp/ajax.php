@@ -151,7 +151,7 @@ case 'delete_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
     if (!is_file($conf)) rj_out(['ok' => false, 'error' => 'job not found']);
-    $bk = $conf.'.removed-'.date('Ymd-His');
+    $bk = $conf.'.removed-'.trim((string)shell_exec("date +%Y%m%d-%H%M%S"));  # system TZ, not PHP UTC
     rename($conf, $bk);
     $rg = []; rj_regen($rg);
     rj_out(['ok' => true, 'msg' => 'Job deleted (config kept as '.$bk.') '.implode(' ', $rg)]);
