@@ -71,6 +71,7 @@ $rjdata = [
   #tab_rj_jobs input[type=number] { width:64px; }
   #tab_rj_jobs dd.rj-inline, #tab_rj_alerts dd.rj-inline { white-space:nowrap; }
   ul.tabs li.active > a { font-weight:bold; }
+  ul.tabs a.rj-tab { cursor:pointer; }
   #tab_rj_jobs table.rclone-jobs { width:100%; }
   #tab_rj_jobs td { word-break:break-word; }
   #tab_rj_jobs td [data-act] { white-space:nowrap; }
@@ -82,9 +83,9 @@ $rjdata = [
 <script type="application/json" id="rj-data"><?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
 <ul class="tabs">
-  <li><a href="#tab_rj_jobs">Jobs</a></li>
-  <li><a href="#tab_rj_alerts">Alerts &amp; Safety</a></li>
-  <li><a href="#tab_rj_doctor">Doctor</a></li>
+  <li><a class="rj-tab" data-tab="tab_rj_jobs" tabindex="0" role="tab">Jobs</a></li>
+  <li><a class="rj-tab" data-tab="tab_rj_alerts" tabindex="0" role="tab">Alerts &amp; Safety</a></li>
+  <li><a class="rj-tab" data-tab="tab_rj_doctor" tabindex="0" role="tab">Doctor</a></li>
 </ul>
 
   <!-- ======================= JOBS TAB ======================= -->

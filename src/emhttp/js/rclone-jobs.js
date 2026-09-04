@@ -39,24 +39,30 @@ function rjConfirm(title, text, btn, danger, cb) {
 $(function () {
   var D = rjData();
 
-  /* tabbed layout: state-setting (not toggling) so it is safe alongside any
-     tab js the platform itself may attach to ul.tabs; keeps #tab_rj_* deep links */
+  /* tabbed layout: headers are href-less <a class="rj-tab"> on purpose - Unraid's
+     a[href] click interceptor would treat a bare "#hash" as a navigation and show
+      the 'External link' dialog. Delegated binding; URL keeps #tab_rj_* for deep links. */
   (function rjTabs() {
-    var $ul = $('ul.tabs');
-    if (!$ul.length) return;
-    var $links = $ul.find('a[href^="#"]');
-    if (!$links.length) return;
-    var ids = $links.map(function () { return this.hash; }).get();
-    function activate(hash) {
-      $links.each(function () { $(this).parent().toggleClass('active', this.hash === hash); });
-      ids.forEach(function (id) { var $d = $(id); if ($d.length) $d.toggle(id === hash); });
+    var tabs = [];
+    $('ul.tabs a.rj-tab').each(function () { tabs.push(String($(this).data('tab'))); });
+    if (!tabs.length) return;
+    function activate(id) {
+      $('ul.tabs a.rj-tab').each(function () {
+        $(this).parent().toggleClass('active', String($(this).data('tab')) === id);
+      });
+      tabs.forEach(function (t) { var $d = $('#' + t); if ($d.length) $d.toggle(t === id); });
     }
-    $links.off('.rjtab').on('click.rjtab', function (ev) {
-      ev.preventDefault();
-      activate(this.hash);
-      if (location.hash !== this.hash) history.replaceState(null, '', this.hash);
+    function open(id) {
+      if (tabs.indexOf(id) < 0) return;
+      activate(id);
+      if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
+    }
+    $(document).on('click.rjtab', 'ul.tabs a.rj-tab', function () { open(String($(this).data('tab'))); });
+    $(document).on('keydown.rjtab', 'ul.tabs a.rj-tab', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(String($(this).data('tab'))); }
     });
-    activate(ids.indexOf(location.hash) >= 0 ? location.hash : ids[0]);
+    var start = location.hash.replace(/^#/, '');
+    activate(tabs.indexOf(start) >= 0 ? start : tabs[0]);
   })();
 
   /* fill Alerts tab from server state */

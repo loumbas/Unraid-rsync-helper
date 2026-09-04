@@ -1,3 +1,9 @@
+## 2026.09.04l
+- Fix: clicking a tab header popped Unraid's 'External link' dialog. Tab headers no longer
+  carry href="#..." (Unraid's a[href] interceptor treats the bare hash as a navigation);
+  they are href-less a.rj-tab elements with keyboard support (Enter/Space) and the URL
+  still keeps #tab_rj_* so deep links and reloads land on the right tab.
+
 ## 2026.09.04k
 - Plugin author changed to "sir_lou" (shown in Plugin Manager).
 
