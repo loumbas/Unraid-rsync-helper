@@ -679,8 +679,7 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
 
 DOCTOR_FAILS=0
 DOCTOR_BUF=""
-d_line() { # <PASS|WARN|FAIL|INFO> <text>
-  printf '%-4s %s\n' "$1" "$2"
+d_line() { # <PASS|WARN|FAIL|INFO> <text> - buffered once, printed once in the fenced block
   printf '%-4s %s\n' "$1" "$2" >> "$DOCTOR_BUF"
   [ "$1" = FAIL ] && DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 ))
   return 0
@@ -754,7 +753,7 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
   if [ "$probe_rc" -eq 0 ]; then
     d_line INFO "minimal-PATH probe: rclone works even under cron's PATH (no compensation needed)"
   else
-    d_line WARN "minimal-PATH probe fails (exit $probe_rc) AS EXPECTED: cron's PATH lacks /usr/sbin; the engine exports a full PATH and the cron file carries PATH= (this is the fix)"
+    d_line WARN "minimal-PATH probe fails (exit $probe_rc) AS EXPECTED: cron's PATH lacks /usr/sbin; the engine exports a full PATH and the crontab lines invoke bash by absolute path (this is the fix)"
   fi
   now="$(unix_now)"
   if [ -d "$BOOT_DIR/jobs" ]; then
