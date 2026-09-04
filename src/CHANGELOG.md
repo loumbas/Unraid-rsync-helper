@@ -1,3 +1,7 @@
+## 2026.09.04
+- WebUI: inline .page content (Unraid 7 webgui drops File=), absolute ajax paths, menu entry
+  with icon under User Utilities. Fix: notify.env TG_TOKEN parsing.
+
 ## 2026.09.02
 - Initial release. Scheduled rclone / rsync / custom jobs with a dry-run gate,
   Telegram + Dynamix alerts, self-diagnosing doctor, strict share policy (all
