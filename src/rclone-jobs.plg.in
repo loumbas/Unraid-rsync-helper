@@ -6,10 +6,8 @@
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
-<!-- TODO(phase-2): replace CHANGE-ME with the GitHub owner once the repo exists.
-     pluginURL must be the RAW url of this .plg file (required for Check for Updates). -->
-<!ENTITY repoURL   "https://github.com/CHANGE-ME/rclone-jobs">
-<!ENTITY pluginURL "https://raw.githubusercontent.com/CHANGE-ME/rclone-jobs/main/rclone-jobs.plg">
+<!ENTITY repoURL   "https://github.com/loumbas/Unraid-rsync-helper">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/dist/rclone-jobs.plg">
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>

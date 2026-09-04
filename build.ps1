@@ -47,7 +47,7 @@ Write-Host ''
 
 # 2. inputs
 $version = (Read-NormText (Join-Path $srcRoot 'VERSION')).Trim()
-if ($version -notmatch '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$') { throw "src/VERSION must be YYYY.MM.DD, got: $version" }
+if ($version -notmatch '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z]?$') { throw "src/VERSION must be YYYY.MM.DD with optional same-day letter suffix, got: $version" }
 
 # changelog: from first '## ' line up to (exclusive) the next '## ' line
 $clText = Read-NormText (Join-Path $srcRoot 'CHANGELOG.md')

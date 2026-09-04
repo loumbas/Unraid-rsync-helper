@@ -29,11 +29,15 @@ no CI — verification is the offline lint + manual on-box testing.
 
 ## Versioning / release
 
-- Version is a date in `src/VERSION` (`YYYY.MM.DD`), validated at build. `{{VERSION}}`
+- Version is a date in `src/VERSION` (`YYYY.MM.DD`, optional lowercase same-day suffix
+  like `2026.09.04a`), validated at build. `{{VERSION}}`
   placeholders in engine/page sources are stamped LAST by the build (after FILES/CHANGES);
   keep that substitution order in both build scripts.
 - Release flow: bump `src/VERSION`, add a top `## YYYY.MM.DD` section to `src/CHANGELOG.md`
   (only that first section is embedded in the .plg), rebuild, commit src + dist together.
+- `pluginURL` (entities in `src/rclone-jobs.plg.in`) points at the raw `main`-branch
+  `dist/rclone-jobs.plg` of `https://github.com/loumbas/Unraid-rsync-helper` — never
+  rename/move `dist/rclone-jobs.plg` or change the default branch without updating them.
 
 ## Architecture gotchas (Unraid-specific, verified on-box)
 

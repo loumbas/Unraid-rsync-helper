@@ -17,7 +17,7 @@ fail() { echo "FAIL  $*" >&2; exit 1; }
 
 # ------------------------------------------------------------- inputs ------
 VERSION="$(tr -d '\r\n' < "$SRC/VERSION")"
-echo "$VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$' || fail "src/VERSION must be YYYY.MM.DD, got: $VERSION"
+echo "$VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z]?$' || fail "src/VERSION must be YYYY.MM.DD with optional same-day letter suffix, got: $VERSION"
 
 # changelog: first '## ' section up to (exclusive) the next '## ' heading,
 # trailing whitespace stripped per line, trailing newlines stripped overall.

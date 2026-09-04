@@ -2,20 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
-<!ENTITY version   "2026.09.04">
+<!ENTITY version   "2026.09.04a">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
-<!-- TODO(phase-2): replace CHANGE-ME with the GitHub owner once the repo exists.
-     pluginURL must be the RAW url of this .plg file (required for Check for Updates). -->
-<!ENTITY repoURL   "https://github.com/CHANGE-ME/rclone-jobs">
-<!ENTITY pluginURL "https://raw.githubusercontent.com/CHANGE-ME/rclone-jobs/main/rclone-jobs.plg">
+<!ENTITY repoURL   "https://github.com/loumbas/Unraid-rsync-helper">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/dist/rclone-jobs.plg">
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
-## 2026.09.04
-- WebUI: inline .page content (Unraid 7 webgui drops File=), absolute ajax paths, menu entry
-  with icon under User Utilities. Fix: notify.env TG_TOKEN parsing.
+## 2026.09.04a
+- pluginURL/support/project now point to the public GitHub repo - Check for Updates
+  and one-click install-from-URL work.
+- Method="update" pre-clean: updates wipe the stale RAM copy before redeploying files.
+- launch fixed to Utilities/rclone-jobs; deprecated category attribute removed.
+- JS handlers namespaced (.rclonejobs); destructive actions use swal confirmations.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
@@ -43,7 +44,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.04 - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.04a - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -65,7 +66,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.04"
+ENGINE_VERSION="2026.09.04a"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1054,7 +1055,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.04 - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.04a - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1104,7 +1105,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.04',
+    'version'    =&gt; '2026.09.04a',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1115,7 +1116,7 @@ $rjdata = [
 ];
 ?&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04a"&gt;&lt;/script&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?&gt;&lt;/script&gt;
 
 &lt;ul class="tabs"&gt;
@@ -1235,7 +1236,7 @@ $rjdata = [
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.04 - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.04a - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1462,7 +1463,7 @@ default:
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.04 - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.04a - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1652,7 +1653,7 @@ $(function () {
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04 - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.04a - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -1810,7 +1811,7 @@ exit "$errs"
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04 - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.04a - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
 set -uo pipefail
@@ -1905,7 +1906,7 @@ exit 0
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04 - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.04a - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
