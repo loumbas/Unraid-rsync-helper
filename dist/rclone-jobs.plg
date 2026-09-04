@@ -3,7 +3,7 @@
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
 <!ENTITY version   "2026.09.02">
-<!ENTITY launchApp "Settings/rclone-jobs">
+<!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
 ]>
@@ -1038,7 +1038,7 @@ if (PHP_SAPI === 'cli') {
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page" Mode="0644">
 <INLINE>
-Menu="Settings"
+Menu="Utilities"
 Title=rclone-jobs
 Icon=exchange
 ---
