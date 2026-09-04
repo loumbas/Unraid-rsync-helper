@@ -1035,6 +1035,593 @@ if (PHP_SAPI === 'cli') {
 </INLINE>
   </FILE>
 
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page" Mode="0644">
+<INLINE>
+Menu=Settings
+Title=rclone-jobs
+Icon=exchange
+File=plugins/rclone-jobs/index.php
+TableWidth=1000px
+</INLINE>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/index.php" Mode="0644">
+<INLINE>
+&lt;?php
+/* rclone-jobs v2026.09.02 - WebUI page (Settings tab).
+   Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
+$RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
+$RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
+$RJ_ENGINE = $RJ_PLUGIN.'/engine/rclone-jobs.sh';
+
+$csrf_token = $csrf_token ?? (parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '');
+
+function rj_read_env($file) {
+    $out = [];
+    if (!is_readable($file)) return $out;
+    foreach (file($file, FILE_IGNORE_NEW_LINES) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) continue;
+        list($k, $v) = explode('=', $line, 2);
+        $out[trim($k)] = trim($v, " \t\"");
+    }
+    return $out;
+}
+function rj_json($file) {
+    if (!is_readable($file)) return null;
+    $d = json_decode(file_get_contents($file), true);
+    return is_array($d) ? $d : null;
+}
+
+$paths    = rj_read_env($RJ_BOOT.'/paths.env');
+$storage  = $paths['STORAGE_ROOT'] ?? '';
+if ($storage === '') {
+    /* auto-detect: first /mnt/diskN on /dev/md* */
+    foreach (glob('/mnt/disk[0-9]*') as $d) {
+        $src = trim((string)@shell_exec('findmnt -no SOURCE -T ' . escapeshellarg($d) . ' 2&gt;/dev/null'));
+        if (strpos($src, '/dev/md') === 0) { $storage = $d.'/.rclone-jobs'; break; }
+    }
+}
+$notify   = rj_read_env($storage.'/notify.env');
+$master   = $paths['DRY_RUN_MASTER'] ?? 'yes';
+$quietSt  = $paths['QUIET_START'] ?? '23:00';
+$quietEn  = $paths['QUIET_END'] ?? '07:00';
+
+$jobs = [];
+foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
+    $name = basename($cf, '.conf');
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $name)) continue;
+    $cfg  = rj_read_env($cf);
+    $st   = rj_json($storage.'/status/'.$name.'.json');
+    $dry  = rj_json($storage.'/status/'.$name.'-dryrun.json');
+    $jobs[$name] = ['conf' =&gt; $cfg, 'status' =&gt; $st, 'dryrun' =&gt; $dry];
+}
+
+$rjdata = [
+    'version'    =&gt; '2026.09.02',
+    'storage'    =&gt; $storage,
+    'master'     =&gt; $master,
+    'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
+    'telegram'   =&gt; ['enabled' =&gt; $notify['TG_ENABLED'] ?? 'no',
+                     'chat_id' =&gt; $notify['TG_CHAT_ID'] ?? '',
+                     'token_set' =&gt; !empty($notify['TG_TOKEN'] ?? '')],
+    'jobs'       =&gt; $jobs,
+];
+?&gt;
+&lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
+&lt;script src="plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.02"&gt;&lt;/script&gt;
+&lt;script type="application/json" id="rj-data"&gt;&lt;?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?&gt;&lt;/script&gt;
+
+&lt;div class="tabs" data-tab="rclone-jobs"&gt;
+  &lt;tab class="active"&gt;Jobs&lt;/tab&gt;
+  &lt;tab&gt;Alerts &amp;amp; Safety&lt;/tab&gt;
+  &lt;tab&gt;Doctor&lt;/tab&gt;
+
+  &lt;!-- ======================= JOBS TAB ======================= --&gt;
+  &lt;tab-content class="active"&gt;
+    &lt;table class="rclone-jobs view-table"&gt;
+      &lt;thead&gt;&lt;tr&gt;
+        &lt;th&gt;Job&lt;/th&gt;&lt;th&gt;Enabled&lt;/th&gt;&lt;th&gt;Schedule&lt;/th&gt;&lt;th&gt;Engine&lt;/th&gt;
+        &lt;th&gt;Source → Destination&lt;/th&gt;&lt;th&gt;Last run&lt;/th&gt;&lt;th&gt;Last OK&lt;/th&gt;&lt;th&gt;Last dry-run&lt;/th&gt;&lt;th&gt;Actions&lt;/th&gt;
+      &lt;/tr&gt;&lt;/thead&gt;
+      &lt;tbody&gt;
+      &lt;?php if (count($jobs) === 0): ?&gt;
+        &lt;tr&gt;&lt;td colspan="9" style="text-align:center;padding:14px"&gt;No jobs yet - use "Add job" below.&lt;/td&gt;&lt;/tr&gt;
+      &lt;?php endif; ?&gt;
+      &lt;?php foreach ($jobs as $name =&gt; $j):
+          $c = $j['conf']; $s = $j['status']; $d = $j['dryrun'];
+          $en = ($c['ENABLED'] ?? 'yes') === 'no' ? 'no' : 'yes';
+          $rc = $s ? ($s['running'] ?? false ? 'RUN' : ($s['rc'] ?? '-')) : '-';
+          $run = $s['run'] ?? '-';
+          $lastok = $s['last_ok_run'] ?? 'never';
+          $drysum = '-';
+          if ($d) {
+              $drysum = ($d['stamp'] ?? '?')." copy+".($d['copies'] ?? 0)." del-".($d['deletes'] ?? 0)." fail:".($d['fails'] ?? 0);
+              if (!empty($d['ack_blocked'])) $drysum .= " [NEEDS ACK]";
+          }
+          $needAck = $d &amp;&amp; empty($d['ok']) &amp;&amp; ($d['deletes'] ?? 0) &gt; 0;
+      ?&gt;
+        &lt;tr data-job="&lt;?= htmlspecialchars($name) ?&gt;"&gt;
+          &lt;td&gt;&lt;b&gt;&lt;?= htmlspecialchars($name) ?&gt;&lt;/b&gt;&lt;br&gt;&lt;span class="gray"&gt;&lt;?= htmlspecialchars($c['DESC'] ?? '') ?&gt;&lt;/span&gt;&lt;/td&gt;
+          &lt;td&gt;&lt;?= $en ?&gt;&lt;/td&gt;
+          &lt;td&gt;&lt;?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?&gt;&lt;/td&gt;
+          &lt;td&gt;&lt;?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?&gt;&lt;/td&gt;
+          &lt;td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="&lt;?= htmlspecialchars(($c['SRC'] ?? '').' -&gt; '.($c['DST'] ?? '')) ?&gt;"&gt;
+            &lt;?= htmlspecialchars($c['SRC'] ?? '') ?&gt; → &lt;?= htmlspecialchars($c['DST'] ?? '') ?&gt;&lt;/td&gt;
+          &lt;td&gt;&lt;?= htmlspecialchars((string)$rc) ?&gt;&lt;?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?&gt;&lt;/td&gt;
+          &lt;td&gt;&lt;?= htmlspecialchars((string)$lastok) ?&gt;&lt;/td&gt;
+          &lt;td&gt;&lt;?= htmlspecialchars($drysum) ?&gt;&lt;/td&gt;
+          &lt;td style="white-space:nowrap"&gt;
+            &lt;input type='button' value='Dry-run' class='rj-btn' data-act='dry' data-job='&lt;?= htmlspecialchars($name) ?&gt;'&gt;
+            &lt;input type='button' value='Run' class='rj-btn' data-act='run' data-job='&lt;?= htmlspecialchars($name) ?&gt;'&gt;
+            &lt;?php if ($needAck): ?&gt;&lt;input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='&lt;?= htmlspecialchars($name) ?&gt;'&gt;&lt;?php endif; ?&gt;
+            &lt;input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='&lt;?= htmlspecialchars($name) ?&gt;'&gt;
+            &lt;input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='&lt;?= htmlspecialchars($name) ?&gt;'&gt;
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;?php endforeach; ?&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;
+    &lt;div id="rj-result" style="display:none;margin-top:10px"&gt;&lt;pre id="rj-result-pre" style="white-space:pre-wrap"&gt;&lt;/pre&gt;&lt;/div&gt;
+    &lt;div id="rj-preview" style="display:none;margin-top:10px"&gt;&lt;pre id="rj-preview-pre" style="white-space:pre-wrap"&gt;&lt;/pre&gt;&lt;/div&gt;
+
+    &lt;fieldset style="margin-top:14px"&gt;&lt;legend id="rj-form-title"&gt;Add job&lt;/legend&gt;
+      &lt;form id="rj-jobform" autocomplete="off"&gt;
+        &lt;input type="hidden" id="f_orig" value=""&gt;
+        &lt;table class="settings"&gt;
+          &lt;tr&gt;&lt;td&gt;Name&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required&gt; &lt;span class="gray"&gt;letters, digits, dash, underscore&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;Description&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_desc" maxlength="120"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;Enabled&lt;/td&gt;&lt;td&gt;&lt;select id="f_enabled"&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;/select&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;Schedule (cron)&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"&gt; &lt;span class="gray"&gt;min hour dom mon dow; numbers, * , - / only&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;Engine&lt;/td&gt;&lt;td&gt;&lt;select id="f_engine"&gt;&lt;option value="rclone"&gt;rclone&lt;/option&gt;&lt;option value="rsync"&gt;rsync&lt;/option&gt;&lt;option value="custom"&gt;custom script&lt;/option&gt;&lt;/select&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Mode (rclone)&lt;/td&gt;&lt;td&gt;&lt;select id="f_mode"&gt;&lt;option value="sync"&gt;sync&lt;/option&gt;&lt;option value="copy"&gt;copy&lt;/option&gt;&lt;option value="check"&gt;check&lt;/option&gt;&lt;/select&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Source&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Destination&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-custom" style="display:none"&gt;&lt;td&gt;Script&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;Per-job dry-run&lt;/td&gt;&lt;td&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt; &lt;span class="gray"&gt;master switch on the Alerts tab always wins&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Transfers / Checkers&lt;/td&gt;&lt;td&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Bandwidth limit&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_bwlimit" size="10" placeholder="off"&gt; &lt;span class="gray"&gt;e.g. 10M (rclone syntax)&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Max deletes / Warn deletes&lt;/td&gt;&lt;td&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt; &lt;span class="gray"&gt;sync modes only&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr class="rj-eng"&gt;&lt;td&gt;Backup dir (optional)&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;/table&gt;
+        &lt;p&gt;
+          &lt;input type="submit" value="Save job" class="rj-btn"&gt;
+          &lt;input type="button" id="rj-form-cancel" value="Cancel"&gt;
+        &lt;/p&gt;
+      &lt;/form&gt;
+    &lt;/fieldset&gt;
+  &lt;/tab-content&gt;
+
+  &lt;!-- ======================= ALERTS TAB ======================= --&gt;
+  &lt;tab-content&gt;
+    &lt;fieldset&gt;&lt;legend&gt;Safety&lt;/legend&gt;
+      &lt;table class="settings"&gt;
+        &lt;tr&gt;&lt;td&gt;Master dry-run switch&lt;/td&gt;
+          &lt;td&gt;&lt;select id="a_master"&gt;&lt;option value="yes"&gt;YES - all scheduled runs are dry-runs&lt;/option&gt;&lt;option value="no"&gt;no - scheduled runs transfer for real&lt;/option&gt;&lt;/select&gt;
+          &lt;br&gt;&lt;span class="gray"&gt;When YES, nothing is ever written by the schedule, regardless of per-job settings.&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;Quiet window (heartbeats)&lt;/td&gt;
+          &lt;td&gt;&lt;input type="text" id="a_qstart" size="6" placeholder="23:00"&gt; to &lt;input type="text" id="a_qend" size="6" placeholder="07:00"&gt;&lt;/td&gt;&lt;/tr&gt;
+      &lt;/table&gt;
+    &lt;/fieldset&gt;
+    &lt;fieldset&gt;&lt;legend&gt;Telegram alerts (optional)&lt;/legend&gt;
+      &lt;table class="settings"&gt;
+        &lt;tr&gt;&lt;td&gt;Enable Telegram&lt;/td&gt;&lt;td&gt;&lt;select id="a_tg"&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;/select&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;Bot token&lt;/td&gt;&lt;td&gt;&lt;input type="password" id="a_token" size="50" placeholder=""&gt; &lt;span class="gray" id="a_token_state"&gt;&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;Chat id&lt;/td&gt;&lt;td&gt;&lt;input type="text" id="a_chatid" size="30"&gt;&lt;/td&gt;&lt;/tr&gt;
+      &lt;/table&gt;
+      &lt;p class="gray"&gt;Stored in &lt;i&gt;notify.env&lt;/i&gt; (mode 600) on the storage disk - never in /boot, never in the browser after save.&lt;/p&gt;
+    &lt;/fieldset&gt;
+    &lt;p&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt;
+       &lt;input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"&gt;&lt;/p&gt;
+    &lt;div id="rj-alerts-result" style="display:none"&gt;&lt;pre&gt;&lt;/pre&gt;&lt;/div&gt;
+  &lt;/tab-content&gt;
+
+  &lt;!-- ======================= DOCTOR TAB ======================= --&gt;
+  &lt;tab-content&gt;
+    &lt;p&gt;&lt;input type="button" id="rj-doctor" value="Run doctor" class="rj-btn"&gt;
+       &lt;input type="checkbox" id="rj-doctor-tg"&gt; include live Telegram test (sends a message if enabled)&lt;/p&gt;
+    &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
+  &lt;/tab-content&gt;
+&lt;/div&gt;
+</INLINE>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
+<INLINE>
+&lt;?php
+/* rclone-jobs v2026.09.02 - ajax endpoint. POST + CSRF only.
+   Every engine/config mutation goes through the whitelisted validators below;
+   values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
+
+$RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
+$RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
+$RJ_ENGINE = $RJ_PLUGIN.'/engine/rclone-jobs.sh';
+$RJ_REGEN  = $RJ_PLUGIN.'/scripts/regen-cron.sh';
+
+header('Content-Type: application/json');
+
+/* ---- transport security ---- */
+$ini  = @parse_ini_file('/var/local/emhttp/var.ini');
+$tokS = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+$tokP = $_POST['csrf_token'] ?? '';
+$tok  = is_string($tokP) &amp;&amp; $tokP !== '' ? $tokP : (is_string($tokS) ? $tokS : '');
+if (!is_array($ini) || empty($ini['csrf_token']) || !hash_equals((string)$ini['csrf_token'], $tok)) {
+    http_response_code(403); echo json_encode(['ok' =&gt; false, 'error' =&gt; 'CSRF token mismatch - reload the page']); exit;
+}
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405); echo json_encode(['ok' =&gt; false, 'error' =&gt; 'POST only']); exit;
+}
+
+/* ---- helpers (mirror engine validators) ---- */
+function rj_out($arr) { echo json_encode($arr); exit; }
+function rj_name_ok($n)  { return is_string($n) &amp;&amp; preg_match('/^[A-Za-z0-9_-]{1,40}$/', $n); }
+function rj_badfield($v) { return preg_match('/[`$;|&amp;&lt;&gt;*?"\'\\\\\r\n]/', $v) === 1; }
+function rj_sched_ok($s) {
+    if (!is_string($s) || $s === '') return false;
+    $f = preg_split('/\s+/', trim($s));
+    if (count($f) !== 5) return false;
+    foreach ($f as $x) if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
+    return true;
+}
+function rj_read_env($file) {
+    $out = [];
+    if (!is_readable($file)) return $out;
+    foreach (file($file, FILE_IGNORE_NEW_LINES) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) continue;
+        list($k, $v) = explode('=', $line, 2);
+        $out[trim($k)] = trim($v, " \t\"");
+    }
+    return $out;
+}
+function rj_env_upsert($file, $pairs, $mode = null) {
+    /* replace/add KEY=VALUE lines, keep comments and unknown keys, LF endings */
+    $lines = is_readable($file) ? file($file, FILE_IGNORE_NEW_LINES) : [];
+    foreach ($pairs as $k =&gt; $v) {
+        $found = false; $newl = "$k=$v";
+        foreach ($lines as $i =&gt; $line) {
+            if (preg_match('/^\s*'.preg_quote($k, '/').'\s*=/', $line)) { $lines[$i] = $newl; $found = true; break; }
+        }
+        if (!$found) $lines[] = $newl;
+    }
+    file_put_contents($file, implode("\n", $lines)."\n");
+    if ($mode !== null) @chmod($file, $mode);
+}
+function rj_engine($args, &amp;$out = null, &amp;$rc = null, $bg = false) {
+    $cmd = '/bin/bash ' . escapeshellarg($GLOBALS['RJ_ENGINE']) . ' ' . $args;
+    if ($bg) { exec($cmd . ' &gt; /dev/null 2&gt;&amp;1 &amp;', $o, $r); $out = []; $rc = 0; return; }
+    exec($cmd . ' 2&gt;&amp;1', $o, $r); $out = $o; $rc = $r;
+}
+function rj_storage() {
+    $p = rj_read_env('/boot/config/plugins/rclone-jobs/paths.env');
+    $s = $p['STORAGE_ROOT'] ?? '';
+    if ($s === '') {
+        foreach (glob('/mnt/disk[0-9]*') as $d) {
+            $src = trim((string)@shell_exec('findmnt -no SOURCE -T ' . escapeshellarg($d) . ' 2&gt;/dev/null'));
+            if (strpos($src, '/dev/md') === 0) { $s = $d.'/.rclone-jobs'; break; }
+        }
+    }
+    return $s;
+}
+function rj_regen(&amp;$out) {
+    exec('/bin/bash ' . escapeshellarg($GLOBALS['RJ_REGEN']) . ' 2&gt;&amp;1', $out, $rc);
+    return $rc;
+}
+
+$action = $_POST['action'] ?? '';
+$name   = $_POST['job'] ?? '';
+
+switch ($action) {
+
+case 'save_job':
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name (letters, digits, dash, underscore, max 40)']);
+    $engine   = $_POST['engine'] ?? 'rclone';
+    if (!in_array($engine, ['rclone', 'rsync', 'custom'], true)) rj_out(['ok' =&gt; false, 'error' =&gt; 'engine must be rclone|rsync|custom']);
+    $mode     = $_POST['mode'] ?? '';
+    $src      = trim((string)($_POST['src'] ?? ''));
+    $dst      = trim((string)($_POST['dst'] ?? ''));
+    $script   = trim((string)($_POST['script'] ?? ''));
+    $sched    = trim((string)($_POST['schedule'] ?? ''));
+    $enabled  = ($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $dryrun   = ($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $desc     = substr(trim((string)($_POST['desc'] ?? '')), 0, 120);
+    $trans    = (int)($_POST['transfers'] ?? 4);
+    $check    = (int)($_POST['checkers'] ?? 8);
+    $bwlimit  = trim((string)($_POST['bwlimit'] ?? ''));
+    $maxdel   = (int)($_POST['maxdelete'] ?? 100);
+    $warndel  = (int)($_POST['warndelete'] ?? 100);
+    $bdir     = trim((string)($_POST['backupdir'] ?? ''));
+    if (rj_badfield($desc) || rj_badfield($bwlimit) || rj_badfield($bdir))
+        rj_out(['ok' =&gt; false, 'error' =&gt; 'description/limit/backupdir contain forbidden characters']);
+
+    if ($engine === 'custom') {
+        if ($script === '' || rj_badfield($script)) rj_out(['ok' =&gt; false, 'error' =&gt; 'custom job needs a Script path without shell metacharacters']);
+        if (strpos($script, '/') !== 0) rj_out(['ok' =&gt; false, 'error' =&gt; 'Script must be an absolute path']);
+        $mode = ''; $src = ''; $dst = ''; $schedOrig = $sched;
+    } else {
+        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'schedule must be 5 cron fields (numbers, * , - / only)']);
+        if ($src === '' || $dst === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC and DST are required']);
+        if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC/DST contain forbidden characters']);
+        if ($engine === 'rclone' &amp;&amp; !in_array($mode, ['sync', 'copy', 'check'], true)) rj_out(['ok' =&gt; false, 'error' =&gt; 'rclone mode must be sync|copy|check']);
+        if ($engine === 'rsync') $mode = '';
+        if ($bdir !== '' &amp;&amp; rj_badfield($bdir)) rj_out(['ok' =&gt; false, 'error' =&gt; 'backupdir contains forbidden characters']);
+    }
+    if ($trans &lt; 1 || $trans &gt; 999 || $check &lt; 1 || $check &gt; 999) rj_out(['ok' =&gt; false, 'error' =&gt; 'transfers/checkers must be 1-999']);
+    if ($maxdel &lt; 0 || $warndel &lt; 0) rj_out(['ok' =&gt; false, 'error' =&gt; 'delete limits must be &gt;= 0']);
+
+    @mkdir($RJ_BOOT.'/jobs', 0700, true);
+    $L = [];
+    if ($desc !== '') $L[] = "DESC=$desc";
+    $L[] = "ENGINE=$engine";
+    if ($mode !== '') $L[] = "MODE=$mode";
+    if ($engine === 'custom') { $L[] = "CUSTOM_SCRIPT=$script"; }
+    else { $L[] = "SRC=$src"; $L[] = "DST=$dst"; }
+    $L[] = "SCHEDULE=$sched";
+    $L[] = "ENABLED=$enabled";
+    $L[] = "DRYRUN=$dryrun";
+    if ($engine !== 'custom') {
+        $L[] = "TRANSFERS=$trans"; $L[] = "CHECKERS=$check";
+        if ($bwlimit !== '') $L[] = "BWLIMIT=$bwlimit";
+        $L[] = "MAXDELETE=$maxdel"; $L[] = "WARN_DELETE=$warndel";
+        if ($bdir !== '') $L[] = "BACKUPDIR=$bdir";
+    }
+    $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
+    $isNew = !file_exists($conf);
+    file_put_contents($conf, implode("\n", $L)."\n");
+    chmod($conf, 0600);
+
+    /* dry-run the saved config once so the UI shows a real preview immediately */
+    $eo = []; $erc = 0;
+    rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
+    $rg = []; rj_regen($rg);
+    rj_out(['ok' =&gt; true, 'msg' =&gt; ($isNew ? 'Job created. ' : 'Job updated. ') . implode(' ', $rg),
+            'preview' =&gt; implode("\n", $eo), 'preview_rc' =&gt; $erc]);
+
+case 'delete_job':
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
+    $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
+    if (!is_file($conf)) rj_out(['ok' =&gt; false, 'error' =&gt; 'job not found']);
+    $bk = $conf.'.removed-'.date('Ymd-His');
+    rename($conf, $bk);
+    $rg = []; rj_regen($rg);
+    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Job deleted (config kept as '.$bk.') '.implode(' ', $rg)]);
+
+case 'run_dry':
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
+    $eo = []; $erc = 0;
+    rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
+    rj_out(['ok' =&gt; true, 'out' =&gt; implode("\n", $eo), 'rc' =&gt; $erc]);
+
+case 'run_job':
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
+    rj_engine('run ' . escapeshellarg($name), $o, $r, true);
+    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Started in background - status updates within a minute (see Last run column after reload).']);
+
+case 'ack_job':
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
+    if (($_POST['confirm'] ?? '') !== $name) rj_out(['ok' =&gt; false, 'error' =&gt; 'confirmation text did not match the job name']);
+    $eo = []; $erc = 0;
+    rj_engine('ack ' . escapeshellarg($name), $eo, $erc);
+    rj_out(['ok' =&gt; $erc === 0, 'out' =&gt; implode("\n", $eo), 'rc' =&gt; $erc]);
+
+case 'save_alerts':
+    $pairs = [];
+    if (isset($_POST['master'])) {
+        $m = $_POST['master'] === 'no' ? 'no' : 'yes';
+        rj_env_upsert($RJ_BOOT.'/paths.env', ['DRY_RUN_MASTER' =&gt; $m], 0600);
+    }
+    $qs = trim((string)($_POST['quiet_start'] ?? '')); $qe = trim((string)($_POST['quiet_end'] ?? ''));
+    $qp = [];
+    if ($qs === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qs)) $qp['QUIET_START'] = $qs;
+    if ($qe === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qe)) $qp['QUIET_END'] = $qe;
+    if ($qp) rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
+
+    $stor = rj_storage();
+    if ($stor === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'storage folder not available - start the array']);
+    @mkdir($stor, 0700, true);
+    $np = [];
+    if (isset($_POST['tg_enabled'])) $np['TG_ENABLED'] = $_POST['tg_enabled'] === 'yes' ? 'yes' : 'no';
+    if (isset($_POST['tg_chat_id'])) {
+        $cid = trim((string)$_POST['tg_chat_id']);
+        if ($cid !== '' &amp;&amp; !preg_match('/^[0-9-]{1,32}$/', $cid)) rj_out(['ok' =&gt; false, 'error' =&gt; 'chat id must be numeric (may start with -)']);
+        $np['TG_CHAT_ID'] = $cid;
+    }
+    $token = (string)($_POST['tg_token'] ?? '');
+    if ($token !== '') {
+        if (!preg_match('/^[0-9]{6,}:[A-Za-z0-9_-]{20,}$/', $token)) rj_out(['ok' =&gt; false, 'error' =&gt; 'bot token format unexpected (digits:secret)']);
+        $np['TG_TOKEN'] = $token;
+    }
+    if ($np) rj_env_upsert($stor.'/notify.env', $np, 0600);
+    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Settings saved (token ' . ($token !== '' ? 'updated' : 'unchanged') . ').']);
+
+case 'tg_test':
+    $eo = []; $erc = 0;
+    rj_engine('doctor --telegram', $eo, $erc);
+    $line = '';
+    foreach ($eo as $l) if (stripos($l, 'telegram') !== false) $line .= $l."\n";
+    rj_out(['ok' =&gt; true, 'out' =&gt; trim($line) !== '' ? trim($line) : 'no telegram result']);
+
+case 'doctor':
+    $args = 'doctor' . (($_POST['telegram'] ?? '') === 'yes' ? ' --telegram' : '');
+    $eo = []; $erc = 0;
+    rj_engine($args, $eo, $erc);
+    rj_out(['ok' =&gt; $erc === 0, 'out' =&gt; implode("\n", $eo), 'rc' =&gt; $erc]);
+
+default:
+    http_response_code(400);
+    rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
+}
+</INLINE>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
+<INLINE>
+/* rclone-jobs v2026.09.02 - WebUI glue (jQuery provided by the Unraid webgui) */
+'use strict';
+
+function rjPost(data, cb) {
+  data.csrf_token = (typeof rj_csrf !== 'undefined') ? rj_csrf : '';
+  $.post('plugins/rclone-jobs/ajax.php', data)
+    .done(function (res) { cb(res); })
+    .fail(function (x) { cb({ ok: false, error: 'ajax failed: ' + (x.status || '?') + ' ' + (x.responseText || '').substring(0, 200) }); });
+}
+
+function rjPanel(id, text, isError) {
+  var p = $('#' + id);
+  p.find('pre').text(text).css('color', isError ? '#e6867e' : '');
+  p.show();
+}
+
+function rjData() {
+  try { return JSON.parse($('#rj-data').text()); } catch (e) { return { jobs: {} }; }
+}
+
+$(function () {
+  var D = rjData();
+
+  /* fill Alerts tab from server state */
+  $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
+  $('#a_qstart').val(D.quiet.start);
+  $('#a_qend').val(D.quiet.end);
+  $('#a_tg').val(D.telegram.enabled === 'yes' ? 'yes' : 'no');
+  $('#a_chatid').val(D.telegram.chat_id);
+  $('#a_token_state').text(D.telegram.token_set ? 'a token is stored (leave blank to keep it)' : 'no token stored');
+
+  /* engine-dependent form rows */
+  function engRows() {
+    var e = $('#f_engine').val();
+    $('.rj-eng').toggle(e !== 'custom');
+    $('.rj-custom').toggle(e === 'custom');
+  }
+  $('#f_engine').on('change', engRows);
+  engRows();
+
+  function showForm(title, j) {
+    $('#rj-form-title').text(title);
+    $('#f_orig').val(j ? j.name : '');
+    $('#f_name').val(j ? j.name : '').prop('disabled', !!j);
+    $('#f_desc').val(j &amp;&amp; j.conf.DESC ? j.conf.DESC : '');
+    $('#f_enabled').val(j &amp;&amp; j.conf.ENABLED === 'no' ? 'no' : 'yes');
+    $('#f_schedule').val(j &amp;&amp; j.conf.SCHEDULE ? j.conf.SCHEDULE : '');
+    $('#f_engine').val(j &amp;&amp; j.conf.ENGINE ? j.conf.ENGINE : 'rclone');
+    $('#f_mode').val(j &amp;&amp; j.conf.MODE ? j.conf.MODE : 'sync');
+    $('#f_src').val(j &amp;&amp; j.conf.SRC ? j.conf.SRC : '');
+    $('#f_dst').val(j &amp;&amp; j.conf.DST ? j.conf.DST : '');
+    $('#f_script').val(j &amp;&amp; j.conf.CUSTOM_SCRIPT ? j.conf.CUSTOM_SCRIPT : '');
+    $('#f_dryrun').val(j &amp;&amp; j.conf.DRYRUN === 'no' ? 'no' : 'yes');
+    $('#f_transfers').val(j &amp;&amp; j.conf.TRANSFERS ? j.conf.TRANSFERS : 4);
+    $('#f_checkers').val(j &amp;&amp; j.conf.CHECKERS ? j.conf.CHECKERS : 8);
+    $('#f_bwlimit').val(j &amp;&amp; j.conf.BWLIMIT ? j.conf.BWLIMIT : '');
+    $('#f_maxdelete').val(j &amp;&amp; j.conf.MAXDELETE !== undefined ? j.conf.MAXDELETE : 100);
+    $('#f_warndelete').val(j &amp;&amp; j.conf.WARN_DELETE !== undefined ? j.conf.WARN_DELETE : 100);
+    $('#f_backupdir').val(j &amp;&amp; j.conf.BACKUPDIR ? j.conf.BACKUPDIR : '');
+    engRows();
+    $('#rj-form-title')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  $('#rj-form-cancel').on('click', function () {
+    showForm('Add job', null);
+    $('#rj-result').hide();
+  });
+
+  /* table buttons */
+  $('.rj-btn').on('click', function () {
+    var act = $(this).data('act'), job = $(this).data('job');
+    if (act === 'edit') {
+      var j = D.jobs[job]; if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
+      return;
+    }
+    if (act === 'del') {
+      if (!confirm('Delete job "' + job + '"?\nIts schedule line is removed; config file is kept as a .removed-* backup; transfer data is never deleted here.')) return;
+      rjPost({ action: 'delete_job', job: job }, function (res) {
+        rjPanel('rj-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
+        if (res.ok) setTimeout(function () { location.reload(); }, 1200);
+      });
+      return;
+    }
+    if (act === 'dry') {
+      var $b = $(this); $b.val('...').prop('disabled', true);
+      rjPost({ action: 'run_dry', job: job }, function (res) {
+        $b.val('Dry-run').prop('disabled', false);
+        rjPanel('rj-preview', (res.out || res.error || ''), !res.ok);
+      });
+      return;
+    }
+    if (act === 'run') {
+      if (D.master !== 'no') {
+        if (!confirm('Master dry-run switch is ON, so this will only simulate.\n(Turn it off on the Alerts &amp; Safety tab for real transfers.)\n\nRun simulated now?')) return;
+      } else if (!confirm('Run "' + job + '" FOR REAL now?\nScheduled safety still applies (dry-run gate + delete limits).')) return;
+      rjPost({ action: 'run_job', job: job }, function (res) {
+        rjPanel('rj-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
+      });
+      return;
+    }
+    if (act === 'ack') {
+      var t = prompt('This dry-run wants to DELETE files.\nType the job name exactly (' + job + ') to acknowledge:');
+      if (t === null) return;
+      rjPost({ action: 'ack_job', job: job, confirm: t }, function (res) {
+        rjPanel('rj-result', res.ok ? (res.out || 'acknowledged') : ('ERROR: ' + res.error), !res.ok);
+        if (res.ok) setTimeout(function () { location.reload(); }, 900);
+      });
+    }
+  });
+
+  /* save job */
+  $('#rj-jobform').on('submit', function (ev) {
+    ev.preventDefault();
+    var job = $('#f_orig').val() || $('#f_name').val().trim();
+    if (!job) return;
+    var data = {
+      action: 'save_job', job: job,
+      desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: $('#f_schedule').val(),
+      engine: $('#f_engine').val(), mode: $('#f_mode').val(),
+      src: $('#f_src').val().trim(), dst: $('#f_dst').val().trim(), script: $('#f_script').val().trim(),
+      dryrun: $('#f_dryrun').val(), transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
+      bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
+      warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim()
+    };
+    rjPost(data, function (res) {
+      if (res.ok) {
+        rjPanel('rj-preview', res.preview || res.msg, false);
+        rjPanel('rj-result', res.msg, false);
+        setTimeout(function () { location.reload(); }, 2500);
+      } else {
+        rjPanel('rj-result', 'ERROR: ' + res.error, true);
+      }
+    });
+  });
+
+  /* alerts tab */
+  $('#rj-save-alerts').on('click', function () {
+    rjPost({
+      action: 'save_alerts',
+      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val(),
+      tg_enabled: $('#a_tg').val(), tg_chat_id: $('#a_chatid').val(), tg_token: $('#a_token').val()
+    }, function (res) {
+      rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
+      if (res.ok) { $('#a_token').val(''); }
+    });
+  });
+  $('#rj-tg-test').on('click', function () {
+    rjPanel('rj-alerts-result', 'sending...', false);
+    rjPost({ action: 'tg_test' }, function (res) {
+      rjPanel('rj-alerts-result', res.out || res.error || 'done', !res.ok);
+    });
+  });
+
+  /* doctor tab */
+  $('#rj-doctor').on('click', function () {
+    var $b = $(this); $b.prop('disabled', true).val('running...');
+    $('#rj-doctor-pre').text('running tests (~seconds)...');
+    rjPost({ action: 'doctor', telegram: $('#rj-doctor-tg').is(':checked') ? 'yes' : 'no' }, function (res) {
+      $b.prop('disabled', false).val('Run doctor');
+      $('#rj-doctor-pre').text(res.out || res.error || 'no output');
+    });
+  });
+});
+</INLINE>
+  </FILE>
+
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash

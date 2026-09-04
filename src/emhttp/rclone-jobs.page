@@ -1,0 +1,5 @@
+Menu=Settings
+Title=rclone-jobs
+Icon=exchange
+File=plugins/rclone-jobs/index.php
+TableWidth=1000px

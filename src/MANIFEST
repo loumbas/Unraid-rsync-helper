@@ -9,6 +9,10 @@
 #   emhttp/index.php /usr/local/emhttp/plugins/rclone-jobs/index.php 0644
 engine/rclone-jobs.sh /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh 0755
 emhttp/preview.php /usr/local/emhttp/plugins/rclone-jobs/preview.php 0644
+emhttp/rclone-jobs.page /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page 0644
+emhttp/index.php /usr/local/emhttp/plugins/rclone-jobs/index.php 0644
+emhttp/ajax.php /usr/local/emhttp/plugins/rclone-jobs/ajax.php 0644
+emhttp/js/rclone-jobs.js /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js 0644
 emhttp/scripts/regen-cron.sh /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh 0755
 emhttp/scripts/install-engine.sh /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh 0755
 emhttp/scripts/boot-setup.sh /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh 0755
