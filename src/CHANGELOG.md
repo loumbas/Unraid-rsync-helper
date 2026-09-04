@@ -1,3 +1,10 @@
+## 2026.09.04e
+- Fix: every ajax action returned 403 - Unraid 7.2+ local_prepend.php validates the CSRF
+  token and then UNSETS it from $_POST and the X-CSRF header before plugin PHP runs, so
+  our re-check always saw an empty token. Token is now recovered from the raw urlencoded
+  body (php://input, re-readable since PHP 5.6); the hash_equals re-check is kept as
+  defense-in-depth.
+
 ## 2026.09.04d
 - Fix: WebUI state blob (#rj-data) was HTML-escaped inside a raw-text script tag, so
   JSON.parse failed and the whole page JS died on startup (Browse/Save/Run never bound).

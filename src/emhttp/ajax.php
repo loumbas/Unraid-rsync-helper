@@ -10,11 +10,23 @@ $RJ_REGEN  = $RJ_PLUGIN.'/scripts/regen-cron.sh';
 
 header('Content-Type: application/json');
 
-/* ---- transport security ---- */
+/* ---- transport security ----
+   Unraid 7.2+ local_prepend.php validates the CSRF token for EVERY POST and
+   then unsets $_POST['csrf_token'] and the X-CSRF header before this script
+   runs, so both look empty here no matter what the browser sent. Recover the
+   token from the raw urlencoded body (php://input is re-readable since PHP
+   5.6); the re-check itself stays as defense-in-depth without the prepend. */
 $ini  = @parse_ini_file('/var/local/emhttp/var.ini');
 $tokS = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 $tokP = $_POST['csrf_token'] ?? '';
 $tok  = is_string($tokP) && $tokP !== '' ? $tokP : (is_string($tokS) ? $tokS : '');
+if ($tok === '' && stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/') === false) {
+    $raw = (string)@file_get_contents('php://input');
+    if ($raw !== '' && strpos($raw, 'csrf_token=') !== false) {
+        $rp = []; parse_str($raw, $rp);
+        if (isset($rp['csrf_token']) && is_string($rp['csrf_token'])) $tok = $rp['csrf_token'];
+    }
+}
 if (!is_array($ini) || empty($ini['csrf_token']) || !hash_equals((string)$ini['csrf_token'], $tok)) {
     http_response_code(403); echo json_encode(['ok' => false, 'error' => 'CSRF token mismatch - reload the page']); exit;
 }

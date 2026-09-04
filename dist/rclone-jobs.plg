@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
-<!ENTITY version   "2026.09.04d">
+<!ENTITY version   "2026.09.04e">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
@@ -11,14 +11,12 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
-## 2026.09.04d
-- Fix: WebUI state blob (#rj-data) was HTML-escaped inside a raw-text script tag, so
-  JSON.parse failed and the whole page JS died on startup (Browse/Save/Run never bound).
-  State now ships as real JSON with only the five risky characters hex-escaped.
-- JS hardening: rjData() falls back to complete defaults - a bad blob can no longer
-  kill the ready handler.
-- Jobs table: Source-to-Destination ellipsis moved to a div wrapper (max-width on a
-  table cell is ignored in auto table layout); table set width:100%.
+## 2026.09.04e
+- Fix: every ajax action returned 403 - Unraid 7.2+ local_prepend.php validates the CSRF
+  token and then UNSETS it from $_POST and the X-CSRF header before plugin PHP runs, so
+  our re-check always saw an empty token. Token is now recovered from the raw urlencoded
+  body (php://input, re-readable since PHP 5.6); the hash_equals re-check is kept as
+  defense-in-depth.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
@@ -46,7 +44,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.04d - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.04e - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -68,7 +66,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.04d"
+ENGINE_VERSION="2026.09.04e"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1164,7 +1162,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.04d - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.04e - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1214,7 +1212,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.04d',
+    'version'    =&gt; '2026.09.04e',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1235,7 +1233,7 @@ $rjdata = [
   #tab_rj_jobs td [data-act] { white-space:nowrap; }
 &lt;/style&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04d"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04e"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1353,14 +1351,14 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.04d &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.04e &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.04d - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.04e - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1371,11 +1369,23 @@ $RJ_REGEN  = $RJ_PLUGIN.'/scripts/regen-cron.sh';
 
 header('Content-Type: application/json');
 
-/* ---- transport security ---- */
+/* ---- transport security ----
+   Unraid 7.2+ local_prepend.php validates the CSRF token for EVERY POST and
+   then unsets $_POST['csrf_token'] and the X-CSRF header before this script
+   runs, so both look empty here no matter what the browser sent. Recover the
+   token from the raw urlencoded body (php://input is re-readable since PHP
+   5.6); the re-check itself stays as defense-in-depth without the prepend. */
 $ini  = @parse_ini_file('/var/local/emhttp/var.ini');
 $tokS = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 $tokP = $_POST['csrf_token'] ?? '';
 $tok  = is_string($tokP) &amp;&amp; $tokP !== '' ? $tokP : (is_string($tokS) ? $tokS : '');
+if ($tok === '' &amp;&amp; stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/') === false) {
+    $raw = (string)@file_get_contents('php://input');
+    if ($raw !== '' &amp;&amp; strpos($raw, 'csrf_token=') !== false) {
+        $rp = []; parse_str($raw, $rp);
+        if (isset($rp['csrf_token']) &amp;&amp; is_string($rp['csrf_token'])) $tok = $rp['csrf_token'];
+    }
+}
 if (!is_array($ini) || empty($ini['csrf_token']) || !hash_equals((string)$ini['csrf_token'], $tok)) {
     http_response_code(403); echo json_encode(['ok' =&gt; false, 'error' =&gt; 'CSRF token mismatch - reload the page']); exit;
 }
@@ -1601,7 +1611,7 @@ default:
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.04d - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.04e - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1954,7 +1964,7 @@ $(function () {
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04d - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.04e - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2112,7 +2122,7 @@ exit "$errs"
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04d - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.04e - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
 set -uo pipefail
@@ -2207,7 +2217,7 @@ exit 0
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04d - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.04e - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
