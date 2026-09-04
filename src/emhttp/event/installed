@@ -1,47 +1,15 @@
 #!/bin/bash
-# rclone-jobs 'installed' event - also re-fired on every boot (plugin re-install).
-# The array may be DOWN here: create the boot-folder config skeleton, deploy only
-# if an array disk is already mounted, and never ever fail the plugin install.
+# rclone-jobs 'installed' event - fired at install and at every boot (array may be
+# down). All real work lives in scripts/boot-setup.sh (shared with the .plg install
+# script). Must never fail the plugin install: always exit 0.
 set -u
 NAME="rclone-jobs"
 D="/usr/local/emhttp/plugins/$NAME"
-B="/boot/config/plugins/$NAME"
 logger -t "$NAME" -- "installed event (action=${ACTION:-boot})" 2>/dev/null || true
-
-mkdir -p "$B/jobs" 2>/dev/null || true
-
-if [ ! -f "$B/paths.env" ]; then
-  cat > "$B/paths.env" <<'EOF'
-# rclone-jobs settings (no secrets here - Telegram lives in the storage folder notify.env).
-# The engine re-reads this file on every run; edit via the WebUI or by hand.
-
-# Where job data (logs, status, backups, dry-run previews) is kept.
-# Leave commented to auto-detect: first mounted array disk, hidden dot-folder
-# (e.g. /mnt/disk1/.rclone-jobs - not visible in the /mnt/user share namespace).
-# Shares (/mnt/user/...) and system paths are refused by policy.
-#STORAGE_ROOT=/mnt/disk1/.rclone-jobs
-
-# Master safety switch: yes = every scheduled run executes as DRY-RUN until you
-# preview + ack each job. Set to no to let scheduled runs move real data.
-DRY_RUN_MASTER=yes
-
-# Quiet hours for alerts (24h, used by watchdog; blank = always alert)
-QUIET_START=23:00
-QUIET_END=07:00
-EOF
-  logger -t "$NAME" -- "created default $B/paths.env" 2>/dev/null || true
-fi
-
-up=no
-for d in /mnt/disk[0-9]*; do
-  [ -d "$d" ] || continue
-  s="$(findmnt -no SOURCE -T "$d" 2>/dev/null)" || true
-  case "$s" in /dev/md*) up=yes; break ;; esac
-done
-if [ "$up" = yes ]; then
-  [ -x "$D/scripts/install-engine.sh" ] && "$D/scripts/install-engine.sh" >/dev/null 2>&1
-  [ -x "$D/scripts/regen-cron.sh" ]     && "$D/scripts/regen-cron.sh" >/dev/null 2>&1
+if [ -x "$D/scripts/boot-setup.sh" ]; then
+  "$D/scripts/boot-setup.sh"
 else
-  logger -t "$NAME" -- "array not started - engine deploy deferred to array_started event" 2>/dev/null || true
+  # bootstrap fallback: helper not in place yet (first-boot partial state)
+  mkdir -p "/boot/config/plugins/$NAME/jobs" 2>/dev/null || true
 fi
 exit 0

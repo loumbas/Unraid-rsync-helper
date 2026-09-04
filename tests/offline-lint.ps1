@@ -206,6 +206,18 @@ if (-not $SrcOnly) {
         if ($txt -match '\{\{')  { Add-Fail "dist plg contains unsubstituted {{placeholder}}" } else { Add-Pass "dist plg: no unsubstituted placeholders" }
         if ($txt.Contains($version)) { Add-Pass "dist plg carries version $version" } else { Add-Fail "dist plg does not contain version $version" }
 
+        # real XML well-formedness (internal DTD subset allowed, external resolver off):
+        # catches unescaped & / < in hand-written INLINE blocks and plg.in edits
+        $xmlOk = $true; $xmlErr = ''
+        try {
+            $xrSet = New-Object System.Xml.XmlReaderSettings
+            $xrSet.DtdProcessing = [System.Xml.DtdProcessing]::Parse
+            $xrSet.XmlResolver = $null
+            $xr = [System.Xml.XmlReader]::Create($Plg, $xrSet)
+            try { while ($xr.Read()) {} } finally { $xr.Close() }
+        } catch { $xmlOk = $false; $xmlErr = $_.Exception.Message }
+        if ($xmlOk) { Add-Pass "dist plg: XML well-formed (entities resolve)" } else { Add-Fail "dist plg XML parse error: $xmlErr" }
+
         $targetHits = 0
         foreach ($e in $entries) {
             $needle = 'Name="' + $e.Target + '"'

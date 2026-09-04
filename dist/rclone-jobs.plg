@@ -3,24 +3,31 @@
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
 <!ENTITY version   "2026.09.02">
+<!ENTITY launchApp "Settings/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="Settings/rclone-jobs" min="7.0.0">
+<PLUGIN name="&name;" service="no" category="Utilities" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0">
   <CHANGES>
-## rclone-jobs
-
-### 2026.09.02
-- Initial release (offline build - not yet executed on target box).
-- Scheduled rclone/rsync/custom jobs with dry-run gate, Telegram + Dynamix alerts,
-  self-diagnosing doctor, and strict share policy (all plugin data outside /mnt/user).
+## 2026.09.02
+- Initial release. Scheduled rclone / rsync / custom jobs with a dry-run gate,
+  Telegram + Dynamix alerts, self-diagnosing doctor, strict share policy (all
+  plugin data in a hidden dot-folder on an array disk, never under /mnt/user).
+- Scheduling via a managed block in /var/spool/cron/crontabs/root (Dillon cron)
+  with rc.crond restart only on change; Dynamix Scheduler entries are preserved.
+- Uninstall keeps /boot config and all job data (logs, status, backups, notify.env).
   </CHANGES>
   <!--
-    rclone-jobs: scheduled rclone/rsync jobs with dry-run gate and Telegram alerts.
-    Runs alongside (never inside) the 'rclone' plugin by Waseh.
-    License: GPL-2.0-or-later. All plugin state lives outside /mnt/user.
+    rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
+    alerts. Runs alongside (never inside) the 'rclone' plugin by Waseh and reuses its
+    config at /boot/config/plugins/rclone/.rclone.conf.
+    Scheduling: marked block inside /var/spool/cron/crontabs/root (Unraid's Dillon cron
+    does not read /etc/cron.d and never re-reads changed crontabs -> rc.crond restart
+    on change only). All plugin state lives outside /mnt/user (dot-folder on an array
+    disk). License: GPL-2.0-or-later. No phone-home: the plugin performs outbound
+    network requests ONLY when Telegram alerts are explicitly enabled.
   -->
-  <!-- FILE entries are generated at build time from src/MANIFEST (placeholder below). -->
+  <!-- FILE entries are generated at build time from src/MANIFEST. -->
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
@@ -1281,17 +1288,18 @@ exit 0
 </INLINE>
   </FILE>
 
-  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs 'installed' event - also re-fired on every boot (plugin re-install).
-# The array may be DOWN here: create the boot-folder config skeleton, deploy only
-# if an array disk is already mounted, and never ever fail the plugin install.
+# rclone-jobs v2026.09.02 - boot/install setup, called from the .plg install script and
+# the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
+# Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
+# engine copy + crontab block when an array disk is mounted. Always exits 0.
 set -u
 NAME="rclone-jobs"
-D="/usr/local/emhttp/plugins/$NAME"
-B="/boot/config/plugins/$NAME"
-logger -t "$NAME" -- "installed event (action=${ACTION:-boot})" 2&gt;/dev/null || true
+B="${RJ_BOOT_DIR:-/boot/config/plugins/$NAME}"
+D="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/$NAME}"
+log() { logger -t "$NAME" -- "setup: $*" 2&gt;/dev/null || true; }
 
 mkdir -p "$B/jobs" 2&gt;/dev/null || true
 
@@ -1314,7 +1322,7 @@ DRY_RUN_MASTER=yes
 QUIET_START=23:00
 QUIET_END=07:00
 EOF
-  logger -t "$NAME" -- "created default $B/paths.env" 2&gt;/dev/null || true
+  log "created default $B/paths.env"
 fi
 
 up=no
@@ -1327,7 +1335,27 @@ if [ "$up" = yes ]; then
   [ -x "$D/scripts/install-engine.sh" ] &amp;&amp; "$D/scripts/install-engine.sh" &gt;/dev/null 2&gt;&amp;1
   [ -x "$D/scripts/regen-cron.sh" ]     &amp;&amp; "$D/scripts/regen-cron.sh" &gt;/dev/null 2&gt;&amp;1
 else
-  logger -t "$NAME" -- "array not started - engine deploy deferred to array_started event" 2&gt;/dev/null || true
+  log "array not started - engine deploy deferred to array_started event"
+fi
+exit 0
+</INLINE>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
+<INLINE>
+#!/bin/bash
+# rclone-jobs 'installed' event - fired at install and at every boot (array may be
+# down). All real work lives in scripts/boot-setup.sh (shared with the .plg install
+# script). Must never fail the plugin install: always exit 0.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+logger -t "$NAME" -- "installed event (action=${ACTION:-boot})" 2&gt;/dev/null || true
+if [ -x "$D/scripts/boot-setup.sh" ]; then
+  "$D/scripts/boot-setup.sh"
+else
+  # bootstrap fallback: helper not in place yet (first-boot partial state)
+  mkdir -p "/boot/config/plugins/$NAME/jobs" 2&gt;/dev/null || true
 fi
 exit 0
 </INLINE>
@@ -1383,24 +1411,38 @@ pkill -f 'rclone-jobs\.sh run ' 2&gt;/dev/null || true
 exit 0
 </INLINE>
   </FILE>
-  <!-- PRE-BOOT / INSTALL SCRIPT (runs at plugin install and again at every boot; array may be down). -->
+  <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
+       boot (array may be down). Boot-safe and idempotent by design. -->
   <FILE Run="/bin/bash" Method="install">
     <INLINE>
-# Phase 3 replaces this stub with the real boot-safe install routine:
-# - mkdir &bootDir;/jobs, create default paths.env when missing (never overwrite)
-# - deploy engine to &pluginDir;/engine + $STORAGE_ROOT when array is up
-# - regenerate /etc/cron.d/rclone-jobs when array is up
-mkdir -p "&bootDir;/jobs"
-logger -t rclone-jobs "plugin &version; installed (stub lifecycle - replaced in Phase 3)"
+S="&pluginDir;/scripts"
+if [ -x "$S/boot-setup.sh" ]; then
+  "$S/boot-setup.sh"
+else
+  mkdir -p "&bootDir;/jobs"
+fi
+logger -t rclone-jobs "install script finished (v&version;)"
+true
     </INLINE>
   </FILE>
-  <!-- REMOVE SCRIPT (keeps /boot config + $STORAGE_ROOT data by design). -->
+  <!-- REMOVE: stops running jobs, splices our block out of the root crontab, deletes
+       the code. Deliberately KEEPS /boot config and all storage data (logs, status,
+       backups, notify.env) - delete those by hand if you want them gone. -->
   <FILE Run="/bin/bash" Method="remove">
     <INLINE>
-# Phase 3 replaces this stub: kill running jobs, remove cron + code, keep data.
+pkill -f 'rclone-jobs\.sh run ' 2>/dev/null
+true
+CT="/var/spool/cron/crontabs/root"
+if grep -qF '# rclone-jobs BEGIN' "$CT" 2>/dev/null; then
+  sed -i '/^# rclone-jobs BEGIN/,/^# rclone-jobs END/d' "$CT"
+  if [ -x /etc/rc.d/rc.crond ]; then
+    /etc/rc.d/rc.crond restart >/dev/null 2>&amp;1
+  fi
+fi
 rm -f /etc/cron.d/&name;
-rm -rf &pluginDir;
-logger -t rclone-jobs "plugin &name; removed (code + cron gone; /boot config and storage data kept)"
+rm -rf "&pluginDir;"
+logger -t rclone-jobs "&name; removed: code and schedule gone; &bootDir; and storage data kept on purpose"
+true
     </INLINE>
   </FILE>
 </PLUGIN>
