@@ -1,3 +1,13 @@
+## 2026.09.04i
+- WebUI layout: text/password inputs in the job form and Alerts tab are capped to the
+  browse-row width (420px, max-width 100%) - no more full-page-width fields; number
+  fields are 64px and Schedule/Bandwidth/Quiet-window keep their size= width. The
+  Transfers/Checkers, Max/Warn deletes and Quiet-window rows stay on one line, and
+  the Browse button sits beside its field again.
+- Tabs now behave as tabs: the plugin initializes the ul.tabs strip itself (first tab
+  active, other panels hidden, hash deep-links #tab_rj_* honored). State-setting and
+  event-namespaced (.rjtab), so it coexists with any platform tab js.
+
 ## 2026.09.04h
 - Storage-overlap guard: a job whose SRC or DST is inside the plugin storage folder
   is now REFUSED (exit 78 + alert) - logs/status/notify.env can no longer be uploaded

@@ -39,6 +39,26 @@ function rjConfirm(title, text, btn, danger, cb) {
 $(function () {
   var D = rjData();
 
+  /* tabbed layout: state-setting (not toggling) so it is safe alongside any
+     tab js the platform itself may attach to ul.tabs; keeps #tab_rj_* deep links */
+  (function rjTabs() {
+    var $ul = $('ul.tabs');
+    if (!$ul.length) return;
+    var $links = $ul.find('a[href^="#"]');
+    if (!$links.length) return;
+    var ids = $links.map(function () { return this.hash; }).get();
+    function activate(hash) {
+      $links.each(function () { $(this).parent().toggleClass('active', this.hash === hash); });
+      ids.forEach(function (id) { var $d = $(id); if ($d.length) $d.toggle(id === hash); });
+    }
+    $links.off('.rjtab').on('click.rjtab', function (ev) {
+      ev.preventDefault();
+      activate(this.hash);
+      if (location.hash !== this.hash) history.replaceState(null, '', this.hash);
+    });
+    activate(ids.indexOf(location.hash) >= 0 ? location.hash : ids[0]);
+  })();
+
   /* fill Alerts tab from server state */
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
   $('#a_qstart').val(D.quiet.start);

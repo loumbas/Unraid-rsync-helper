@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
-<!ENTITY version   "2026.09.04h">
+<!ENTITY version   "2026.09.04i">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
@@ -11,16 +11,15 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
-## 2026.09.04h
-- Storage-overlap guard: a job whose SRC or DST is inside the plugin storage folder
-  is now REFUSED (exit 78 + alert) - logs/status/notify.env can no longer be uploaded
-  or --delete-erased by a misconfigured job. A job whose SRC/DST contains the storage
-  folder (the hosting disk root, or /mnt/user - shfs surfaces the dot-folder there)
-  runs with the storage top folder auto-excluded: rclone gets two anchored --exclude
-  patterns, rsync gets an anchored --exclude (which also shields it from --delete).
-  ARGS --delete-excluded is refused; custom-engine jobs warn once per change (Telegram
-  + notify + syslog) because no exclude can be injected there. Doctor reports the
-  overlap per job; the job form shows an inline hint on SRC/DST.
+## 2026.09.04i
+- WebUI layout: text/password inputs in the job form and Alerts tab are capped to the
+  browse-row width (420px, max-width 100%) - no more full-page-width fields; number
+  fields are 64px and Schedule/Bandwidth/Quiet-window keep their size= width. The
+  Transfers/Checkers, Max/Warn deletes and Quiet-window rows stay on one line, and
+  the Browse button sits beside its field again.
+- Tabs now behave as tabs: the plugin initializes the ul.tabs strip itself (first tab
+  active, other panels hidden, hash deep-links #tab_rj_* honored). State-setting and
+  event-namespaced (.rjtab), so it coexists with any platform tab js.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
@@ -48,7 +47,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.04h - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.04i - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -70,7 +69,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.04h"
+ENGINE_VERSION="2026.09.04i"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1264,7 +1263,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.04h - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.04i - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1314,7 +1313,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.04h',
+    'version'    =&gt; '2026.09.04i',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1325,16 +1324,19 @@ $rjdata = [
 ];
 ?&gt;
 &lt;style&gt;
-  /* native dl/dt/dd layout does the sizing; these only keep wide fields safe */
+  /* native dl/dt/dd layout does the sizing; fields capped to the browse-row width */
   #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text],
-  #tab_rj_alerts input[type=password] { box-sizing:border-box; max-width:100%; }
-  #tab_rj_jobs input.rj-path { width:520px; }
+  #tab_rj_alerts input[type=password] { box-sizing:border-box; width:420px; max-width:100%; }
+  #tab_rj_jobs input.rj-size, #tab_rj_alerts input.rj-size { width:auto; }
+  #tab_rj_jobs input[type=number] { width:64px; }
+  #tab_rj_jobs dd.rj-inline, #tab_rj_alerts dd.rj-inline { white-space:nowrap; }
+  ul.tabs li.active &gt; a { font-weight:bold; }
   #tab_rj_jobs table.rclone-jobs { width:100%; }
   #tab_rj_jobs td { word-break:break-word; }
   #tab_rj_jobs td [data-act] { white-space:nowrap; }
 &lt;/style&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04h"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.04i"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1406,7 +1408,7 @@ $rjdata = [
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Free-text label shown under the job name in the jobs table.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;dl&gt;&lt;dt&gt;Enabled:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_enabled"&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Schedule (cron):&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Schedule (cron):&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Five fields: &lt;em&gt;minute hour day-of-month month day-of-week&lt;/em&gt;. Only numbers, &lt;em&gt;*&lt;/em&gt; and the characters &lt;em&gt;,&lt;/em&gt; &lt;em&gt;-&lt;/em&gt; &lt;em&gt;/&lt;/em&gt; are accepted, e.g. &lt;em&gt;30 3 * * *&lt;/em&gt; = every day at 03:30, &lt;em&gt;0 5 * * 6&lt;/em&gt; = Saturday 05:00.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;dl&gt;&lt;dt&gt;Engine:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_engine"&gt;&lt;option value="rclone"&gt;rclone&lt;/option&gt;&lt;option value="rsync"&gt;rsync&lt;/option&gt;&lt;option value="custom"&gt;custom script&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;rclone&lt;/em&gt; uses the rclone plugin's own remotes (same config, never modified). &lt;em&gt;rsync&lt;/em&gt; is for local/remote paths with mount-guard protection. &lt;em&gt;custom script&lt;/em&gt; runs your own executable instead - the transfer settings below do not apply to it.&lt;/p&gt;&lt;/blockquote&gt;
@@ -1426,11 +1428,11 @@ $rjdata = [
         &lt;dl&gt;&lt;dt&gt;Per-job dry-run:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;While &lt;em&gt;yes&lt;/em&gt;, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;div class="rj-eng"&gt;
-        &lt;dl&gt;&lt;dt&gt;Transfers / Checkers:&lt;/dt&gt;&lt;dd&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Transfers / Checkers:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Bandwidth limit:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_bwlimit" size="10" placeholder="off"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Bandwidth limit:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_bwlimit" class="rj-size" size="10" placeholder="off"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone syntax, e.g. &lt;em&gt;10M&lt;/em&gt; (10 MByte/s) or &lt;em&gt;off&lt;/em&gt; for unlimited. Only affects the rclone engine.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Max deletes / Warn deletes:&lt;/dt&gt;&lt;dd&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl&gt;&lt;dt&gt;Max deletes / Warn deletes:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Sync modes only. &lt;em&gt;Max deletes&lt;/em&gt; is a hard cap - rclone aborts rather than deleting more. &lt;em&gt;Warn deletes&lt;/em&gt; makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;dl&gt;&lt;dt&gt;Backup dir (optional):&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone &lt;em&gt;--backup-dir&lt;/em&gt;: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like &lt;em&gt;gdrive:trash&lt;/em&gt; or a subfolder of the storage folder work well; leave empty to disable.&lt;/p&gt;&lt;/blockquote&gt;
@@ -1452,7 +1454,7 @@ $rjdata = [
         &lt;dd&gt;&lt;select id="a_master"&gt;&lt;option value="yes"&gt;YES - all scheduled runs are dry-runs&lt;/option&gt;&lt;option value="no"&gt;no - scheduled runs transfer for real&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;When YES, nothing is ever written by the schedule, regardless of per-job settings - every scheduled run is a simulation. Turn it off only after dry-runs of all jobs look right.&lt;/p&gt;&lt;/blockquote&gt;
       &lt;dl&gt;&lt;dt&gt;Quiet window (heartbeats):&lt;/dt&gt;
-        &lt;dd&gt;&lt;input type="text" id="a_qstart" size="6" placeholder="23:00"&gt; to &lt;input type="text" id="a_qend" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;dd class="rj-inline"&gt;&lt;input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"&gt; to &lt;input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;24-hour clock. Inside this window the daily OK heartbeats are suppressed; failures and dry-run alerts are always sent.&lt;/p&gt;&lt;/blockquote&gt;
     &lt;div class="title"&gt;
       &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-send title'&gt;&lt;/i&gt;Telegram notifications (optional)&lt;/span&gt;
@@ -1482,14 +1484,14 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.04h &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.04i &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.04h - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.04i - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1742,7 +1744,7 @@ default:
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.04h - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.04i - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1782,6 +1784,26 @@ function rjConfirm(title, text, btn, danger, cb) {
 
 $(function () {
   var D = rjData();
+
+  /* tabbed layout: state-setting (not toggling) so it is safe alongside any
+     tab js the platform itself may attach to ul.tabs; keeps #tab_rj_* deep links */
+  (function rjTabs() {
+    var $ul = $('ul.tabs');
+    if (!$ul.length) return;
+    var $links = $ul.find('a[href^="#"]');
+    if (!$links.length) return;
+    var ids = $links.map(function () { return this.hash; }).get();
+    function activate(hash) {
+      $links.each(function () { $(this).parent().toggleClass('active', this.hash === hash); });
+      ids.forEach(function (id) { var $d = $(id); if ($d.length) $d.toggle(id === hash); });
+    }
+    $links.off('.rjtab').on('click.rjtab', function (ev) {
+      ev.preventDefault();
+      activate(this.hash);
+      if (location.hash !== this.hash) history.replaceState(null, '', this.hash);
+    });
+    activate(ids.indexOf(location.hash) &gt;= 0 ? location.hash : ids[0]);
+  })();
 
   /* fill Alerts tab from server state */
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
@@ -2125,7 +2147,7 @@ $(function () {
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04h - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.04i - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2283,7 +2305,7 @@ exit "$errs"
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04h - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.04i - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
 set -uo pipefail
@@ -2378,7 +2400,7 @@ exit 0
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.04h - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.04i - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
