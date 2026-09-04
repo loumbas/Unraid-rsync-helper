@@ -1,3 +1,10 @@
+## 2026.09.04j
+- The plugin info popup now carries the last 10 builds: the .plg <CHANGES> block embeds
+  up to 10 '## ' sections of the changelog (newest first) instead of just the latest one.
+- Plugins list: a brief description is now shown under the plugin name (desc attribute
+  on the PLUGIN tag): "Schedule rclone/rsync jobs with a dry-run gate, mount guard,
+  delete limits and Telegram/Dynamix alerts".
+
 ## 2026.09.04i
 - WebUI layout: text/password inputs in the job form and Alerts tab are capped to the
   browse-row width (420px, max-width 100%) - no more full-page-width fields; number

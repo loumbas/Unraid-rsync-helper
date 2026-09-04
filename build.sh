@@ -19,10 +19,10 @@ fail() { echo "FAIL  $*" >&2; exit 1; }
 VERSION="$(tr -d '\r\n' < "$SRC/VERSION")"
 echo "$VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z]?$' || fail "src/VERSION must be YYYY.MM.DD with optional same-day letter suffix, got: $VERSION"
 
-# changelog: first '## ' section up to (exclusive) the next '## ' heading,
-# trailing whitespace stripped per line, trailing newlines stripped overall.
+# changelog: the last 10 '## ' sections (file is newest-first), up to (exclusive)
+# the 11th heading; trailing whitespace stripped per line, trailing newlines stripped.
 CHANGES="$(awk '
-  /^## / { if (started) exit; started = 1 }
+  /^## / { if (started) { n++; if (n >= 10) exit } started = 1 }
   started { sub(/[ \t\r]+$/, ""); print }
 ' "$SRC/CHANGELOG.md")"
 [ -n "$CHANGES" ] || fail "src/CHANGELOG.md has no '## ' section"
@@ -77,7 +77,7 @@ mkdir -p "$DIST"
 : > "$TMP/out"
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
-    '{{CHANGES}}') printf '%s\n' "$CHANGES" >> "$TMP/out" ;;
+    '{{CHANGES}}') printf '%s\n' "$CHANGES" | xml_escape >> "$TMP/out" ;;
     '{{FILES}}')   cat "$TMP/files" >> "$TMP/out" ;;
     *)             printf '%s\n' "$line" >> "$TMP/out" ;;
   esac

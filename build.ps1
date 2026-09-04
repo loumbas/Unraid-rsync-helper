@@ -49,20 +49,27 @@ Write-Host ''
 $version = (Read-NormText (Join-Path $srcRoot 'VERSION')).Trim()
 if ($version -notmatch '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z]?$') { throw "src/VERSION must be YYYY.MM.DD with optional same-day letter suffix, got: $version" }
 
-# changelog: from first '## ' line up to (exclusive) the next '## ' line
+# changelog: the last 10 '## ' sections (file is newest-first), up to (exclusive)
+# the 11th heading; trailing whitespace stripped per line, trailing newlines stripped.
+$maxSections = 10
 $clText = Read-NormText (Join-Path $srcRoot 'CHANGELOG.md')
 $clLines = $clText -split "`n"
 $section = New-Object System.Collections.ArrayList
 $started = $false
+$heads = 0
 foreach ($line in $clLines) {
     if ($line -match '^## ') {
-        if ($started) { break }
+        if ($started) {
+            $heads++
+            if ($heads -ge $maxSections) { break }
+        }
         $started = $true
     }
     if ($started) { [void]$section.Add($line.TrimEnd()) }
 }
 if (-not $started) { throw "src/CHANGELOG.md has no '## ' section" }
 $changes = ((($section | ForEach-Object { $_ }) -join "`n")).TrimEnd("`n")
+$changes = ConvertTo-XmlText $changes
 
 # manifest
 $entries = @()

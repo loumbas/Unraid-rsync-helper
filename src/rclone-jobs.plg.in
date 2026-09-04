@@ -3,13 +3,14 @@
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "P. Loumpardias">
 <!ENTITY version   "{{VERSION}}">
+<!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and Telegram/Dynamix alerts">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
 <!ENTITY repoURL   "https://github.com/loumbas/Unraid-rsync-helper">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/dist/rclone-jobs.plg">
 ]>
-<PLUGIN name="&name;" service="no" author="&author;" version="&version;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
+<PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
 {{CHANGES}}
   </CHANGES>
