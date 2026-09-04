@@ -1,7 +1,7 @@
 <?xml version="1.0" standalone="yes"?>
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
-<!ENTITY author    "P. Loumpardias">
+<!ENTITY author    "sir_lou">
 <!ENTITY version   "{{VERSION}}">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and Telegram/Dynamix alerts">
 <!ENTITY launchApp "Utilities/rclone-jobs">

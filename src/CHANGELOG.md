@@ -1,3 +1,6 @@
+## 2026.09.04k
+- Plugin author changed to "sir_lou" (shown in Plugin Manager).
+
 ## 2026.09.04j
 - The plugin info popup now carries the last 10 builds: the .plg <CHANGES> block embeds
   up to 10 '## ' sections of the changelog (newest first) instead of just the latest one.
