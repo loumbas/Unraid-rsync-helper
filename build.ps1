@@ -50,7 +50,8 @@ $version = (Read-NormText (Join-Path $srcRoot 'VERSION')).Trim()
 if ($version -notmatch '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$') { throw "src/VERSION must be YYYY.MM.DD, got: $version" }
 
 # changelog: from first '## ' line up to (exclusive) the next '## ' line
-$clLines = Read-NormText (Join-Path $srcRoot 'CHANGELOG.md') -split "`n"
+$clText = Read-NormText (Join-Path $srcRoot 'CHANGELOG.md')
+$clLines = $clText -split "`n"
 $section = New-Object System.Collections.ArrayList
 $started = $false
 foreach ($line in $clLines) {
