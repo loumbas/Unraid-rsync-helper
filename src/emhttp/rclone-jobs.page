@@ -64,11 +64,10 @@ $rjdata = [
 ];
 ?>
 <style>
-  /* keep form fields inside their table cells on every screen width */
-  #tab_rj_jobs input[type=text], #tab_rj_jobs input[type=number],
-  #tab_rj_alerts input[type=text], #tab_rj_alerts input[type=password]
-    { box-sizing:border-box; max-width:100%; }
-  #tab_rj_jobs input.rj-path { width:100%; max-width:560px; }
+  /* native dl/dt/dd layout does the sizing; these only keep wide fields safe */
+  #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text],
+  #tab_rj_alerts input[type=password] { box-sizing:border-box; max-width:100%; }
+  #tab_rj_jobs input.rj-path { width:520px; }
   #tab_rj_jobs table.rclone-jobs { width:100%; }
   #tab_rj_jobs td { word-break:break-word; }
   #tab_rj_jobs td [data-act] { white-space:nowrap; }
@@ -137,22 +136,40 @@ $rjdata = [
     <fieldset style="margin-top:14px"><legend id="rj-form-title">Add job</legend>
       <form id="rj-jobform" autocomplete="off">
         <input type="hidden" id="f_orig" value="">
-        <table class="settings">
-          <tr><td>Name</td><td><input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required> <span class="gray">letters, digits, dash, underscore</span></td></tr>
-          <tr><td>Description</td><td><input type="text" id="f_desc" maxlength="120"></td></tr>
-          <tr><td>Enabled</td><td><select id="f_enabled"><option value="yes">yes</option><option value="no">no</option></select></td></tr>
-          <tr><td>Schedule (cron)</td><td><input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"> <span class="gray">min hour dom mon dow; numbers, * , - / only</span></td></tr>
-          <tr><td>Engine</td><td><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></td></tr>
-          <tr class="rj-eng"><td>Mode (rclone)</td><td><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></td></tr>
-          <tr class="rj-eng"><td>Source</td><td><input type="text" id="f_src" class="rj-path" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></td></tr>
-          <tr class="rj-eng"><td>Destination</td><td><input type="text" id="f_dst" class="rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></td></tr>
-          <tr class="rj-custom" style="display:none"><td>Script</td><td><input type="text" id="f_script" class="rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></td></tr>
-          <tr><td>Per-job dry-run</td><td><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select> <span class="gray">master switch on the Alerts tab always wins</span></td></tr>
-          <tr class="rj-eng"><td>Transfers / Checkers</td><td><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></td></tr>
-          <tr class="rj-eng"><td>Bandwidth limit</td><td><input type="text" id="f_bwlimit" size="10" placeholder="off"> <span class="gray">e.g. 10M (rclone syntax)</span></td></tr>
-          <tr class="rj-eng"><td>Max deletes / Warn deletes</td><td><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"> <span class="gray">sync modes only</span></td></tr>
-          <tr class="rj-eng"><td>Backup dir (optional)</td><td><input type="text" id="f_backupdir" class="rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></td></tr>
-        </table>
+        <dl><dt>Name:</dt><dd><input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required></dd></dl>
+        <blockquote class='inline_help'><p>Unique job id - letters, digits, dash and underscore, max 40 characters. It names the config file and the schedule entry, so it cannot be changed afterwards; to rename a job create a new one and delete the old.</p></blockquote>
+        <dl><dt>Description:</dt><dd><input type="text" id="f_desc" maxlength="120"></dd></dl>
+        <blockquote class='inline_help'><p>Free-text label shown under the job name in the jobs table.</p></blockquote>
+        <dl><dt>Enabled:</dt><dd><select id="f_enabled"><option value="yes">yes</option><option value="no">no</option></select></dd></dl>
+        <blockquote class='inline_help'><p>A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.</p></blockquote>
+        <dl><dt>Schedule (cron):</dt><dd><input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"></dd></dl>
+        <blockquote class='inline_help'><p>Five fields: <em>minute hour day-of-month month day-of-week</em>. Only numbers, <em>*</em> and the characters <em>,</em> <em>-</em> <em>/</em> are accepted, e.g. <em>30 3 * * *</em> = every day at 03:30, <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
+        <dl><dt>Engine:</dt><dd><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></dd></dl>
+        <blockquote class='inline_help'><p><em>rclone</em> uses the rclone plugin's own remotes (same config, never modified). <em>rsync</em> is for local/remote paths with mount-guard protection. <em>custom script</em> runs your own executable instead - the transfer settings below do not apply to it.</p></blockquote>
+        <div class="rj-eng">
+        <dl><dt>Mode (rclone):</dt><dd><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></dd></dl>
+        <blockquote class='inline_help'><p><em>sync</em> makes destination identical to source (may delete). <em>copy</em> only adds/updates, never deletes. <em>check</em> only compares and reports differences.</p></blockquote>
+        <dl><dt>Source:</dt><dd><input type="text" id="f_src" class="rj-path" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></dd></dl>
+        <blockquote class='inline_help'><p>Folder on this server (shares, array disks, mounts) or an rclone remote path like <em>gdrive:Data</em>. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.</p></blockquote>
+        <dl><dt>Destination:</dt><dd><input type="text" id="f_dst" class="rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
+        <blockquote class='inline_help'><p>Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.</p></blockquote>
+        </div>
+        <div class="rj-custom" style="display:none">
+        <dl><dt>Script:</dt><dd><input type="text" id="f_script" class="rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></dd></dl>
+        <blockquote class='inline_help'><p>Absolute path of an executable script; Browse... shows <em>.sh</em> files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.</p></blockquote>
+        </div>
+        <dl><dt>Per-job dry-run:</dt><dd><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select></dd></dl>
+        <blockquote class='inline_help'><p>While <em>yes</em>, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.</p></blockquote>
+        <div class="rj-eng">
+        <dl><dt>Transfers / Checkers:</dt><dd><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></dd></dl>
+        <blockquote class='inline_help'><p>rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.</p></blockquote>
+        <dl><dt>Bandwidth limit:</dt><dd><input type="text" id="f_bwlimit" size="10" placeholder="off"></dd></dl>
+        <blockquote class='inline_help'><p>rclone syntax, e.g. <em>10M</em> (10 MByte/s) or <em>off</em> for unlimited. Only affects the rclone engine.</p></blockquote>
+        <dl><dt>Max deletes / Warn deletes:</dt><dd><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"></dd></dl>
+        <blockquote class='inline_help'><p>Sync modes only. <em>Max deletes</em> is a hard cap - rclone aborts rather than deleting more. <em>Warn deletes</em> makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.</p></blockquote>
+        <dl><dt>Backup dir (optional):</dt><dd><input type="text" id="f_backupdir" class="rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></dd></dl>
+        <blockquote class='inline_help'><p>rclone <em>--backup-dir</em>: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like <em>gdrive:trash</em> or a subfolder of the storage folder work well; leave empty to disable.</p></blockquote>
+        </div>
         <p>
           <input type="submit" value="Save job" class="rj-btn">
           <input type="button" id="rj-form-cancel" value="Cancel">
@@ -164,21 +181,20 @@ $rjdata = [
   <!-- ======================= ALERTS TAB ======================= -->
   <div id="tab_rj_alerts">
     <fieldset><legend>Safety</legend>
-      <table class="settings">
-        <tr><td>Master dry-run switch</td>
-          <td><select id="a_master"><option value="yes">YES - all scheduled runs are dry-runs</option><option value="no">no - scheduled runs transfer for real</option></select>
-          <br><span class="gray">When YES, nothing is ever written by the schedule, regardless of per-job settings.</span></td></tr>
-        <tr><td>Quiet window (heartbeats)</td>
-          <td><input type="text" id="a_qstart" size="6" placeholder="23:00"> to <input type="text" id="a_qend" size="6" placeholder="07:00"></td></tr>
-      </table>
+      <dl><dt>Master dry-run switch:</dt>
+        <dd><select id="a_master"><option value="yes">YES - all scheduled runs are dry-runs</option><option value="no">no - scheduled runs transfer for real</option></select></dd></dl>
+      <blockquote class='inline_help'><p>When YES, nothing is ever written by the schedule, regardless of per-job settings - every scheduled run is a simulation. Turn it off only after dry-runs of all jobs look right.</p></blockquote>
+      <dl><dt>Quiet window (heartbeats):</dt>
+        <dd><input type="text" id="a_qstart" size="6" placeholder="23:00"> to <input type="text" id="a_qend" size="6" placeholder="07:00"></dd></dl>
+      <blockquote class='inline_help'><p>24-hour clock. Inside this window the daily OK heartbeats are suppressed; failures and dry-run alerts are always sent.</p></blockquote>
     </fieldset>
     <fieldset><legend>Telegram alerts (optional)</legend>
-      <table class="settings">
-        <tr><td>Enable Telegram</td><td><select id="a_tg"><option value="no">no</option><option value="yes">yes</option></select></td></tr>
-        <tr><td>Bot token</td><td><input type="password" id="a_token" size="50" placeholder=""> <span class="gray" id="a_token_state"></span></td></tr>
-        <tr><td>Chat id</td><td><input type="text" id="a_chatid" size="30"></td></tr>
-      </table>
-      <p class="gray">Stored in <i>notify.env</i> (mode 600) on the storage disk - never in /boot, never in the browser after save.</p>
+      <dl><dt>Enable Telegram:</dt><dd><select id="a_tg"><option value="no">no</option><option value="yes">yes</option></select></dd></dl>
+      <blockquote class='inline_help'><p>Send job results and failures as Telegram messages in addition to the Unraid (Dynamix) notification.</p></blockquote>
+      <dl><dt>Bot token:</dt><dd><input type="password" id="a_token" size="40" placeholder=""> <span class="gray" id="a_token_state"></span></dd></dl>
+      <blockquote class='inline_help'><p>From @BotFather, format <em>digits:secret</em>. Leave blank to keep the stored token. It is saved to <i>notify.env</i> (mode 600) on the storage disk - never in /boot, and never sent back to the browser after save.</p></blockquote>
+      <dl><dt>Chat id:</dt><dd><input type="text" id="a_chatid" size="30"></dd></dl>
+      <blockquote class='inline_help'><p>Numeric chat id of the user or group to notify (negative for groups). Send your bot a message first, then check <em>getUpdates</em> to find it.</p></blockquote>
     </fieldset>
     <p><input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn">
        <input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"></p>

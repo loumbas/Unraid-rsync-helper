@@ -1,3 +1,11 @@
+## 2026.09.04f
+- Settings forms rebuilt on the native Unraid pattern (definition-list rows plus
+  inline-help blockquotes toggled by the sidebar Help button): no more table overflow,
+  explanation text is never cropped.
+- Help text added for every field on both tabs: cron syntax, engines, mode,
+  source/destination rules, delete limits, backup dir, master switch, quiet window,
+  Telegram token/chat id storage.
+
 ## 2026.09.04e
 - Fix: every ajax action returned 403 - Unraid 7.2+ local_prepend.php validates the CSRF
   token and then UNSETS it from $_POST and the X-CSRF header before plugin PHP runs, so
