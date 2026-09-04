@@ -17,9 +17,12 @@ Requirements: Unraid 7.x, the `rclone` plugin installed (any version), array sta
 
 ## Upgrading
 
-Install the newer `.plg` (same filename) - the plugin manager replaces files, fires the
-`updating` event, refreshes the engine copy and re-validates the cron block. Version
-numbers are dates (`YYYY.MM.DD`).
+**Remove first, then install the newer `.plg`** (same filename):
+`plugin remove rclone-jobs.plg && plugin install /tmp/rclone-jobs.plg`. On Unraid
+7.3.2 an over-install updates the saved .plg but may not overwrite the deployed
+files (verified on LMBS-SRV); remove+install always does, fires the `updating`
+event, refreshes the engine copy and re-validates the cron block. Config and job
+data survive a remove untouched. Version numbers are dates (`YYYY.MM.DD`).
 
 ## Uninstalling
 

@@ -51,6 +51,15 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 ```
 A copy of the engine is kept in the storage folder (`/mnt/diskN/.rclone-jobs/rclone-jobs.sh`).
 
+## Storage location & upgrades
+
+Job data lives in a hidden dot-folder directly on an array disk
+(`/mnt/diskN/.rclone-jobs`). It is not a share and share tools never traverse it;
+note shfs does surface the path (`/mnt/user/.rclone-jobs`) to `ls -a`/`find` —
+cosmetic only. To upgrade: **remove the plugin, then install the new .plg**
+(installing over an existing install may refresh the saved .plg but not the
+deployed files; config and all job data survive a remove).
+
 ## Files
 
 | Location | Purpose |
