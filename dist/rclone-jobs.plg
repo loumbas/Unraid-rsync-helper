@@ -1115,13 +1115,14 @@ $rjdata = [
 &lt;script src="plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.02"&gt;&lt;/script&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?&gt;&lt;/script&gt;
 
-&lt;div class="tabs" data-tab="rclone-jobs"&gt;
-  &lt;tab class="active"&gt;Jobs&lt;/tab&gt;
-  &lt;tab&gt;Alerts &amp;amp; Safety&lt;/tab&gt;
-  &lt;tab&gt;Doctor&lt;/tab&gt;
+&lt;ul class="tabs"&gt;
+  &lt;li&gt;&lt;a href="#tab_rj_jobs"&gt;Jobs&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href="#tab_rj_alerts"&gt;Alerts &amp;amp; Safety&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href="#tab_rj_doctor"&gt;Doctor&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
 
   &lt;!-- ======================= JOBS TAB ======================= --&gt;
-  &lt;tab-content class="active"&gt;
+  &lt;div id="tab_rj_jobs"&gt;
     &lt;table class="rclone-jobs view-table"&gt;
       &lt;thead&gt;&lt;tr&gt;
         &lt;th&gt;Job&lt;/th&gt;&lt;th&gt;Enabled&lt;/th&gt;&lt;th&gt;Schedule&lt;/th&gt;&lt;th&gt;Engine&lt;/th&gt;
@@ -1193,10 +1194,10 @@ $rjdata = [
         &lt;/p&gt;
       &lt;/form&gt;
     &lt;/fieldset&gt;
-  &lt;/tab-content&gt;
+  &lt;/div&gt;
 
   &lt;!-- ======================= ALERTS TAB ======================= --&gt;
-  &lt;tab-content&gt;
+  &lt;div id="tab_rj_alerts"&gt;
     &lt;fieldset&gt;&lt;legend&gt;Safety&lt;/legend&gt;
       &lt;table class="settings"&gt;
         &lt;tr&gt;&lt;td&gt;Master dry-run switch&lt;/td&gt;
@@ -1217,15 +1218,14 @@ $rjdata = [
     &lt;p&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt;
        &lt;input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"&gt;&lt;/p&gt;
     &lt;div id="rj-alerts-result" style="display:none"&gt;&lt;pre&gt;&lt;/pre&gt;&lt;/div&gt;
-  &lt;/tab-content&gt;
+  &lt;/div&gt;
 
   &lt;!-- ======================= DOCTOR TAB ======================= --&gt;
-  &lt;tab-content&gt;
+  &lt;div id="tab_rj_doctor"&gt;
     &lt;p&gt;&lt;input type="button" id="rj-doctor" value="Run doctor" class="rj-btn"&gt;
        &lt;input type="checkbox" id="rj-doctor-tg"&gt; include live Telegram test (sends a message if enabled)&lt;/p&gt;
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
-  &lt;/tab-content&gt;
-&lt;/div&gt;
+  &lt;/div&gt;
 </INLINE>
   </FILE>
 

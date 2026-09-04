@@ -63,13 +63,14 @@ $rjdata = [
 <script src="plugins/rclone-jobs/js/rclone-jobs.js?v={{VERSION}}"></script>
 <script type="application/json" id="rj-data"><?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?></script>
 
-<div class="tabs" data-tab="rclone-jobs">
-  <tab class="active">Jobs</tab>
-  <tab>Alerts &amp; Safety</tab>
-  <tab>Doctor</tab>
+<ul class="tabs">
+  <li><a href="#tab_rj_jobs">Jobs</a></li>
+  <li><a href="#tab_rj_alerts">Alerts &amp; Safety</a></li>
+  <li><a href="#tab_rj_doctor">Doctor</a></li>
+</ul>
 
   <!-- ======================= JOBS TAB ======================= -->
-  <tab-content class="active">
+  <div id="tab_rj_jobs">
     <table class="rclone-jobs view-table">
       <thead><tr>
         <th>Job</th><th>Enabled</th><th>Schedule</th><th>Engine</th>
@@ -141,10 +142,10 @@ $rjdata = [
         </p>
       </form>
     </fieldset>
-  </tab-content>
+  </div>
 
   <!-- ======================= ALERTS TAB ======================= -->
-  <tab-content>
+  <div id="tab_rj_alerts">
     <fieldset><legend>Safety</legend>
       <table class="settings">
         <tr><td>Master dry-run switch</td>
@@ -165,12 +166,11 @@ $rjdata = [
     <p><input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn">
        <input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"></p>
     <div id="rj-alerts-result" style="display:none"><pre></pre></div>
-  </tab-content>
+  </div>
 
   <!-- ======================= DOCTOR TAB ======================= -->
-  <tab-content>
+  <div id="tab_rj_doctor">
     <p><input type="button" id="rj-doctor" value="Run doctor" class="rj-btn">
        <input type="checkbox" id="rj-doctor-tg"> include live Telegram test (sends a message if enabled)</p>
     <pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px">Not run yet.</pre>
-  </tab-content>
-</div>
+  </div>
