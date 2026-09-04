@@ -1038,18 +1038,10 @@ if (PHP_SAPI === 'cli') {
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page" Mode="0644">
 <INLINE>
-Menu=Settings
+Menu="Settings"
 Title=rclone-jobs
 Icon=exchange
-File=plugins/rclone-jobs/index.php
-TableWidth=1000px
 ---
-Scheduled rclone / rsync / custom transfers with a dry-run gate, Telegram + Dynamix alerts and a self-diagnosing doctor.
-</INLINE>
-  </FILE>
-
-  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/index.php" Mode="0644">
-<INLINE>
 &lt;?php
 /* rclone-jobs v2026.09.02 - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
@@ -1112,7 +1104,7 @@ $rjdata = [
 ];
 ?&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.02"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.02"&gt;&lt;/script&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?&gt;&lt;/script&gt;
 
 &lt;ul class="tabs"&gt;
@@ -1464,7 +1456,7 @@ default:
 
 function rjPost(data, cb) {
   data.csrf_token = (typeof rj_csrf !== 'undefined') ? rj_csrf : '';
-  $.post('plugins/rclone-jobs/ajax.php', data)
+  $.post('/plugins/rclone-jobs/ajax.php', data)
     .done(function (res) { cb(res); })
     .fail(function (x) { cb({ ok: false, error: 'ajax failed: ' + (x.status || '?') + ' ' + (x.responseText || '').substring(0, 200) }); });
 }

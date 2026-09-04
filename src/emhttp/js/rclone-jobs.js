@@ -3,7 +3,7 @@
 
 function rjPost(data, cb) {
   data.csrf_token = (typeof rj_csrf !== 'undefined') ? rj_csrf : '';
-  $.post('plugins/rclone-jobs/ajax.php', data)
+  $.post('/plugins/rclone-jobs/ajax.php', data)
     .done(function (res) { cb(res); })
     .fail(function (x) { cb({ ok: false, error: 'ajax failed: ' + (x.status || '?') + ' ' + (x.responseText || '').substring(0, 200) }); });
 }

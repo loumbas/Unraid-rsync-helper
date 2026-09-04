@@ -1,7 +1,180 @@
-Menu=Settings
+Menu="Settings"
 Title=rclone-jobs
 Icon=exchange
-File=plugins/rclone-jobs/index.php
-TableWidth=1000px
 ---
-Scheduled rclone / rsync / custom transfers with a dry-run gate, Telegram + Dynamix alerts and a self-diagnosing doctor.
+<?php
+/* rclone-jobs v{{VERSION}} - WebUI page (Settings tab).
+   Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
+$RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
+$RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
+$RJ_ENGINE = $RJ_PLUGIN.'/engine/rclone-jobs.sh';
+
+$csrf_token = $csrf_token ?? (parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '');
+
+function rj_read_env($file) {
+    $out = [];
+    if (!is_readable($file)) return $out;
+    foreach (file($file, FILE_IGNORE_NEW_LINES) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) continue;
+        list($k, $v) = explode('=', $line, 2);
+        $out[trim($k)] = trim($v, " \t\"");
+    }
+    return $out;
+}
+function rj_json($file) {
+    if (!is_readable($file)) return null;
+    $d = json_decode(file_get_contents($file), true);
+    return is_array($d) ? $d : null;
+}
+
+$paths    = rj_read_env($RJ_BOOT.'/paths.env');
+$storage  = $paths['STORAGE_ROOT'] ?? '';
+if ($storage === '') {
+    /* auto-detect: first /mnt/diskN on /dev/md* */
+    foreach (glob('/mnt/disk[0-9]*') as $d) {
+        $src = trim((string)@shell_exec('findmnt -no SOURCE -T ' . escapeshellarg($d) . ' 2>/dev/null'));
+        if (strpos($src, '/dev/md') === 0) { $storage = $d.'/.rclone-jobs'; break; }
+    }
+}
+$notify   = rj_read_env($storage.'/notify.env');
+$master   = $paths['DRY_RUN_MASTER'] ?? 'yes';
+$quietSt  = $paths['QUIET_START'] ?? '23:00';
+$quietEn  = $paths['QUIET_END'] ?? '07:00';
+
+$jobs = [];
+foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
+    $name = basename($cf, '.conf');
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $name)) continue;
+    $cfg  = rj_read_env($cf);
+    $st   = rj_json($storage.'/status/'.$name.'.json');
+    $dry  = rj_json($storage.'/status/'.$name.'-dryrun.json');
+    $jobs[$name] = ['conf' => $cfg, 'status' => $st, 'dryrun' => $dry];
+}
+
+$rjdata = [
+    'version'    => '{{VERSION}}',
+    'storage'    => $storage,
+    'master'     => $master,
+    'quiet'      => ['start' => $quietSt, 'end' => $quietEn],
+    'telegram'   => ['enabled' => $notify['TG_ENABLED'] ?? 'no',
+                     'chat_id' => $notify['TG_CHAT_ID'] ?? '',
+                     'token_set' => !empty($notify['TG_TOKEN'] ?? '')],
+    'jobs'       => $jobs,
+];
+?>
+<script>var rj_csrf = <?= json_encode($csrf_token) ?>;</script>
+<script src="/plugins/rclone-jobs/js/rclone-jobs.js?v={{VERSION}}"></script>
+<script type="application/json" id="rj-data"><?= htmlspecialchars(json_encode($rjdata), ENT_QUOTES) ?></script>
+
+<ul class="tabs">
+  <li><a href="#tab_rj_jobs">Jobs</a></li>
+  <li><a href="#tab_rj_alerts">Alerts &amp; Safety</a></li>
+  <li><a href="#tab_rj_doctor">Doctor</a></li>
+</ul>
+
+  <!-- ======================= JOBS TAB ======================= -->
+  <div id="tab_rj_jobs">
+    <table class="rclone-jobs view-table">
+      <thead><tr>
+        <th>Job</th><th>Enabled</th><th>Schedule</th><th>Engine</th>
+        <th>Source → Destination</th><th>Last run</th><th>Last OK</th><th>Last dry-run</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+      <?php if (count($jobs) === 0): ?>
+        <tr><td colspan="9" style="text-align:center;padding:14px">No jobs yet - use "Add job" below.</td></tr>
+      <?php endif; ?>
+      <?php foreach ($jobs as $name => $j):
+          $c = $j['conf']; $s = $j['status']; $d = $j['dryrun'];
+          $en = ($c['ENABLED'] ?? 'yes') === 'no' ? 'no' : 'yes';
+          $rc = $s ? ($s['running'] ?? false ? 'RUN' : ($s['rc'] ?? '-')) : '-';
+          $run = $s['run'] ?? '-';
+          $lastok = $s['last_ok_run'] ?? 'never';
+          $drysum = '-';
+          if ($d) {
+              $drysum = ($d['stamp'] ?? '?')." copy+".($d['copies'] ?? 0)." del-".($d['deletes'] ?? 0)." fail:".($d['fails'] ?? 0);
+              if (!empty($d['ack_blocked'])) $drysum .= " [NEEDS ACK]";
+          }
+          $needAck = $d && empty($d['ok']) && ($d['deletes'] ?? 0) > 0;
+      ?>
+        <tr data-job="<?= htmlspecialchars($name) ?>">
+          <td><b><?= htmlspecialchars($name) ?></b><br><span class="gray"><?= htmlspecialchars($c['DESC'] ?? '') ?></span></td>
+          <td><?= $en ?></td>
+          <td><?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?></td>
+          <td><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></td>
+          <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= htmlspecialchars(($c['SRC'] ?? '').' -> '.($c['DST'] ?? '')) ?>">
+            <?= htmlspecialchars($c['SRC'] ?? '') ?> → <?= htmlspecialchars($c['DST'] ?? '') ?></td>
+          <td><?= htmlspecialchars((string)$rc) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?></td>
+          <td><?= htmlspecialchars((string)$lastok) ?></td>
+          <td><?= htmlspecialchars($drysum) ?></td>
+          <td style="white-space:nowrap">
+            <input type='button' value='Dry-run' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>'>
+            <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>'>
+            <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>'><?php endif; ?>
+            <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>'>
+            <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>'>
+          </td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <div id="rj-result" style="display:none;margin-top:10px"><pre id="rj-result-pre" style="white-space:pre-wrap"></pre></div>
+    <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre" style="white-space:pre-wrap"></pre></div>
+
+    <fieldset style="margin-top:14px"><legend id="rj-form-title">Add job</legend>
+      <form id="rj-jobform" autocomplete="off">
+        <input type="hidden" id="f_orig" value="">
+        <table class="settings">
+          <tr><td>Name</td><td><input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required> <span class="gray">letters, digits, dash, underscore</span></td></tr>
+          <tr><td>Description</td><td><input type="text" id="f_desc" maxlength="120"></td></tr>
+          <tr><td>Enabled</td><td><select id="f_enabled"><option value="yes">yes</option><option value="no">no</option></select></td></tr>
+          <tr><td>Schedule (cron)</td><td><input type="text" id="f_schedule" size="24" placeholder="30 3 * * *"> <span class="gray">min hour dom mon dow; numbers, * , - / only</span></td></tr>
+          <tr><td>Engine</td><td><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></td></tr>
+          <tr class="rj-eng"><td>Mode (rclone)</td><td><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></td></tr>
+          <tr class="rj-eng"><td>Source</td><td><input type="text" id="f_src" size="60" placeholder="/mnt/user/data or remote:bucket/folder"></td></tr>
+          <tr class="rj-eng"><td>Destination</td><td><input type="text" id="f_dst" size="60" placeholder="remote:backup/folder or /mnt/disk2/mirror"></td></tr>
+          <tr class="rj-custom" style="display:none"><td>Script</td><td><input type="text" id="f_script" size="60" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"></td></tr>
+          <tr><td>Per-job dry-run</td><td><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select> <span class="gray">master switch on the Alerts tab always wins</span></td></tr>
+          <tr class="rj-eng"><td>Transfers / Checkers</td><td><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></td></tr>
+          <tr class="rj-eng"><td>Bandwidth limit</td><td><input type="text" id="f_bwlimit" size="10" placeholder="off"> <span class="gray">e.g. 10M (rclone syntax)</span></td></tr>
+          <tr class="rj-eng"><td>Max deletes / Warn deletes</td><td><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"> <span class="gray">sync modes only</span></td></tr>
+          <tr class="rj-eng"><td>Backup dir (optional)</td><td><input type="text" id="f_backupdir" size="60" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"></td></tr>
+        </table>
+        <p>
+          <input type="submit" value="Save job" class="rj-btn">
+          <input type="button" id="rj-form-cancel" value="Cancel">
+        </p>
+      </form>
+    </fieldset>
+  </div>
+
+  <!-- ======================= ALERTS TAB ======================= -->
+  <div id="tab_rj_alerts">
+    <fieldset><legend>Safety</legend>
+      <table class="settings">
+        <tr><td>Master dry-run switch</td>
+          <td><select id="a_master"><option value="yes">YES - all scheduled runs are dry-runs</option><option value="no">no - scheduled runs transfer for real</option></select>
+          <br><span class="gray">When YES, nothing is ever written by the schedule, regardless of per-job settings.</span></td></tr>
+        <tr><td>Quiet window (heartbeats)</td>
+          <td><input type="text" id="a_qstart" size="6" placeholder="23:00"> to <input type="text" id="a_qend" size="6" placeholder="07:00"></td></tr>
+      </table>
+    </fieldset>
+    <fieldset><legend>Telegram alerts (optional)</legend>
+      <table class="settings">
+        <tr><td>Enable Telegram</td><td><select id="a_tg"><option value="no">no</option><option value="yes">yes</option></select></td></tr>
+        <tr><td>Bot token</td><td><input type="password" id="a_token" size="50" placeholder=""> <span class="gray" id="a_token_state"></span></td></tr>
+        <tr><td>Chat id</td><td><input type="text" id="a_chatid" size="30"></td></tr>
+      </table>
+      <p class="gray">Stored in <i>notify.env</i> (mode 600) on the storage disk - never in /boot, never in the browser after save.</p>
+    </fieldset>
+    <p><input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn">
+       <input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"></p>
+    <div id="rj-alerts-result" style="display:none"><pre></pre></div>
+  </div>
+
+  <!-- ======================= DOCTOR TAB ======================= -->
+  <div id="tab_rj_doctor">
+    <p><input type="button" id="rj-doctor" value="Run doctor" class="rj-btn">
+       <input type="checkbox" id="rj-doctor-tg"> include live Telegram test (sends a message if enabled)</p>
+    <pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px">Not run yet.</pre>
+  </div>
