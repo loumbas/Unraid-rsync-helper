@@ -45,17 +45,6 @@ function rj_sched_ok($s) {
     foreach ($f as $x) if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
     return true;
 }
-function rj_read_env($file) {
-    $out = [];
-    if (!is_readable($file)) return $out;
-    foreach (file($file, FILE_IGNORE_NEW_LINES) as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) continue;
-        list($k, $v) = explode('=', $line, 2);
-        $out[trim($k)] = trim($v, " \t\"");
-    }
-    return $out;
-}
 function rj_env_upsert($file, $pairs, $mode = null) {
     /* replace/add KEY=VALUE lines, keep comments and unknown keys, LF endings */
     $lines = is_readable($file) ? file($file, FILE_IGNORE_NEW_LINES) : [];
@@ -73,17 +62,6 @@ function rj_engine($args, &$out = null, &$rc = null, $bg = false) {
     $cmd = '/bin/bash ' . escapeshellarg($GLOBALS['RJ_ENGINE']) . ' ' . $args;
     if ($bg) { exec($cmd . ' > /dev/null 2>&1 &', $o, $r); $out = []; $rc = 0; return; }
     exec($cmd . ' 2>&1', $o, $r); $out = $o; $rc = $r;
-}
-function rj_storage() {
-    $p = rj_read_env('/boot/config/plugins/rclone-jobs/paths.env');
-    $s = $p['STORAGE_ROOT'] ?? '';
-    if ($s === '') {
-        foreach (glob('/mnt/disk[0-9]*') as $d) {
-            $src = trim((string)@shell_exec('findmnt -no SOURCE -T ' . escapeshellarg($d) . ' 2>/dev/null'));
-            if (strpos($src, '/dev/md') === 0) { $s = $d.'/.rclone-jobs'; break; }
-        }
-    }
-    return $s;
 }
 function rj_regen(&$out) {
     exec('/bin/bash ' . escapeshellarg($GLOBALS['RJ_REGEN']) . ' 2>&1', $out, $rc);
@@ -106,6 +84,7 @@ case 'save_job':
     $sched    = trim((string)($_POST['schedule'] ?? ''));
     $enabled  = ($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
     $dryrun   = ($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $notify   = in_array($_POST['notify'] ?? 'always', ['always', 'failures', 'off'], true) ? $_POST['notify'] : 'always';
     $desc     = substr(trim((string)($_POST['desc'] ?? '')), 0, 120);
     $trans    = (int)($_POST['transfers'] ?? 4);
     $check    = (int)($_POST['checkers'] ?? 8);
@@ -141,6 +120,7 @@ case 'save_job':
     $L[] = "SCHEDULE=$sched";
     $L[] = "ENABLED=$enabled";
     $L[] = "DRYRUN=$dryrun";
+    $L[] = "NOTIFY=$notify";
     if ($engine !== 'custom') {
         $L[] = "TRANSFERS=$trans"; $L[] = "CHECKERS=$check";
         if ($bwlimit !== '') $L[] = "BWLIMIT=$bwlimit";
@@ -211,34 +191,17 @@ case 'save_alerts':
     if ($qs === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qs)) $qp['QUIET_START'] = $qs;
     if ($qe === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qe)) $qp['QUIET_END'] = $qe;
     if ($qp) rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
+    rj_out(['ok' => true, 'msg' => 'Settings saved. Delivery (email/Telegram/...) is configured in Settings -> Notification Settings.']);
 
-    $stor = rj_storage();
-    if ($stor === '') rj_out(['ok' => false, 'error' => 'storage folder not available - start the array']);
-    @mkdir($stor, 0700, true);
-    $np = [];
-    if (isset($_POST['tg_enabled'])) $np['TG_ENABLED'] = $_POST['tg_enabled'] === 'yes' ? 'yes' : 'no';
-    if (isset($_POST['tg_chat_id'])) {
-        $cid = trim((string)$_POST['tg_chat_id']);
-        if ($cid !== '' && !preg_match('/^[0-9-]{1,32}$/', $cid)) rj_out(['ok' => false, 'error' => 'chat id must be numeric (may start with -)']);
-        $np['TG_CHAT_ID'] = $cid;
-    }
-    $token = (string)($_POST['tg_token'] ?? '');
-    if ($token !== '') {
-        if (!preg_match('/^[0-9]{6,}:[A-Za-z0-9_-]{20,}$/', $token)) rj_out(['ok' => false, 'error' => 'bot token format unexpected (digits:secret)']);
-        $np['TG_TOKEN'] = $token;
-    }
-    if ($np) rj_env_upsert($stor.'/notify.env', $np, 0600);
-    rj_out(['ok' => true, 'msg' => 'Settings saved (token ' . ($token !== '' ? 'updated' : 'unchanged') . ').']);
-
-case 'tg_test':
+case 'notify_test':
+    $lvl = (string)($_POST['level'] ?? 'normal');
+    if (!in_array($lvl, ['normal', 'warning', 'alert'], true)) $lvl = 'normal';
     $eo = []; $erc = 0;
-    rj_engine('doctor --telegram', $eo, $erc);
-    $line = '';
-    foreach ($eo as $l) if (stripos($l, 'telegram') !== false) $line .= $l."\n";
-    rj_out(['ok' => true, 'out' => trim($line) !== '' ? trim($line) : 'no telegram result']);
+    rj_engine('notify-test ' . $lvl, $eo, $erc);
+    rj_out(['ok' => $erc === 0, 'out' => implode("\n", $eo), 'rc' => $erc]);
 
 case 'doctor':
-    $args = 'doctor' . (($_POST['telegram'] ?? '') === 'yes' ? ' --telegram' : '');
+    $args = 'doctor' . (($_POST['notify'] ?? '') === 'yes' ? ' --notify' : '');
     $eo = []; $erc = 0;
     rj_engine($args, $eo, $erc);
     rj_out(['ok' => $erc === 0, 'out' => implode("\n", $eo), 'rc' => $erc]);

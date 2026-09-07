@@ -3,7 +3,7 @@
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
 <!ENTITY version   "{{VERSION}}">
-<!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and Telegram/Dynamix alerts">
+<!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
@@ -15,14 +15,16 @@
 {{CHANGES}}
   </CHANGES>
   <!--
-    rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
-    alerts. Runs alongside (never inside) the 'rclone' plugin by Waseh and reuses its
+    rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
+    alerts (bell/email/Telegram/... via Settings -> Notification Settings). Runs
+    alongside (never inside) the 'rclone' plugin by Waseh and reuses its
     config at /boot/config/plugins/rclone/.rclone.conf.
     Scheduling: marked block inside /var/spool/cron/crontabs/root (Unraid's Dillon cron
     does not read /etc/cron.d and never re-reads changed crontabs -> rc.crond restart
     on change only). All plugin state lives outside /mnt/user (dot-folder on an array
-    disk). License: GPL-2.0-or-later. No phone-home: the plugin performs outbound
-    network requests ONLY when Telegram alerts are explicitly enabled.
+    disk). License: GPL-2.0-or-later. No phone-home: the plugin itself makes no
+    outbound requests and stores no credentials; notifications go through the webGui
+    notify script, whose agents (incl. Telegram) are configured by the user.
   -->
   <!-- UPDATE pre-clean: runs ONLY on plugin update (never on fresh install). Wipes the
        RAM-resident emhttp copy so files deleted between releases cannot linger as stale
@@ -70,7 +72,8 @@ true
   </FILE>
   <!-- REMOVE: stops running jobs, splices our block out of the root crontab, deletes
        the code. Deliberately KEEPS /boot config and all storage data (logs, status,
-       backups, notify.env) - delete those by hand if you want them gone. -->
+       backups, and a legacy notify.env if one exists) - delete those by hand if you
+       want them gone. -->
   <FILE Run="/bin/bash" Method="remove">
     <INLINE>
 echo "----------------------------------------------------"
@@ -91,7 +94,7 @@ rm -f /etc/cron.d/&name;
 echo " deleting code: &pluginDir;"
 rm -rf "&pluginDir;"
 echo " KEPT on purpose: &bootDir; (your configs) and all storage data"
-echo "   (logs, status, backups, notify.env). Full cleanup by hand:"
+echo "   (logs, status, backups, legacy notify.env if present). Full cleanup by hand:"
 echo "   rm -rf &bootDir; /mnt/diskN/.rclone-jobs"
 logger -t rclone-jobs "&name; removed: code and schedule gone; &bootDir; and storage data kept on purpose"
 echo "----------------------------------------------------"

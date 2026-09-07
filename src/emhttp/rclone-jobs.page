@@ -37,7 +37,6 @@ if ($storage === '') {
         if (strpos($src, '/dev/md') === 0) { $storage = $d.'/.rclone-jobs'; break; }
     }
 }
-$notify   = rj_read_env($storage.'/notify.env');
 $master   = $paths['DRY_RUN_MASTER'] ?? 'yes';
 $quietSt  = $paths['QUIET_START'] ?? '23:00';
 $quietEn  = $paths['QUIET_END'] ?? '07:00';
@@ -57,16 +56,12 @@ $rjdata = [
     'storage'    => $storage,
     'master'     => $master,
     'quiet'      => ['start' => $quietSt, 'end' => $quietEn],
-    'telegram'   => ['enabled' => $notify['TG_ENABLED'] ?? 'no',
-                     'chat_id' => $notify['TG_CHAT_ID'] ?? '',
-                     'token_set' => !empty($notify['TG_TOKEN'] ?? '')],
     'jobs'       => $jobs,
 ];
 ?>
 <style>
   /* native dl/dt/dd layout does the sizing; fields capped to the browse-row width */
-  #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text],
-  #tab_rj_alerts input[type=password] { box-sizing:border-box; width:420px; max-width:100%; }
+  #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text] { box-sizing:border-box; width:420px; max-width:100%; }
   #tab_rj_jobs input.rj-size, #tab_rj_alerts input.rj-size { width:auto; }
   #tab_rj_jobs input[type=number] { width:64px; }
   #tab_rj_jobs dd.rj-inline, #tab_rj_alerts dd.rj-inline { white-space:nowrap; }
@@ -168,6 +163,8 @@ $rjdata = [
         </div>
         <dl><dt>Per-job dry-run:</dt><dd><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select></dd></dl>
         <blockquote class='inline_help'><p>While <em>yes</em>, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.</p></blockquote>
+        <dl><dt>Notify:</dt><dd><select id="f_notify"><option value="always">always (OK + problems)</option><option value="failures">failures &amp; warnings only</option><option value="off">off (silent)</option></select></dd></dl>
+        <blockquote class='inline_help'><p>When this job sends Unraid notifications: <em>always</em> = an OK notice after each successful run plus notices for any problem; <em>failures</em> = only failures, gate blocks, overlaps and watchdog findings; <em>off</em> = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &rarr; Notification Settings.</p></blockquote>
         <div class="rj-eng">
         <dl><dt>Transfers / Checkers:</dt><dd class="rj-inline"><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></dd></dl>
         <blockquote class='inline_help'><p>rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.</p></blockquote>
@@ -196,20 +193,18 @@ $rjdata = [
       <blockquote class='inline_help'><p>When YES, nothing is ever written by the schedule, regardless of per-job settings - every scheduled run is a simulation. Turn it off only after dry-runs of all jobs look right.</p></blockquote>
       <dl><dt>Quiet window (heartbeats):</dt>
         <dd class="rj-inline"><input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"> to <input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"></dd></dl>
-      <blockquote class='inline_help'><p>24-hour clock. Inside this window the daily OK heartbeats are suppressed; failures and dry-run alerts are always sent.</p></blockquote>
+      <blockquote class='inline_help'><p>24-hour clock. Inside this window the OK notices of successful runs are suppressed; failures and warnings are always sent.</p></blockquote>
     <div class="title">
-      <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-send title'></i>Telegram notifications (optional)</span>
+      <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-bell title'></i>Delivery (Unraid notifications)</span>
     </div>
     <p></p>
-      <dl><dt>Enable Telegram:</dt><dd><select id="a_tg"><option value="no">no</option><option value="yes">yes</option></select></dd></dl>
-      <blockquote class='inline_help'><p>Send job results and failures as Telegram messages in addition to the Unraid (Dynamix) notification.</p></blockquote>
-      <dl><dt>Bot token:</dt><dd><input type="password" id="a_token" class="variable" placeholder=""> <span class="gray" id="a_token_state"></span></dd></dl>
-      <blockquote class='inline_help'><p>From @BotFather, format <em>digits:secret</em>. Leave blank to keep the stored token. It is saved to <i>notify.env</i> (mode 600) on the storage disk - never in /boot, and never sent back to the browser after save.</p></blockquote>
-      <dl><dt>Chat id:</dt><dd><input type="text" id="a_chatid" class="variable"></dd></dl>
-      <blockquote class='inline_help'><p>Numeric chat id of the user or group to notify (negative for groups). Send your bot a message first, then check <em>getUpdates</em> to find it.</p></blockquote>
+      <dl><dt>Notification agents:</dt><dd><a href='/Settings/NotificationSettings'>Settings &rarr; Notification Settings</a></dd></dl>
+      <blockquote class='inline_help'><p>Job alerts use Unraid's own notification system - nothing is configured here. That page decides which agents receive each importance level: the WebUI bell always gets them; email, Telegram, Discord, Slack and Pushover are enabled and set up there (the Telegram agent asks for the bot token and chat id once, system-wide). This plugin stores no credentials and never contacts a notification provider itself.</p></blockquote>
+      <dl><dt>Test:</dt><dd class="rj-inline"><select id="a_ntlevel"><option value="normal">normal</option><option value="warning">warning</option><option value="alert">alert</option></select> <input type="button" id="rj-nt-test" value="Send test notification" class="rj-btn"></dd></dl>
+      <blockquote class='inline_help'><p>Sends one notification at the chosen level through the native notify script - check the bell and every agent you expect (Telegram only receives levels you ticked in Notification Settings).</p></blockquote>
     <dl>
       <dt>&nbsp;</dt>
-      <dd><input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"> <input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"></dd>
+      <dd><input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"></dd>
     </dl>
     <div id="rj-alerts-result" style="display:none"><pre></pre></div>
   </div>
@@ -221,7 +216,7 @@ $rjdata = [
     </div>
     <p></p>
     <p><input type="button" id="rj-doctor" value="Run doctor" class="rj-btn">
-       <input type="checkbox" id="rj-doctor-tg"> include live Telegram test (sends a message if enabled)</p>
+       <input type="checkbox" id="rj-doctor-notify"> include test notification (bell + your enabled agents)</p>
     <pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px">Not run yet.</pre>
   </div>
 

@@ -1,3 +1,24 @@
+## 2026.09.07a
+- Notifications now use ONLY the native Unraid system: every alert goes through the
+  webGui notify script, and delivery (WebUI bell, email, Telegram, Discord, Pushover)
+  is whatever the user enabled per importance level under Settings -> Notification
+  Settings. The plugin stores no credentials and never contacts a notification
+  provider itself (the rclone transfers themselves are unchanged).
+- Removed the built-in Telegram sender: the bot-token/chat-id fields, the notify.env
+  secret file handling and 'doctor --telegram' are gone. Existing notify.env files
+  are no longer read and are left untouched - delete the leftover secret file by
+  hand when convenient: rm '/mnt/diskN/.rclone-jobs/notify.env'
+- Fix: notifications were silently DELETED instead of shown - every call passed -x
+  ("delete matching notification") to the notify script, so nothing ever appeared.
+- New per-job Notify setting: always (OK + problems) | failures only | off. Old
+  HEARTBEAT=no configs map to 'failures'; off also silences failures for that job
+  (syslog and the job log are still written). The quiet window keeps suppressing
+  only the OK notices.
+- Richer notices: run results carry a full message body (seconds, transferred,
+  error counts, log path) and a clickable link to the plugin page.
+- Testing: new 'notify-test [normal|warning|alert]' engine command, a "Send test
+  notification" button on the Alerts & Safety tab, and 'doctor --notify' (opt-in).
+
 ## 2026.09.07
 - Fix: online update / over-install now actually replaces changed files. Every embedded
   file carries a <SHA256> of its deployed bytes; the plugin manager skips an existing

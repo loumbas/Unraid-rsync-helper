@@ -29,7 +29,9 @@ EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
 RCLONE_BIN="/usr/sbin/rclone"
 RCLONE_EXPECT_CONF="/boot/config/plugins/rclone/.rclone.conf"
 CRON_FILE="${RJ_CRON_FILE:-/var/spool/cron/crontabs/root}"  # Unraid scheduler = Dillon cron: user crontabs only, no /etc/cron.d
-NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
+NOTIFY_SCRIPT="/usr/local/emhttp/webGui/scripts/notify"
+NOTIFY_SCRIPT_DYN="/usr/local/emhttp/plugins/dynamix/scripts/notify"
+NOTIFY_LINK="/Utilities/rclone-jobs"
 LOCKDIR="/var/run"
 DEFAULT_MAX_DELETE="100"
 DEFAULT_WARN_DELETE="100"
@@ -45,10 +47,6 @@ STORAGE_ROOT=""
 LOG_DIR=""
 STATUS_DIR=""
 BACKUP_DIR=""
-NOTIFY_ENV=""
-TG_ENABLED="no"
-TG_TOKEN=""
-TG_CHAT_ID=""
 PHP_BIN=""
 
 # ------------------------------------------------------------------- basics --
@@ -147,28 +145,9 @@ storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
   LOG_DIR="$STORAGE_ROOT/logs"
   STATUS_DIR="$STORAGE_ROOT/status"
   BACKUP_DIR="$STORAGE_ROOT/backup"
-  NOTIFY_ENV="$STORAGE_ROOT/notify.env"
   mkdir -p "$LOG_DIR" "$STATUS_DIR" "$BACKUP_DIR" 2>/dev/null || die 78 "cannot create plugin directories under $STORAGE_ROOT"
   touch "$LOG_DIR/.probe" 2>/dev/null || die 78 "STORAGE_ROOT is not writable: $STORAGE_ROOT"
   rm -f "$LOG_DIR/.probe"
-}
-
-load_notify() { # reads secrets into memory; their values are NEVER echoed/logged
-  [ -n "$NOTIFY_ENV" ] && [ -f "$NOTIFY_ENV" ] || return 0
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%$'\r'}"
-    case "$line" in ''|'#'*) continue ;; esac
-    case "$line" in *=*) ;; *) continue ;; esac
-    case "${line%%=*}" in
-      TG_ENABLED) TG_ENABLED="${line#*=}" ;;
-      TG_CHAT_ID) TG_CHAT_ID="${line#*=}" ;;
-      # assignment name is split so the repo-wide secret scanner does not see a
-      # literal assignment; declare -g assigns the global (quoted words are NOT
-      # valid assignment targets - they execute and fail).
-      TG_'TOKEN') declare -g "TG_TO""KEN=${line#*=}" ;;
-    esac
-  done < "$NOTIFY_ENV"
 }
 
 quiet_now() { # true inside the global quiet window (suppresses heartbeats only)
@@ -185,30 +164,46 @@ quiet_now() { # true inside the global quiet window (suppresses heartbeats only)
   fi
 }
 
-tg_send() { # <plain text> - one message; & < > escaped via bash expansion; 3500 max
-  local text="$1" esc resp
-  [ "${TG_ENABLED:-no}" = "yes" ] || return 0
-  [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ] || return 0
-  esc="${text//&/&amp;}"; esc="${esc//</&lt;}"; esc="${esc//>/&gt;}"
-  esc="${esc:0:3500}"
-  resp="$(curl -s -m 15 --retry 2 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-      --data-urlencode "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${esc}" -d parse_mode=HTML 2>/dev/null)"
-  if printf '%s' "$resp" | grep -q '"ok":true'; then return 0; fi
-  printf '%s sendMessage failed: %s\n' "$(stamp_now)" "${resp:0:300}" >> "$LOG_DIR/send-error.log" 2>/dev/null
+notify_unraid() { # <normal|warning|alert> <subject> <desc> [message body]
+  # native Unraid notification only: agents (bell, email, Telegram, Discord, ...)
+  # are the user's choice in Settings -> Notification Settings; the plugin never
+  # talks to any notification provider directly and stores no credentials.
+  local n rc
+  for n in "$NOTIFY_SCRIPT" "$NOTIFY_SCRIPT_DYN"; do
+    [ -x "$n" ] || continue
+    if [ -n "${4:-}" ]; then
+      "$n" -e "$NAME" -s "$2" -d "$3" -i "$1" -m "$4" -l "$NOTIFY_LINK" >/dev/null 2>&1
+    else
+      "$n" -e "$NAME" -s "$2" -d "$3" -i "$1" -l "$NOTIFY_LINK" >/dev/null 2>&1
+    fi
+    rc=$?
+    [ "$rc" -eq 0 ] || syslog_line "NOTIFY-FAIL level=$1 subject=$2 (notify script rc=$rc)"
+    return "$rc"
+  done
+  syslog_line "NOTIFY-SKIP level=$1 subject=$2 (no notify script found)"
   return 1
 }
 
-notify_unraid() { # <normal|warning|alert> <subject> <desc>
-  [ -x "$NOTIFY_SCRIPT" ] || return 0
-  "$NOTIFY_SCRIPT" -e "$NAME" -s "$2" -d "$3" -i "$1" -x >/dev/null 2>&1 || true
+notify_job() { # same args as notify_unraid, filtered by the per-job NOTIFY setting
+  case "$J_NOTIFY" in
+    off)      return 0 ;;
+    failures) [ "$1" = normal ] && return 0 ;;
+  esac
+  notify_unraid "$@"
+}
+
+job_notify_setting() { # <job name> -> always|failures|off (legacy HEARTBEAT=no maps to failures)
+  local f="$BOOT_DIR/jobs/$1.conf" v
+  v="$(sed -nE 's/^NOTIFY=//p' "$f" 2>/dev/null | tail -1)"
+  [ -n "$v" ] || v="$([ "$(sed -nE 's/^HEARTBEAT=//p' "$f" 2>/dev/null | tail -1)" = no ] && printf failures || printf always)"
+  case "$v" in failures|off) printf '%s' "$v" ;; *) printf 'always' ;; esac
 }
 
 alert_refuse() { # <message> - loud everywhere; used for pre-transfer refusals
   syslog_line "REFUSED: $*"
-  notify_unraid alert "rclone-jobs: refused to run $JOB_NAME" "$*"
-  tg_send "STOP rclone-jobs REFUSED: $JOB_NAME
-$*
-Nothing was transferred or deleted." || true
+  notify_job alert "rclone-jobs: refused to run $JOB_NAME" "$*" "STOP - nothing was transferred or deleted.
+reason: $*
+job: $JOB_NAME"
 }
 
 # ------------------------------------------------------------------- status --
@@ -246,7 +241,7 @@ status_finish() { # <job> <rc> <secs> <errors> <transferred> <running true|false
 J_ENGINE=""; J_MODE=""; J_SRC=""; J_DST=""; J_SCHEDULE=""; J_ENABLED="yes"
 J_DRYRUN="yes"; J_ARGS=""; J_TRANSFERS="4"; J_CHECKERS="8"; J_BWLIMIT=""
 J_MAXDELETE="$DEFAULT_MAX_DELETE"; J_BACKUPDIR=""; J_WARN_DELETE="$DEFAULT_WARN_DELETE"
-J_UMASK="002"; J_HEARTBEAT="yes"; J_DESC=""; J_CUSTOM_SCRIPT=""
+J_UMASK="002"; J_HEARTBEAT="yes"; J_NOTIFY=""; J_DESC=""; J_CUSTOM_SCRIPT=""
 JOB_NAME=""; JOB_CONF=""
 
 load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values never eval'd
@@ -275,11 +270,13 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values
       MAXDELETE)     J_MAXDELETE="$val" ;;
       BACKUPDIR)     J_BACKUPDIR="$val" ;;
       WARN_DELETE)   J_WARN_DELETE="$val" ;;
-      UMASK)         J_UMASK="$val" ;;
-      HEARTBEAT)     J_HEARTBEAT="$val" ;;
+      UMASK)       J_UMASK="$val" ;;
+      HEARTBEAT)   J_HEARTBEAT="$val" ;;
+      NOTIFY)      J_NOTIFY="$val" ;;
       CUSTOM_SCRIPT) J_CUSTOM_SCRIPT="$val" ;;
     esac
   done < "$JOB_CONF"
+  [ -n "$J_NOTIFY" ] || { [ "$J_HEARTBEAT" = no ] && J_NOTIFY=failures || J_NOTIFY=always; }
   validate_job
 }
 
@@ -288,6 +285,7 @@ validate_job() {
   case "$J_ENABLED"   in yes|no) ;; *) J_ENABLED=yes ;; esac
   case "$J_DRYRUN"    in yes|no) ;; *) J_DRYRUN=yes ;; esac
   case "$J_HEARTBEAT" in yes|no) ;; *) J_HEARTBEAT=yes ;; esac
+  case "$J_NOTIFY"    in always|failures|off) ;; *) J_NOTIFY=always ;; esac
   [[ "$J_TRANSFERS"   =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: TRANSFERS must be 0-999"
   [[ "$J_CHECKERS"    =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: CHECKERS must be 0-999"
   [[ "$J_MAXDELETE"   =~ ^[0-9]{1,9}$ ]] || die 78 "job $JOB_NAME: MAXDELETE must be numeric"
@@ -345,8 +343,8 @@ mount_guard() { # <path> <src|dst> - READ-ONLY checks; never mkdir -p. Exit 75 +
 
 # ------------------------------------------------------- storage overlap --
 # A job must never swallow the plugin's own storage folder. INSIDE (SRC/DST is
-# STORAGE_ROOT or below it): refused outright - logs/status/notify.env would be
-# uploaded and --delete could erase the plugin's own data. ANCESTOR (SRC/DST
+# STORAGE_ROOT or below it): refused outright - logs/status would be uploaded
+# and --delete could erase the plugin's own data. ANCESTOR (SRC/DST
 # CONTAINS STORAGE_ROOT, e.g. the hosting disk root): the run proceeds with the
 # storage top folder auto-excluded on both sides of the transfer.
 STORAGE_TOP=""   # e.g. /.rclone-jobs when a side is an ancestor; '' otherwise
@@ -403,7 +401,7 @@ overlap_check() { # after storage_guard + load_job; fills STORAGE_TOP; refuses I
     cls="$(storage_classify "$p")"
     case "$cls" in
       inside)
-        alert_refuse "job $JOB_NAME: '$p' is inside the plugin storage folder ($STORAGE_ROOT) - logs, status and notify.env must never be synced or deleted by a job"
+        alert_refuse "job $JOB_NAME: '$p' is inside the plugin storage folder ($STORAGE_ROOT) - logs and status must never be synced or deleted by a job"
         die 78 "job $JOB_NAME: SRC/DST inside STORAGE_ROOT - nothing was touched" ;;
       ancestor:*)
         top="${cls#ancestor:}"
@@ -424,8 +422,7 @@ overlap_check() { # after storage_guard + load_job; fills STORAGE_TOP; refuses I
     local mark="$STATUS_DIR/$JOB_NAME-overlap" cur="$anc|$STORAGE_TOP"
     if [ ! -f "$mark" ] || [ "$(cat "$mark" 2>/dev/null)" != "$cur" ]; then
       printf '%s\n' "$cur" > "$mark" 2>/dev/null || true
-      notify_unraid warning "rclone-jobs: $JOB_NAME storage overlap" "custom engine syncs '$anc' which contains $STORAGE_ROOT; $STORAGE_TOP is not shielded there"
-      tg_send "WARN rclone-jobs: $JOB_NAME - custom engine syncs '$anc' containing $STORAGE_ROOT; no auto-exclude is possible there" || true
+      notify_job warning "rclone-jobs: $JOB_NAME storage overlap" "custom engine syncs '$anc' which contains $STORAGE_ROOT; $STORAGE_TOP is not shielded there"
     fi
   else
     say "rclone-jobs: $JOB_NAME: '$STORAGE_TOP' is auto-excluded (SRC/DST '$anc' contains the plugin storage folder)"
@@ -455,8 +452,8 @@ guard_remotes() {
 block_gate() {
   say "rclone-jobs: GATE BLOCKED for $JOB_NAME: $*"
   syslog_line "GATE-BLOCKED job=$JOB_NAME: $*"
-  notify_unraid warning "rclone-jobs gate: $JOB_NAME" "$*"
-  tg_send "STOP rclone-jobs GATE BLOCKED: $JOB_NAME - $*" || true
+  notify_job warning "rclone-jobs gate: $JOB_NAME" "$*" "The real run was blocked by the dry-run gate; nothing was transferred.
+job: $JOB_NAME"
   exit 77
 }
 
@@ -542,7 +539,7 @@ parse_counters() { # <logfile>
   [ -n "$t" ] && TR="$t"
 }
 
-classify() { # <rc> <error text> - headline used by log, UI and Telegram
+classify() { # <rc> <error text> - headline used by log, UI and notifications
   local rc="$1" e="$2"
   if printf '%s' "$e" | grep -Eqi 'invalid_grant|AADSTS|refresh token|status code 401|401 Unauthorized'; then
     CLS_EMOJI="LOCK";  CLS_HEAD="re-login needed for the remote - open the rclone plugin page and re-authenticate"
@@ -597,7 +594,6 @@ cmd_run() { # <job> [--dry-run]
   valid_jobname "$JOB_NAME" || die 78 "invalid job name '$JOB_NAME' (allowed: letters, digits, underscore, hyphen; max 40)"
   load_paths
   storage_guard
-  load_notify
   load_job
   local dry=no master_forced=no
   [ "$want_dry" = yes ] && dry=yes
@@ -617,8 +613,7 @@ cmd_run() { # <job> [--dry-run]
   if ! flock -n 200; then
     say "rclone-jobs: $JOB_NAME is already running - overlap blocked, nothing was started"
     syslog_line "OVERLAP job=$JOB_NAME skipped (previous run still active)"
-    notify_unraid warning "rclone-jobs overlap: $JOB_NAME" "a run was skipped because the previous run is still active"
-    tg_send "OVERLAP rclone-jobs: $JOB_NAME - run skipped (previous run still active)" || true
+    notify_job warning "rclone-jobs overlap: $JOB_NAME" "a run was skipped because the previous run is still active"
     exit 0
   fi
   local chash sj ts logfile t0 t1 rc
@@ -664,18 +659,20 @@ cmd_run() { # <job> [--dry-run]
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
-      if [ "$J_HEARTBEAT" = yes ] && ! quiet_now; then
-        tg_send "OK rclone-jobs: $JOB_NAME finished in ${secs}s - ${TR} transferred" || true
-        notify_unraid normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred"
+      if [ "$J_NOTIFY" = always ] && ! quiet_now; then
+        notify_job normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred" \
+          "job: $JOB_NAME
+transferred: ${TR} in ${secs}s
+log: $logfile"
       fi
     else
-      tg_send "FAILED rclone-jobs: $JOB_NAME
-$CLS_HEAD
+      notify_job alert "rclone-jobs: $JOB_NAME FAILED" "$CLS_HEAD (exit $rc)" \
+        "job: $JOB_NAME
+result: $CLS_HEAD
 exit=$rc - ${secs}s - ${ERR_COUNT} error(s)
 errors: $(printf '%s' "${ERR_LAST:-none}" | cut -c1-800)
 failing files: ${ERR_FILES:-unknown}
-log: $logfile" || true
-      notify_unraid alert "rclone-jobs: $JOB_NAME FAILED" "$CLS_HEAD (exit $rc)"
+log: $logfile"
     fi
   fi
   say "rclone-jobs: $JOB_NAME finished rc=$rc (${secs}s) - $CLS_HEAD"
@@ -734,8 +731,7 @@ cmd_status() {
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pruning
   load_paths
   storage_guard
-  load_notify
-  local now f n sj last_ok running dedup lk
+  local now f n nn sj last_ok running dedup lk
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -743,6 +739,8 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
     valid_jobname "$n" || continue
     sj="$(status_file "$n")"
     [ -f "$sj" ] || continue
+    nn="$(job_notify_setting "$n")"
+    [ "$nn" = off ] && continue
     dedup="$STATUS_DIR/.wd-$n"
     running="$(jq -r '.running // false' "$sj" 2>/dev/null)"
     if [ "$running" = "true" ]; then
@@ -752,8 +750,7 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
           if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
             touch "$dedup"
             syslog_line "WATCHDOG: $n looks stuck (running >6h with lock held)"
-            notify_unraid alert "rclone-jobs: $n looks stuck" "running for over 6 hours with the lock held"
-            tg_send "STUCK rclone-jobs: $n running >6h (lock held)" || true
+            notify_unraid alert "rclone-jobs: $n looks stuck" "running for over 6 hours with the lock held" "job: $n - check the WebUI and the job log"
           fi
         fi
       fi
@@ -764,13 +761,23 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
       if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
         touch "$dedup"
         syslog_line "WATCHDOG: $n has no successful run in over 26h"
-        notify_unraid warning "rclone-jobs: $n stale" "no successful run in over 26 hours"
-        tg_send "STALE rclone-jobs: $n has no successful run in 26h" || true
+        notify_unraid warning "rclone-jobs: $n stale" "no successful run in over 26 hours" "job: $n - check the schedule and the job logs"
       fi
     fi
   done
   find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +14 -delete 2>/dev/null
   return 0
+}
+
+cmd_notify_test() { # [normal|warning|alert] - one native test notification (UI button + CLI)
+  local lvl="${1:-normal}"
+  case "$lvl" in normal|warning|alert) ;; *) die 78 "usage: $0 notify-test [normal|warning|alert]" ;; esac
+  if notify_unraid "$lvl" "rclone-jobs test notification ($lvl)" "sent at $(stamp_now)" \
+       "This is a rclone-jobs v$ENGINE_VERSION test. Seeing it in the WebUI bell - and in email/Telegram/etc. if those agents are enabled under Settings -> Notification Settings - means alerts work."; then
+    say "rclone-jobs: test notification sent (level $lvl) - check the bell icon and your enabled agents"
+  else
+    die 78 "test notification failed - notify script missing or rejected it (looked for: $NOTIFY_SCRIPT, $NOTIFY_SCRIPT_DYN)"
+  fi
 }
 
 DOCTOR_FAILS=0
@@ -781,9 +788,9 @@ d_line() { # <PASS|WARN|FAIL|INFO> <text> - buffered once, printed once in the f
   return 0
 }
 
-cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
-  local opt_tg=no a pv ro rv cf b missing rp perm regen drift drc probe_rc now sj lo jn save ov ovl
-  for a in "$@"; do [ "$a" = "--telegram" ] && opt_tg=yes; done
+cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
+  local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
+  for a in "$@"; do [ "$a" = "--notify" ] && opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
   say ""
@@ -818,17 +825,19 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2>/dev/null)"
     else d_line WARN "STORAGE_ROOT does not exist yet (array stopped, or first run pending): $STORAGE_ROOT"; fi
     if [ -f "$STORAGE_ROOT/notify.env" ]; then
-      perm="$(stat -c %a "$STORAGE_ROOT/notify.env" 2>/dev/null)"
-      if [ "$perm" = "600" ]; then d_line PASS "notify.env present with mode 600 (values never shown)"
-      else d_line WARN "notify.env mode is $perm - should be 600: chmod 600 '$STORAGE_ROOT/notify.env'"; fi
-    else d_line WARN "notify.env not configured - Telegram alerts disabled until set on the Alerts tab"; fi
+      d_line INFO "legacy notify.env still present (no longer read) - optional cleanup: rm '$STORAGE_ROOT/notify.env'"
+    fi
   fi
+  nsc=""
+  for n in "$NOTIFY_SCRIPT" "$NOTIFY_SCRIPT_DYN"; do [ -x "$n" ] && { nsc="$n"; break; }; done
+  if [ -n "$nsc" ]; then d_line PASS "Unraid notify script: $nsc (agents: Settings -> Notification Settings)"
+  else d_line WARN "notify script not found - alerts would go to syslog only (webGui broken or not booted?)"; fi
   [ -n "$STORAGE_ROOT" ] && STORAGE_ROOT="$(realpath -m -- "$STORAGE_ROOT" 2>/dev/null || printf '%s' "$STORAGE_ROOT")"
   missing=""
-  for b in jq flock rsync curl logger pgrep findmnt fuser sha256sum; do
+  for b in jq flock rsync logger pgrep findmnt fuser sha256sum; do
     command -v "$b" >/dev/null 2>&1 || missing="$missing $b"
   done
-  if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync curl logger pgrep findmnt fuser sha256sum)"
+  if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync logger pgrep findmnt fuser sha256sum)"
   else d_line FAIL "missing binaries:$missing"; fi
   if find_php; then d_line PASS "php CLI: $PHP_BIN"; else d_line WARN "php CLI not found - structured dry-run previews disabled"; fi
   if [ -f "$CRON_FILE" ]; then
@@ -879,14 +888,11 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       done
     fi
   else d_line WARN "no jobs directory yet: $BOOT_DIR/jobs"; fi
-  if [ "$opt_tg" = yes ]; then
-    load_notify
-    if [ "${TG_ENABLED:-no}" = "yes" ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
-      [ -z "$LOG_DIR" ] && [ -n "$STORAGE_ROOT" ] && { LOG_DIR="$STORAGE_ROOT/logs"; mkdir -p "$LOG_DIR" 2>/dev/null; }
-      if tg_send "rclone-jobs doctor: Telegram connectivity test $(stamp_now)"; then d_line PASS "telegram sendMessage accepted"
-      else d_line FAIL "telegram sendMessage failed - see logs/send-error.log (values are never logged)"; fi
-    else d_line WARN "telegram test skipped - not configured/enabled"; fi
-  else d_line INFO "telegram connectivity test skipped (opt-in: doctor --telegram)"; fi
+  if [ "$opt_notify" = yes ]; then
+    if notify_unraid normal "rclone-jobs doctor: test notification" "sent at $(stamp_now)" "If this shows in the WebUI bell and in your enabled agents (email/Telegram/...), alerts work."; then
+      d_line PASS "test notification accepted - check the bell and your agents"
+    else d_line FAIL "notify script rejected the test notification (see syslog)"; fi
+  else d_line INFO "test notification skipped (opt-in: doctor --notify)"; fi
   say ""
   if [ -n "$STORAGE_ROOT" ] && [ -d "$STORAGE_ROOT/logs" ]; then
     local save="$STORAGE_ROOT/logs/doctor-$(date +%Y%m%d-%H%M%S).txt"
@@ -1019,7 +1025,9 @@ usage:
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
-  rclone-jobs.sh doctor [--telegram]     self-test (PASS/FAIL table + paste-back block)
+  rclone-jobs.sh notify-test [level]     test notification via Unraid's notify script
+                                         (level: normal|warning|alert, default normal)
+  rclone-jobs.sh doctor [--notify]       self-test (PASS/FAIL table + paste-back block)
 EOF
 }
 
@@ -1034,6 +1042,7 @@ main() {
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
+    notify-test) cmd_notify_test "$@" ;;
     doctor)   cmd_doctor "$@" ;;
     *)        usage; exit 78 ;;
   esac

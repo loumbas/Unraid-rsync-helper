@@ -20,10 +20,12 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 - Deletion safety: `--max-delete` hard cap, warn threshold, optional delete-confirmation
   (`Ack`) in the WebUI, optional `BACKUPDIR` (before-delete copy to a remote or the
   storage folder).
-- Alerts: Unraid notifications (Dynamix) + optional Telegram (bot token in
-  `notify.env`, mode 600, never stored in /boot or the browser).
+- Alerts: native Unraid notifications only. Delivery (bell, email, Telegram, Discord,
+  Pushover) is configured once under *Settings → Notification Settings*; nothing to set
+  up here and no credentials stored. Per-job `NOTIFY=always|failures|off` plus a quiet
+  window for the OK notices. `notify-test` / a UI button / `doctor --notify` verify it.
 - Self-diagnostics: `doctor` checks rclone wrapper/config, storage policy, crontab sync,
-  cron daemon, binaries, notify.env perms — one pasteable block.
+  cron daemon, binaries, notify script — one pasteable block.
 - Locks: per-job `flock` (overlapping runs are skipped + alerted); watchdog detects
   stuck runs and >26 h without success.
 
@@ -39,12 +41,13 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 | Config injection | job names, schedules and paths are whitelist-validated; config values are never shell-evaluated |
 | WebUI | POST-only ajax, CSRF-checked, values re-validated server-side |
 | Path browser | read-only listing; confined to `/mnt/user`, `/mnt/diskN`, `/mnt/remotes` (plus the plugins dir for Script), symlink-escaped paths rejected, dot-folders hidden, 500-entry cap, rclone calls time-bounded |
-| Uninstall | removes code + schedule block; keeps your configs, logs, status and Telegram file |
+| Uninstall | removes code + schedule block; keeps your configs, logs and status data |
 
 ## WebUI
 
-**Utilities → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete), Alerts & Safety
-(master switch, quiet window, Telegram), Doctor (one-click self-test). Source, Destination,
+**Utilities → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete, per-job notify
+level), Alerts & Safety (master switch, quiet window, test notification), Doctor
+(one-click self-test). Source, Destination,
 Backup dir and Script fields have a **Browse...** picker: modal dialog with a Server tab
 (shares/array disks/mounts) and an Rclone remotes tab (folders via `rclone lsf`); free
 typing stays possible for not-yet-existing destinations.
@@ -52,7 +55,7 @@ typing stays possible for not-yet-existing destinations.
 ## CLI
 
 ```
-/usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh list|status|preview <job>|run <job>|ack <job>|doctor [--telegram]|watchdog
+/usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh list|status|preview <job>|run <job>|ack <job>|notify-test [level]|doctor [--notify]|watchdog
 ```
 A copy of the engine is kept in the storage folder (`/mnt/diskN/.rclone-jobs/rclone-jobs.sh`).
 
@@ -73,7 +76,7 @@ the fallback if an update ever leaves stale files behind.
 |---|---|
 | `/boot/config/plugins/rclone-jobs/paths.env` | settings (master switch, quiet window, optional STORAGE_ROOT) |
 | `/boot/config/plugins/rclone-jobs/jobs/*.conf` | one file per job (KEY=VALUE, whitelisted keys) |
-| `/mnt/diskN/.rclone-jobs/` | logs, status JSON, backups, `notify.env` (600) |
+| `/mnt/diskN/.rclone-jobs/` | logs, status JSON, backups |
 | `/var/spool/cron/crontabs/root` | managed block (BEGIN/END markers) |
 
 See `src/CHANGELOG.md` for release notes and `INSTALL.md` for install instructions.

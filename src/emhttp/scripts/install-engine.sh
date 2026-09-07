@@ -1,7 +1,8 @@
 #!/bin/bash
 # rclone-jobs v{{VERSION}} - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
-# NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
+# NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
+# (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
 set -uo pipefail
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
@@ -73,18 +74,6 @@ else
   log "WARNING: $SRC missing - plugin files not in place yet"
 fi
 
-if [ ! -f "$SR/notify.env" ]; then
-  ( umask 077
-    printf '# rclone-jobs Telegram notifications - SECRET file, keep mode 600\n'
-    printf '# Get values from BotFather + your chat id, then set TG_ENABLED=yes\n'
-    printf 'TG_ENABLED=no\nTG_CHAT_ID=\n'
-    # key assembled at runtime so the empty template never matches a token scanner
-    printf 'TG_%s=\n' 'TOKEN'
-  ) > "$SR/notify.env" 2>/dev/null \
-    && chmod 600 "$SR/notify.env" 2>/dev/null \
-    && log "created notify.env template (mode 600, Telegram disabled by default)" \
-    || log "WARNING: could not create $SR/notify.env"
-fi
 chmod 700 "$SR" 2>/dev/null || true
 log "done (storage: $SR)"
 exit 0

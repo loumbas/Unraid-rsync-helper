@@ -21,7 +21,6 @@ function rjData() {
   if (!d || typeof d !== 'object') d = {};
   if (!d.jobs || typeof d.jobs !== 'object') d.jobs = {};
   if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
-  if (!d.telegram || typeof d.telegram !== 'object') d.telegram = {};
   if (d.master === undefined) d.master = 'yes';
   return d;
 }
@@ -69,9 +68,6 @@ $(function () {
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
   $('#a_qstart').val(D.quiet.start);
   $('#a_qend').val(D.quiet.end);
-  $('#a_tg').val(D.telegram.enabled === 'yes' ? 'yes' : 'no');
-  $('#a_chatid').val(D.telegram.chat_id);
-  $('#a_token_state').text(D.telegram.token_set ? 'a token is stored (leave blank to keep it)' : 'no token stored');
 
   /* engine-dependent form rows */
   function engRows() {
@@ -124,6 +120,8 @@ $(function () {
     $('#f_dst').val(j && j.conf.DST ? j.conf.DST : '');
     $('#f_script').val(j && j.conf.CUSTOM_SCRIPT ? j.conf.CUSTOM_SCRIPT : '');
     $('#f_dryrun').val(j && j.conf.DRYRUN === 'no' ? 'no' : 'yes');
+    $('#f_notify').val(j && ['always', 'failures', 'off'].indexOf(j.conf.NOTIFY) >= 0 ? j.conf.NOTIFY
+                 : (j && j.conf.HEARTBEAT === 'no' ? 'failures' : 'always'));
     $('#f_transfers').val(j && j.conf.TRANSFERS ? j.conf.TRANSFERS : 4);
     $('#f_checkers').val(j && j.conf.CHECKERS ? j.conf.CHECKERS : 8);
     $('#f_bwlimit').val(j && j.conf.BWLIMIT ? j.conf.BWLIMIT : '');
@@ -203,7 +201,8 @@ $(function () {
       desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: $('#f_schedule').val(),
       engine: $('#f_engine').val(), mode: $('#f_mode').val(),
       src: $('#f_src').val().trim(), dst: $('#f_dst').val().trim(), script: $('#f_script').val().trim(),
-      dryrun: $('#f_dryrun').val(), transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
+      dryrun: $('#f_dryrun').val(), notify: $('#f_notify').val(),
+      transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
       warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim()
     };
@@ -222,16 +221,14 @@ $(function () {
   $('#rj-save-alerts').off('.rclonejobs').on('click.rclonejobs', function () {
     rjPost({
       action: 'save_alerts',
-      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val(),
-      tg_enabled: $('#a_tg').val(), tg_chat_id: $('#a_chatid').val(), tg_token: $('#a_token').val()
+      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val()
     }, function (res) {
       rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
-      if (res.ok) { $('#a_token').val(''); }
     });
   });
-  $('#rj-tg-test').off('.rclonejobs').on('click.rclonejobs', function () {
-    rjPanel('rj-alerts-result', 'sending...', false);
-    rjPost({ action: 'tg_test' }, function (res) {
+  $('#rj-nt-test').off('.rclonejobs').on('click.rclonejobs', function () {
+    rjPanel('rj-alerts-result', 'sending test notification...', false);
+    rjPost({ action: 'notify_test', level: $('#a_ntlevel').val() }, function (res) {
       rjPanel('rj-alerts-result', res.out || res.error || 'done', !res.ok);
     });
   });
@@ -395,7 +392,7 @@ $(function () {
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');
     $('#rj-doctor-pre').text('running tests (~seconds)...');
-    rjPost({ action: 'doctor', telegram: $('#rj-doctor-tg').is(':checked') ? 'yes' : 'no' }, function (res) {
+    rjPost({ action: 'doctor', notify: $('#rj-doctor-notify').is(':checked') ? 'yes' : 'no' }, function (res) {
       $b.prop('disabled', false).val('Run doctor');
       $('#rj-doctor-pre').text(res.out || res.error || 'no output');
     });

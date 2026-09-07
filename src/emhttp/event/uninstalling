@@ -1,8 +1,8 @@
 #!/bin/bash
 # rclone-jobs 'uninstalling' event - remove OUR cron file and stop OUR running
-# jobs. User data (jobs/, paths.env, logs, status, backups, notify.env) is kept
-# on the storage disk; the .plg remove script deletes only plugin-owned system
-# files. Nothing outside rclone-jobs territory is touched.
+# jobs. User data (jobs/, paths.env, logs, status, backups, any legacy notify.env)
+# is kept on the storage disk; the .plg remove script deletes only plugin-owned
+# system files. Nothing outside rclone-jobs territory is touched.
 set -u
 NAME="rclone-jobs"
 logger -t "$NAME" -- "uninstalling event: removing schedule block, stopping jobs (data kept)" 2>/dev/null || true

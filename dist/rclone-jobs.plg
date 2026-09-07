@@ -2,8 +2,8 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07">
-<!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and Telegram/Dynamix alerts">
+<!ENTITY version   "2026.09.07a">
+<!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY bootDir   "/boot/config/plugins/&name;">
@@ -12,6 +12,27 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07a
+- Notifications now use ONLY the native Unraid system: every alert goes through the
+  webGui notify script, and delivery (WebUI bell, email, Telegram, Discord, Pushover)
+  is whatever the user enabled per importance level under Settings -&gt; Notification
+  Settings. The plugin stores no credentials and never contacts a notification
+  provider itself (the rclone transfers themselves are unchanged).
+- Removed the built-in Telegram sender: the bot-token/chat-id fields, the notify.env
+  secret file handling and 'doctor --telegram' are gone. Existing notify.env files
+  are no longer read and are left untouched - delete the leftover secret file by
+  hand when convenient: rm '/mnt/diskN/.rclone-jobs/notify.env'
+- Fix: notifications were silently DELETED instead of shown - every call passed -x
+  ("delete matching notification") to the notify script, so nothing ever appeared.
+- New per-job Notify setting: always (OK + problems) | failures only | off. Old
+  HEARTBEAT=no configs map to 'failures'; off also silences failures for that job
+  (syslog and the job log are still written). The quiet window keeps suppressing
+  only the OK notices.
+- Richer notices: run results carry a full message body (seconds, transferred,
+  error counts, log path) and a clickable link to the plugin page.
+- Testing: new 'notify-test [normal|warning|alert]' engine command, a "Send test
+  notification" button on the Alerts &amp; Safety tab, and 'doctor --notify' (opt-in).
+
 ## 2026.09.07
 - Fix: online update / over-install now actually replaces changed files. Every embedded
   file carries a &lt;SHA256&gt; of its deployed bytes; the plugin manager skips an existing
@@ -80,25 +101,18 @@
   our re-check always saw an empty token. Token is now recovered from the raw urlencoded
   body (php://input, re-readable since PHP 5.6); the hash_equals re-check is kept as
   defense-in-depth.
-
-## 2026.09.04d
-- Fix: WebUI state blob (#rj-data) was HTML-escaped inside a raw-text script tag, so
-  JSON.parse failed and the whole page JS died on startup (Browse/Save/Run never bound).
-  State now ships as real JSON with only the five risky characters hex-escaped.
-- JS hardening: rjData() falls back to complete defaults - a bad blob can no longer
-  kill the ready handler.
-- Jobs table: Source-to-Destination ellipsis moved to a div wrapper (max-width on a
-  table cell is ignored in auto table layout); table set width:100%.
   </CHANGES>
   <!--
-    rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and Telegram/Dynamix
-    alerts. Runs alongside (never inside) the 'rclone' plugin by Waseh and reuses its
+    rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
+    alerts (bell/email/Telegram/... via Settings -> Notification Settings). Runs
+    alongside (never inside) the 'rclone' plugin by Waseh and reuses its
     config at /boot/config/plugins/rclone/.rclone.conf.
     Scheduling: marked block inside /var/spool/cron/crontabs/root (Unraid's Dillon cron
     does not read /etc/cron.d and never re-reads changed crontabs -> rc.crond restart
     on change only). All plugin state lives outside /mnt/user (dot-folder on an array
-    disk). License: GPL-2.0-or-later. No phone-home: the plugin performs outbound
-    network requests ONLY when Telegram alerts are explicitly enabled.
+    disk). License: GPL-2.0-or-later. No phone-home: the plugin itself makes no
+    outbound requests and stores no credentials; notifications go through the webGui
+    notify script, whose agents (incl. Telegram) are configured by the user.
   -->
   <!-- UPDATE pre-clean: runs ONLY on plugin update (never on fresh install). Wipes the
        RAM-resident emhttp copy so files deleted between releases cannot linger as stale
@@ -125,7 +139,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07 - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07a - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -147,14 +161,16 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07"
+ENGINE_VERSION="2026.09.07a"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
 RCLONE_BIN="/usr/sbin/rclone"
 RCLONE_EXPECT_CONF="/boot/config/plugins/rclone/.rclone.conf"
 CRON_FILE="${RJ_CRON_FILE:-/var/spool/cron/crontabs/root}"  # Unraid scheduler = Dillon cron: user crontabs only, no /etc/cron.d
-NOTIFY_SCRIPT="/usr/local/emhttp/plugins/dynamix/scripts/notify"
+NOTIFY_SCRIPT="/usr/local/emhttp/webGui/scripts/notify"
+NOTIFY_SCRIPT_DYN="/usr/local/emhttp/plugins/dynamix/scripts/notify"
+NOTIFY_LINK="/Utilities/rclone-jobs"
 LOCKDIR="/var/run"
 DEFAULT_MAX_DELETE="100"
 DEFAULT_WARN_DELETE="100"
@@ -170,10 +186,6 @@ STORAGE_ROOT=""
 LOG_DIR=""
 STATUS_DIR=""
 BACKUP_DIR=""
-NOTIFY_ENV=""
-TG_ENABLED="no"
-TG_TOKEN=""
-TG_CHAT_ID=""
 PHP_BIN=""
 
 # ------------------------------------------------------------------- basics --
@@ -272,28 +284,9 @@ storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
   LOG_DIR="$STORAGE_ROOT/logs"
   STATUS_DIR="$STORAGE_ROOT/status"
   BACKUP_DIR="$STORAGE_ROOT/backup"
-  NOTIFY_ENV="$STORAGE_ROOT/notify.env"
   mkdir -p "$LOG_DIR" "$STATUS_DIR" "$BACKUP_DIR" 2&gt;/dev/null || die 78 "cannot create plugin directories under $STORAGE_ROOT"
   touch "$LOG_DIR/.probe" 2&gt;/dev/null || die 78 "STORAGE_ROOT is not writable: $STORAGE_ROOT"
   rm -f "$LOG_DIR/.probe"
-}
-
-load_notify() { # reads secrets into memory; their values are NEVER echoed/logged
-  [ -n "$NOTIFY_ENV" ] &amp;&amp; [ -f "$NOTIFY_ENV" ] || return 0
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%$'\r'}"
-    case "$line" in ''|'#'*) continue ;; esac
-    case "$line" in *=*) ;; *) continue ;; esac
-    case "${line%%=*}" in
-      TG_ENABLED) TG_ENABLED="${line#*=}" ;;
-      TG_CHAT_ID) TG_CHAT_ID="${line#*=}" ;;
-      # assignment name is split so the repo-wide secret scanner does not see a
-      # literal assignment; declare -g assigns the global (quoted words are NOT
-      # valid assignment targets - they execute and fail).
-      TG_'TOKEN') declare -g "TG_TO""KEN=${line#*=}" ;;
-    esac
-  done &lt; "$NOTIFY_ENV"
 }
 
 quiet_now() { # true inside the global quiet window (suppresses heartbeats only)
@@ -310,30 +303,46 @@ quiet_now() { # true inside the global quiet window (suppresses heartbeats only)
   fi
 }
 
-tg_send() { # &lt;plain text&gt; - one message; &amp; &lt; &gt; escaped via bash expansion; 3500 max
-  local text="$1" esc resp
-  [ "${TG_ENABLED:-no}" = "yes" ] || return 0
-  [ -n "$TG_TOKEN" ] &amp;&amp; [ -n "$TG_CHAT_ID" ] || return 0
-  esc="${text//&amp;/&amp;amp;}"; esc="${esc//&lt;/&amp;lt;}"; esc="${esc//&gt;/&amp;gt;}"
-  esc="${esc:0:3500}"
-  resp="$(curl -s -m 15 --retry 2 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-      --data-urlencode "chat_id=${TG_CHAT_ID}" --data-urlencode "text=${esc}" -d parse_mode=HTML 2&gt;/dev/null)"
-  if printf '%s' "$resp" | grep -q '"ok":true'; then return 0; fi
-  printf '%s sendMessage failed: %s\n' "$(stamp_now)" "${resp:0:300}" &gt;&gt; "$LOG_DIR/send-error.log" 2&gt;/dev/null
+notify_unraid() { # &lt;normal|warning|alert&gt; &lt;subject&gt; &lt;desc&gt; [message body]
+  # native Unraid notification only: agents (bell, email, Telegram, Discord, ...)
+  # are the user's choice in Settings -&gt; Notification Settings; the plugin never
+  # talks to any notification provider directly and stores no credentials.
+  local n rc
+  for n in "$NOTIFY_SCRIPT" "$NOTIFY_SCRIPT_DYN"; do
+    [ -x "$n" ] || continue
+    if [ -n "${4:-}" ]; then
+      "$n" -e "$NAME" -s "$2" -d "$3" -i "$1" -m "$4" -l "$NOTIFY_LINK" &gt;/dev/null 2&gt;&amp;1
+    else
+      "$n" -e "$NAME" -s "$2" -d "$3" -i "$1" -l "$NOTIFY_LINK" &gt;/dev/null 2&gt;&amp;1
+    fi
+    rc=$?
+    [ "$rc" -eq 0 ] || syslog_line "NOTIFY-FAIL level=$1 subject=$2 (notify script rc=$rc)"
+    return "$rc"
+  done
+  syslog_line "NOTIFY-SKIP level=$1 subject=$2 (no notify script found)"
   return 1
 }
 
-notify_unraid() { # &lt;normal|warning|alert&gt; &lt;subject&gt; &lt;desc&gt;
-  [ -x "$NOTIFY_SCRIPT" ] || return 0
-  "$NOTIFY_SCRIPT" -e "$NAME" -s "$2" -d "$3" -i "$1" -x &gt;/dev/null 2&gt;&amp;1 || true
+notify_job() { # same args as notify_unraid, filtered by the per-job NOTIFY setting
+  case "$J_NOTIFY" in
+    off)      return 0 ;;
+    failures) [ "$1" = normal ] &amp;&amp; return 0 ;;
+  esac
+  notify_unraid "$@"
+}
+
+job_notify_setting() { # &lt;job name&gt; -&gt; always|failures|off (legacy HEARTBEAT=no maps to failures)
+  local f="$BOOT_DIR/jobs/$1.conf" v
+  v="$(sed -nE 's/^NOTIFY=//p' "$f" 2&gt;/dev/null | tail -1)"
+  [ -n "$v" ] || v="$([ "$(sed -nE 's/^HEARTBEAT=//p' "$f" 2&gt;/dev/null | tail -1)" = no ] &amp;&amp; printf failures || printf always)"
+  case "$v" in failures|off) printf '%s' "$v" ;; *) printf 'always' ;; esac
 }
 
 alert_refuse() { # &lt;message&gt; - loud everywhere; used for pre-transfer refusals
   syslog_line "REFUSED: $*"
-  notify_unraid alert "rclone-jobs: refused to run $JOB_NAME" "$*"
-  tg_send "STOP rclone-jobs REFUSED: $JOB_NAME
-$*
-Nothing was transferred or deleted." || true
+  notify_job alert "rclone-jobs: refused to run $JOB_NAME" "$*" "STOP - nothing was transferred or deleted.
+reason: $*
+job: $JOB_NAME"
 }
 
 # ------------------------------------------------------------------- status --
@@ -371,7 +380,7 @@ status_finish() { # &lt;job&gt; &lt;rc&gt; &lt;secs&gt; &lt;errors&gt; &lt;trans
 J_ENGINE=""; J_MODE=""; J_SRC=""; J_DST=""; J_SCHEDULE=""; J_ENABLED="yes"
 J_DRYRUN="yes"; J_ARGS=""; J_TRANSFERS="4"; J_CHECKERS="8"; J_BWLIMIT=""
 J_MAXDELETE="$DEFAULT_MAX_DELETE"; J_BACKUPDIR=""; J_WARN_DELETE="$DEFAULT_WARN_DELETE"
-J_UMASK="002"; J_HEARTBEAT="yes"; J_DESC=""; J_CUSTOM_SCRIPT=""
+J_UMASK="002"; J_HEARTBEAT="yes"; J_NOTIFY=""; J_DESC=""; J_CUSTOM_SCRIPT=""
 JOB_NAME=""; JOB_CONF=""
 
 load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/&lt;name&gt;.conf; values never eval'd
@@ -400,11 +409,13 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/&lt;name&gt;.conf; 
       MAXDELETE)     J_MAXDELETE="$val" ;;
       BACKUPDIR)     J_BACKUPDIR="$val" ;;
       WARN_DELETE)   J_WARN_DELETE="$val" ;;
-      UMASK)         J_UMASK="$val" ;;
-      HEARTBEAT)     J_HEARTBEAT="$val" ;;
+      UMASK)       J_UMASK="$val" ;;
+      HEARTBEAT)   J_HEARTBEAT="$val" ;;
+      NOTIFY)      J_NOTIFY="$val" ;;
       CUSTOM_SCRIPT) J_CUSTOM_SCRIPT="$val" ;;
     esac
   done &lt; "$JOB_CONF"
+  [ -n "$J_NOTIFY" ] || { [ "$J_HEARTBEAT" = no ] &amp;&amp; J_NOTIFY=failures || J_NOTIFY=always; }
   validate_job
 }
 
@@ -413,6 +424,7 @@ validate_job() {
   case "$J_ENABLED"   in yes|no) ;; *) J_ENABLED=yes ;; esac
   case "$J_DRYRUN"    in yes|no) ;; *) J_DRYRUN=yes ;; esac
   case "$J_HEARTBEAT" in yes|no) ;; *) J_HEARTBEAT=yes ;; esac
+  case "$J_NOTIFY"    in always|failures|off) ;; *) J_NOTIFY=always ;; esac
   [[ "$J_TRANSFERS"   =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: TRANSFERS must be 0-999"
   [[ "$J_CHECKERS"    =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: CHECKERS must be 0-999"
   [[ "$J_MAXDELETE"   =~ ^[0-9]{1,9}$ ]] || die 78 "job $JOB_NAME: MAXDELETE must be numeric"
@@ -470,8 +482,8 @@ mount_guard() { # &lt;path&gt; &lt;src|dst&gt; - READ-ONLY checks; never mkdir -
 
 # ------------------------------------------------------- storage overlap --
 # A job must never swallow the plugin's own storage folder. INSIDE (SRC/DST is
-# STORAGE_ROOT or below it): refused outright - logs/status/notify.env would be
-# uploaded and --delete could erase the plugin's own data. ANCESTOR (SRC/DST
+# STORAGE_ROOT or below it): refused outright - logs/status would be uploaded
+# and --delete could erase the plugin's own data. ANCESTOR (SRC/DST
 # CONTAINS STORAGE_ROOT, e.g. the hosting disk root): the run proceeds with the
 # storage top folder auto-excluded on both sides of the transfer.
 STORAGE_TOP=""   # e.g. /.rclone-jobs when a side is an ancestor; '' otherwise
@@ -528,7 +540,7 @@ overlap_check() { # after storage_guard + load_job; fills STORAGE_TOP; refuses I
     cls="$(storage_classify "$p")"
     case "$cls" in
       inside)
-        alert_refuse "job $JOB_NAME: '$p' is inside the plugin storage folder ($STORAGE_ROOT) - logs, status and notify.env must never be synced or deleted by a job"
+        alert_refuse "job $JOB_NAME: '$p' is inside the plugin storage folder ($STORAGE_ROOT) - logs and status must never be synced or deleted by a job"
         die 78 "job $JOB_NAME: SRC/DST inside STORAGE_ROOT - nothing was touched" ;;
       ancestor:*)
         top="${cls#ancestor:}"
@@ -549,8 +561,7 @@ overlap_check() { # after storage_guard + load_job; fills STORAGE_TOP; refuses I
     local mark="$STATUS_DIR/$JOB_NAME-overlap" cur="$anc|$STORAGE_TOP"
     if [ ! -f "$mark" ] || [ "$(cat "$mark" 2&gt;/dev/null)" != "$cur" ]; then
       printf '%s\n' "$cur" &gt; "$mark" 2&gt;/dev/null || true
-      notify_unraid warning "rclone-jobs: $JOB_NAME storage overlap" "custom engine syncs '$anc' which contains $STORAGE_ROOT; $STORAGE_TOP is not shielded there"
-      tg_send "WARN rclone-jobs: $JOB_NAME - custom engine syncs '$anc' containing $STORAGE_ROOT; no auto-exclude is possible there" || true
+      notify_job warning "rclone-jobs: $JOB_NAME storage overlap" "custom engine syncs '$anc' which contains $STORAGE_ROOT; $STORAGE_TOP is not shielded there"
     fi
   else
     say "rclone-jobs: $JOB_NAME: '$STORAGE_TOP' is auto-excluded (SRC/DST '$anc' contains the plugin storage folder)"
@@ -580,8 +591,8 @@ guard_remotes() {
 block_gate() {
   say "rclone-jobs: GATE BLOCKED for $JOB_NAME: $*"
   syslog_line "GATE-BLOCKED job=$JOB_NAME: $*"
-  notify_unraid warning "rclone-jobs gate: $JOB_NAME" "$*"
-  tg_send "STOP rclone-jobs GATE BLOCKED: $JOB_NAME - $*" || true
+  notify_job warning "rclone-jobs gate: $JOB_NAME" "$*" "The real run was blocked by the dry-run gate; nothing was transferred.
+job: $JOB_NAME"
   exit 77
 }
 
@@ -667,7 +678,7 @@ parse_counters() { # &lt;logfile&gt;
   [ -n "$t" ] &amp;&amp; TR="$t"
 }
 
-classify() { # &lt;rc&gt; &lt;error text&gt; - headline used by log, UI and Telegram
+classify() { # &lt;rc&gt; &lt;error text&gt; - headline used by log, UI and notifications
   local rc="$1" e="$2"
   if printf '%s' "$e" | grep -Eqi 'invalid_grant|AADSTS|refresh token|status code 401|401 Unauthorized'; then
     CLS_EMOJI="LOCK";  CLS_HEAD="re-login needed for the remote - open the rclone plugin page and re-authenticate"
@@ -722,7 +733,6 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   valid_jobname "$JOB_NAME" || die 78 "invalid job name '$JOB_NAME' (allowed: letters, digits, underscore, hyphen; max 40)"
   load_paths
   storage_guard
-  load_notify
   load_job
   local dry=no master_forced=no
   [ "$want_dry" = yes ] &amp;&amp; dry=yes
@@ -742,8 +752,7 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   if ! flock -n 200; then
     say "rclone-jobs: $JOB_NAME is already running - overlap blocked, nothing was started"
     syslog_line "OVERLAP job=$JOB_NAME skipped (previous run still active)"
-    notify_unraid warning "rclone-jobs overlap: $JOB_NAME" "a run was skipped because the previous run is still active"
-    tg_send "OVERLAP rclone-jobs: $JOB_NAME - run skipped (previous run still active)" || true
+    notify_job warning "rclone-jobs overlap: $JOB_NAME" "a run was skipped because the previous run is still active"
     exit 0
   fi
   local chash sj ts logfile t0 t1 rc
@@ -789,18 +798,20 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
-      if [ "$J_HEARTBEAT" = yes ] &amp;&amp; ! quiet_now; then
-        tg_send "OK rclone-jobs: $JOB_NAME finished in ${secs}s - ${TR} transferred" || true
-        notify_unraid normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred"
+      if [ "$J_NOTIFY" = always ] &amp;&amp; ! quiet_now; then
+        notify_job normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred" \
+          "job: $JOB_NAME
+transferred: ${TR} in ${secs}s
+log: $logfile"
       fi
     else
-      tg_send "FAILED rclone-jobs: $JOB_NAME
-$CLS_HEAD
+      notify_job alert "rclone-jobs: $JOB_NAME FAILED" "$CLS_HEAD (exit $rc)" \
+        "job: $JOB_NAME
+result: $CLS_HEAD
 exit=$rc - ${secs}s - ${ERR_COUNT} error(s)
 errors: $(printf '%s' "${ERR_LAST:-none}" | cut -c1-800)
 failing files: ${ERR_FILES:-unknown}
-log: $logfile" || true
-      notify_unraid alert "rclone-jobs: $JOB_NAME FAILED" "$CLS_HEAD (exit $rc)"
+log: $logfile"
     fi
   fi
   say "rclone-jobs: $JOB_NAME finished rc=$rc (${secs}s) - $CLS_HEAD"
@@ -859,8 +870,7 @@ cmd_status() {
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pruning
   load_paths
   storage_guard
-  load_notify
-  local now f n sj last_ok running dedup lk
+  local now f n nn sj last_ok running dedup lk
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -868,6 +878,8 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
     valid_jobname "$n" || continue
     sj="$(status_file "$n")"
     [ -f "$sj" ] || continue
+    nn="$(job_notify_setting "$n")"
+    [ "$nn" = off ] &amp;&amp; continue
     dedup="$STATUS_DIR/.wd-$n"
     running="$(jq -r '.running // false' "$sj" 2&gt;/dev/null)"
     if [ "$running" = "true" ]; then
@@ -877,8 +889,7 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
           if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
             touch "$dedup"
             syslog_line "WATCHDOG: $n looks stuck (running &gt;6h with lock held)"
-            notify_unraid alert "rclone-jobs: $n looks stuck" "running for over 6 hours with the lock held"
-            tg_send "STUCK rclone-jobs: $n running &gt;6h (lock held)" || true
+            notify_unraid alert "rclone-jobs: $n looks stuck" "running for over 6 hours with the lock held" "job: $n - check the WebUI and the job log"
           fi
         fi
       fi
@@ -889,13 +900,23 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
       if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
         touch "$dedup"
         syslog_line "WATCHDOG: $n has no successful run in over 26h"
-        notify_unraid warning "rclone-jobs: $n stale" "no successful run in over 26 hours"
-        tg_send "STALE rclone-jobs: $n has no successful run in 26h" || true
+        notify_unraid warning "rclone-jobs: $n stale" "no successful run in over 26 hours" "job: $n - check the schedule and the job logs"
       fi
     fi
   done
   find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +14 -delete 2&gt;/dev/null
   return 0
+}
+
+cmd_notify_test() { # [normal|warning|alert] - one native test notification (UI button + CLI)
+  local lvl="${1:-normal}"
+  case "$lvl" in normal|warning|alert) ;; *) die 78 "usage: $0 notify-test [normal|warning|alert]" ;; esac
+  if notify_unraid "$lvl" "rclone-jobs test notification ($lvl)" "sent at $(stamp_now)" \
+       "This is a rclone-jobs v$ENGINE_VERSION test. Seeing it in the WebUI bell - and in email/Telegram/etc. if those agents are enabled under Settings -&gt; Notification Settings - means alerts work."; then
+    say "rclone-jobs: test notification sent (level $lvl) - check the bell icon and your enabled agents"
+  else
+    die 78 "test notification failed - notify script missing or rejected it (looked for: $NOTIFY_SCRIPT, $NOTIFY_SCRIPT_DYN)"
+  fi
 }
 
 DOCTOR_FAILS=0
@@ -906,9 +927,9 @@ d_line() { # &lt;PASS|WARN|FAIL|INFO&gt; &lt;text&gt; - buffered once, printed o
   return 0
 }
 
-cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
-  local opt_tg=no a pv ro rv cf b missing rp perm regen drift drc probe_rc now sj lo jn save ov ovl
-  for a in "$@"; do [ "$a" = "--telegram" ] &amp;&amp; opt_tg=yes; done
+cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
+  local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
+  for a in "$@"; do [ "$a" = "--notify" ] &amp;&amp; opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
   say ""
@@ -943,17 +964,19 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2&gt;/dev/null)"
     else d_line WARN "STORAGE_ROOT does not exist yet (array stopped, or first run pending): $STORAGE_ROOT"; fi
     if [ -f "$STORAGE_ROOT/notify.env" ]; then
-      perm="$(stat -c %a "$STORAGE_ROOT/notify.env" 2&gt;/dev/null)"
-      if [ "$perm" = "600" ]; then d_line PASS "notify.env present with mode 600 (values never shown)"
-      else d_line WARN "notify.env mode is $perm - should be 600: chmod 600 '$STORAGE_ROOT/notify.env'"; fi
-    else d_line WARN "notify.env not configured - Telegram alerts disabled until set on the Alerts tab"; fi
+      d_line INFO "legacy notify.env still present (no longer read) - optional cleanup: rm '$STORAGE_ROOT/notify.env'"
+    fi
   fi
+  nsc=""
+  for n in "$NOTIFY_SCRIPT" "$NOTIFY_SCRIPT_DYN"; do [ -x "$n" ] &amp;&amp; { nsc="$n"; break; }; done
+  if [ -n "$nsc" ]; then d_line PASS "Unraid notify script: $nsc (agents: Settings -&gt; Notification Settings)"
+  else d_line WARN "notify script not found - alerts would go to syslog only (webGui broken or not booted?)"; fi
   [ -n "$STORAGE_ROOT" ] &amp;&amp; STORAGE_ROOT="$(realpath -m -- "$STORAGE_ROOT" 2&gt;/dev/null || printf '%s' "$STORAGE_ROOT")"
   missing=""
-  for b in jq flock rsync curl logger pgrep findmnt fuser sha256sum; do
+  for b in jq flock rsync logger pgrep findmnt fuser sha256sum; do
     command -v "$b" &gt;/dev/null 2&gt;&amp;1 || missing="$missing $b"
   done
-  if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync curl logger pgrep findmnt fuser sha256sum)"
+  if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync logger pgrep findmnt fuser sha256sum)"
   else d_line FAIL "missing binaries:$missing"; fi
   if find_php; then d_line PASS "php CLI: $PHP_BIN"; else d_line WARN "php CLI not found - structured dry-run previews disabled"; fi
   if [ -f "$CRON_FILE" ]; then
@@ -1004,14 +1027,11 @@ cmd_doctor() { # self-diagnosis; opt-in Telegram test with --telegram
       done
     fi
   else d_line WARN "no jobs directory yet: $BOOT_DIR/jobs"; fi
-  if [ "$opt_tg" = yes ]; then
-    load_notify
-    if [ "${TG_ENABLED:-no}" = "yes" ] &amp;&amp; [ -n "$TG_TOKEN" ] &amp;&amp; [ -n "$TG_CHAT_ID" ]; then
-      [ -z "$LOG_DIR" ] &amp;&amp; [ -n "$STORAGE_ROOT" ] &amp;&amp; { LOG_DIR="$STORAGE_ROOT/logs"; mkdir -p "$LOG_DIR" 2&gt;/dev/null; }
-      if tg_send "rclone-jobs doctor: Telegram connectivity test $(stamp_now)"; then d_line PASS "telegram sendMessage accepted"
-      else d_line FAIL "telegram sendMessage failed - see logs/send-error.log (values are never logged)"; fi
-    else d_line WARN "telegram test skipped - not configured/enabled"; fi
-  else d_line INFO "telegram connectivity test skipped (opt-in: doctor --telegram)"; fi
+  if [ "$opt_notify" = yes ]; then
+    if notify_unraid normal "rclone-jobs doctor: test notification" "sent at $(stamp_now)" "If this shows in the WebUI bell and in your enabled agents (email/Telegram/...), alerts work."; then
+      d_line PASS "test notification accepted - check the bell and your agents"
+    else d_line FAIL "notify script rejected the test notification (see syslog)"; fi
+  else d_line INFO "test notification skipped (opt-in: doctor --notify)"; fi
   say ""
   if [ -n "$STORAGE_ROOT" ] &amp;&amp; [ -d "$STORAGE_ROOT/logs" ]; then
     local save="$STORAGE_ROOT/logs/doctor-$(date +%Y%m%d-%H%M%S).txt"
@@ -1144,7 +1164,9 @@ usage:
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse &lt;local|rclone&gt; &lt;path&gt; [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
-  rclone-jobs.sh doctor [--telegram]     self-test (PASS/FAIL table + paste-back block)
+  rclone-jobs.sh notify-test [level]     test notification via Unraid's notify script
+                                         (level: normal|warning|alert, default normal)
+  rclone-jobs.sh doctor [--notify]       self-test (PASS/FAIL table + paste-back block)
 EOF
 }
 
@@ -1159,6 +1181,7 @@ main() {
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
+    notify-test) cmd_notify_test "$@" ;;
     doctor)   cmd_doctor "$@" ;;
     *)        usage; exit 78 ;;
   esac
@@ -1166,7 +1189,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>a1d9914dfe320458c4e532e1f8f7cd2d390d6ab43ec338f7d2400d58e24085ed</SHA256>
+<SHA256>3c913c8c28f997428bd063298a8a942f67239799bd7f7dd25d9be0d8240ff54d</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1343,7 +1366,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07 - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07a - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1377,7 +1400,6 @@ if ($storage === '') {
         if (strpos($src, '/dev/md') === 0) { $storage = $d.'/.rclone-jobs'; break; }
     }
 }
-$notify   = rj_read_env($storage.'/notify.env');
 $master   = $paths['DRY_RUN_MASTER'] ?? 'yes';
 $quietSt  = $paths['QUIET_START'] ?? '23:00';
 $quietEn  = $paths['QUIET_END'] ?? '07:00';
@@ -1393,20 +1415,16 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07',
+    'version'    =&gt; '2026.09.07a',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
-    'telegram'   =&gt; ['enabled' =&gt; $notify['TG_ENABLED'] ?? 'no',
-                     'chat_id' =&gt; $notify['TG_CHAT_ID'] ?? '',
-                     'token_set' =&gt; !empty($notify['TG_TOKEN'] ?? '')],
     'jobs'       =&gt; $jobs,
 ];
 ?&gt;
 &lt;style&gt;
   /* native dl/dt/dd layout does the sizing; fields capped to the browse-row width */
-  #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text],
-  #tab_rj_alerts input[type=password] { box-sizing:border-box; width:420px; max-width:100%; }
+  #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text] { box-sizing:border-box; width:420px; max-width:100%; }
   #tab_rj_jobs input.rj-size, #tab_rj_alerts input.rj-size { width:auto; }
   #tab_rj_jobs input[type=number] { width:64px; }
   #tab_rj_jobs dd.rj-inline, #tab_rj_alerts dd.rj-inline { white-space:nowrap; }
@@ -1417,7 +1435,7 @@ $rjdata = [
   #tab_rj_jobs td [data-act] { white-space:nowrap; }
 &lt;/style&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07a"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1508,6 +1526,8 @@ $rjdata = [
         &lt;/div&gt;
         &lt;dl&gt;&lt;dt&gt;Per-job dry-run:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;While &lt;em&gt;yes&lt;/em&gt;, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.&lt;/p&gt;&lt;/blockquote&gt;
+        &lt;dl&gt;&lt;dt&gt;Notify:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_notify"&gt;&lt;option value="always"&gt;always (OK + problems)&lt;/option&gt;&lt;option value="failures"&gt;failures &amp;amp; warnings only&lt;/option&gt;&lt;option value="off"&gt;off (silent)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;blockquote class='inline_help'&gt;&lt;p&gt;When this job sends Unraid notifications: &lt;em&gt;always&lt;/em&gt; = an OK notice after each successful run plus notices for any problem; &lt;em&gt;failures&lt;/em&gt; = only failures, gate blocks, overlaps and watchdog findings; &lt;em&gt;off&lt;/em&gt; = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &amp;rarr; Notification Settings.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;div class="rj-eng"&gt;
         &lt;dl&gt;&lt;dt&gt;Transfers / Checkers:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.&lt;/p&gt;&lt;/blockquote&gt;
@@ -1536,20 +1556,18 @@ $rjdata = [
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;When YES, nothing is ever written by the schedule, regardless of per-job settings - every scheduled run is a simulation. Turn it off only after dry-runs of all jobs look right.&lt;/p&gt;&lt;/blockquote&gt;
       &lt;dl&gt;&lt;dt&gt;Quiet window (heartbeats):&lt;/dt&gt;
         &lt;dd class="rj-inline"&gt;&lt;input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"&gt; to &lt;input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
-      &lt;blockquote class='inline_help'&gt;&lt;p&gt;24-hour clock. Inside this window the daily OK heartbeats are suppressed; failures and dry-run alerts are always sent.&lt;/p&gt;&lt;/blockquote&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;24-hour clock. Inside this window the OK notices of successful runs are suppressed; failures and warnings are always sent.&lt;/p&gt;&lt;/blockquote&gt;
     &lt;div class="title"&gt;
-      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-send title'&gt;&lt;/i&gt;Telegram notifications (optional)&lt;/span&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-bell title'&gt;&lt;/i&gt;Delivery (Unraid notifications)&lt;/span&gt;
     &lt;/div&gt;
     &lt;p&gt;&lt;/p&gt;
-      &lt;dl&gt;&lt;dt&gt;Enable Telegram:&lt;/dt&gt;&lt;dd&gt;&lt;select id="a_tg"&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
-      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Send job results and failures as Telegram messages in addition to the Unraid (Dynamix) notification.&lt;/p&gt;&lt;/blockquote&gt;
-      &lt;dl&gt;&lt;dt&gt;Bot token:&lt;/dt&gt;&lt;dd&gt;&lt;input type="password" id="a_token" class="variable" placeholder=""&gt; &lt;span class="gray" id="a_token_state"&gt;&lt;/span&gt;&lt;/dd&gt;&lt;/dl&gt;
-      &lt;blockquote class='inline_help'&gt;&lt;p&gt;From @BotFather, format &lt;em&gt;digits:secret&lt;/em&gt;. Leave blank to keep the stored token. It is saved to &lt;i&gt;notify.env&lt;/i&gt; (mode 600) on the storage disk - never in /boot, and never sent back to the browser after save.&lt;/p&gt;&lt;/blockquote&gt;
-      &lt;dl&gt;&lt;dt&gt;Chat id:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="a_chatid" class="variable"&gt;&lt;/dd&gt;&lt;/dl&gt;
-      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Numeric chat id of the user or group to notify (negative for groups). Send your bot a message first, then check &lt;em&gt;getUpdates&lt;/em&gt; to find it.&lt;/p&gt;&lt;/blockquote&gt;
+      &lt;dl&gt;&lt;dt&gt;Notification agents:&lt;/dt&gt;&lt;dd&gt;&lt;a href='/Settings/NotificationSettings'&gt;Settings &amp;rarr; Notification Settings&lt;/a&gt;&lt;/dd&gt;&lt;/dl&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Job alerts use Unraid's own notification system - nothing is configured here. That page decides which agents receive each importance level: the WebUI bell always gets them; email, Telegram, Discord, Slack and Pushover are enabled and set up there (the Telegram agent asks for the bot token and chat id once, system-wide). This plugin stores no credentials and never contacts a notification provider itself.&lt;/p&gt;&lt;/blockquote&gt;
+      &lt;dl&gt;&lt;dt&gt;Test:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;select id="a_ntlevel"&gt;&lt;option value="normal"&gt;normal&lt;/option&gt;&lt;option value="warning"&gt;warning&lt;/option&gt;&lt;option value="alert"&gt;alert&lt;/option&gt;&lt;/select&gt; &lt;input type="button" id="rj-nt-test" value="Send test notification" class="rj-btn"&gt;&lt;/dd&gt;&lt;/dl&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Sends one notification at the chosen level through the native notify script - check the bell and every agent you expect (Telegram only receives levels you ticked in Notification Settings).&lt;/p&gt;&lt;/blockquote&gt;
     &lt;dl&gt;
       &lt;dt&gt;&amp;nbsp;&lt;/dt&gt;
-      &lt;dd&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt; &lt;input type="button" id="rj-tg-test" value="Send test message" class="rj-btn"&gt;&lt;/dd&gt;
+      &lt;dd&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt;&lt;/dd&gt;
     &lt;/dl&gt;
     &lt;div id="rj-alerts-result" style="display:none"&gt;&lt;pre&gt;&lt;/pre&gt;&lt;/div&gt;
   &lt;/div&gt;
@@ -1561,19 +1579,19 @@ $rjdata = [
     &lt;/div&gt;
     &lt;p&gt;&lt;/p&gt;
     &lt;p&gt;&lt;input type="button" id="rj-doctor" value="Run doctor" class="rj-btn"&gt;
-       &lt;input type="checkbox" id="rj-doctor-tg"&gt; include live Telegram test (sends a message if enabled)&lt;/p&gt;
+       &lt;input type="checkbox" id="rj-doctor-notify"&gt; include test notification (bell + your enabled agents)&lt;/p&gt;
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07 &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07a &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>67ecdfa582ad49941152b27c382fb78b3da44893374076837e4ab919ace71c27</SHA256>
+<SHA256>0b11b7f4452bf63905ef04a790b6e4673513c4ef8e8cc9efb61d552e7cd2ec1d</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07 - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07a - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1619,17 +1637,6 @@ function rj_sched_ok($s) {
     foreach ($f as $x) if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
     return true;
 }
-function rj_read_env($file) {
-    $out = [];
-    if (!is_readable($file)) return $out;
-    foreach (file($file, FILE_IGNORE_NEW_LINES) as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) continue;
-        list($k, $v) = explode('=', $line, 2);
-        $out[trim($k)] = trim($v, " \t\"");
-    }
-    return $out;
-}
 function rj_env_upsert($file, $pairs, $mode = null) {
     /* replace/add KEY=VALUE lines, keep comments and unknown keys, LF endings */
     $lines = is_readable($file) ? file($file, FILE_IGNORE_NEW_LINES) : [];
@@ -1647,17 +1654,6 @@ function rj_engine($args, &amp;$out = null, &amp;$rc = null, $bg = false) {
     $cmd = '/bin/bash ' . escapeshellarg($GLOBALS['RJ_ENGINE']) . ' ' . $args;
     if ($bg) { exec($cmd . ' &gt; /dev/null 2&gt;&amp;1 &amp;', $o, $r); $out = []; $rc = 0; return; }
     exec($cmd . ' 2&gt;&amp;1', $o, $r); $out = $o; $rc = $r;
-}
-function rj_storage() {
-    $p = rj_read_env('/boot/config/plugins/rclone-jobs/paths.env');
-    $s = $p['STORAGE_ROOT'] ?? '';
-    if ($s === '') {
-        foreach (glob('/mnt/disk[0-9]*') as $d) {
-            $src = trim((string)@shell_exec('findmnt -no SOURCE -T ' . escapeshellarg($d) . ' 2&gt;/dev/null'));
-            if (strpos($src, '/dev/md') === 0) { $s = $d.'/.rclone-jobs'; break; }
-        }
-    }
-    return $s;
 }
 function rj_regen(&amp;$out) {
     exec('/bin/bash ' . escapeshellarg($GLOBALS['RJ_REGEN']) . ' 2&gt;&amp;1', $out, $rc);
@@ -1680,6 +1676,7 @@ case 'save_job':
     $sched    = trim((string)($_POST['schedule'] ?? ''));
     $enabled  = ($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
     $dryrun   = ($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $notify   = in_array($_POST['notify'] ?? 'always', ['always', 'failures', 'off'], true) ? $_POST['notify'] : 'always';
     $desc     = substr(trim((string)($_POST['desc'] ?? '')), 0, 120);
     $trans    = (int)($_POST['transfers'] ?? 4);
     $check    = (int)($_POST['checkers'] ?? 8);
@@ -1715,6 +1712,7 @@ case 'save_job':
     $L[] = "SCHEDULE=$sched";
     $L[] = "ENABLED=$enabled";
     $L[] = "DRYRUN=$dryrun";
+    $L[] = "NOTIFY=$notify";
     if ($engine !== 'custom') {
         $L[] = "TRANSFERS=$trans"; $L[] = "CHECKERS=$check";
         if ($bwlimit !== '') $L[] = "BWLIMIT=$bwlimit";
@@ -1785,34 +1783,17 @@ case 'save_alerts':
     if ($qs === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qs)) $qp['QUIET_START'] = $qs;
     if ($qe === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qe)) $qp['QUIET_END'] = $qe;
     if ($qp) rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
+    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Settings saved. Delivery (email/Telegram/...) is configured in Settings -&gt; Notification Settings.']);
 
-    $stor = rj_storage();
-    if ($stor === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'storage folder not available - start the array']);
-    @mkdir($stor, 0700, true);
-    $np = [];
-    if (isset($_POST['tg_enabled'])) $np['TG_ENABLED'] = $_POST['tg_enabled'] === 'yes' ? 'yes' : 'no';
-    if (isset($_POST['tg_chat_id'])) {
-        $cid = trim((string)$_POST['tg_chat_id']);
-        if ($cid !== '' &amp;&amp; !preg_match('/^[0-9-]{1,32}$/', $cid)) rj_out(['ok' =&gt; false, 'error' =&gt; 'chat id must be numeric (may start with -)']);
-        $np['TG_CHAT_ID'] = $cid;
-    }
-    $token = (string)($_POST['tg_token'] ?? '');
-    if ($token !== '') {
-        if (!preg_match('/^[0-9]{6,}:[A-Za-z0-9_-]{20,}$/', $token)) rj_out(['ok' =&gt; false, 'error' =&gt; 'bot token format unexpected (digits:secret)']);
-        $np['TG_TOKEN'] = $token;
-    }
-    if ($np) rj_env_upsert($stor.'/notify.env', $np, 0600);
-    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Settings saved (token ' . ($token !== '' ? 'updated' : 'unchanged') . ').']);
-
-case 'tg_test':
+case 'notify_test':
+    $lvl = (string)($_POST['level'] ?? 'normal');
+    if (!in_array($lvl, ['normal', 'warning', 'alert'], true)) $lvl = 'normal';
     $eo = []; $erc = 0;
-    rj_engine('doctor --telegram', $eo, $erc);
-    $line = '';
-    foreach ($eo as $l) if (stripos($l, 'telegram') !== false) $line .= $l."\n";
-    rj_out(['ok' =&gt; true, 'out' =&gt; trim($line) !== '' ? trim($line) : 'no telegram result']);
+    rj_engine('notify-test ' . $lvl, $eo, $erc);
+    rj_out(['ok' =&gt; $erc === 0, 'out' =&gt; implode("\n", $eo), 'rc' =&gt; $erc]);
 
 case 'doctor':
-    $args = 'doctor' . (($_POST['telegram'] ?? '') === 'yes' ? ' --telegram' : '');
+    $args = 'doctor' . (($_POST['notify'] ?? '') === 'yes' ? ' --notify' : '');
     $eo = []; $erc = 0;
     rj_engine($args, $eo, $erc);
     rj_out(['ok' =&gt; $erc === 0, 'out' =&gt; implode("\n", $eo), 'rc' =&gt; $erc]);
@@ -1822,12 +1803,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>7dd845425cf1516b93247542b727a7380f4256b8a1f6cbac1fe8cc74f1d3ff2d</SHA256>
+<SHA256>c85b5f864546447171fd1dfebcbeef7f548f7b4b7c54e4dfbef5964056ea81e5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07 - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07a - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1850,7 +1831,6 @@ function rjData() {
   if (!d || typeof d !== 'object') d = {};
   if (!d.jobs || typeof d.jobs !== 'object') d.jobs = {};
   if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
-  if (!d.telegram || typeof d.telegram !== 'object') d.telegram = {};
   if (d.master === undefined) d.master = 'yes';
   return d;
 }
@@ -1898,9 +1878,6 @@ $(function () {
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
   $('#a_qstart').val(D.quiet.start);
   $('#a_qend').val(D.quiet.end);
-  $('#a_tg').val(D.telegram.enabled === 'yes' ? 'yes' : 'no');
-  $('#a_chatid').val(D.telegram.chat_id);
-  $('#a_token_state').text(D.telegram.token_set ? 'a token is stored (leave blank to keep it)' : 'no token stored');
 
   /* engine-dependent form rows */
   function engRows() {
@@ -1953,6 +1930,8 @@ $(function () {
     $('#f_dst').val(j &amp;&amp; j.conf.DST ? j.conf.DST : '');
     $('#f_script').val(j &amp;&amp; j.conf.CUSTOM_SCRIPT ? j.conf.CUSTOM_SCRIPT : '');
     $('#f_dryrun').val(j &amp;&amp; j.conf.DRYRUN === 'no' ? 'no' : 'yes');
+    $('#f_notify').val(j &amp;&amp; ['always', 'failures', 'off'].indexOf(j.conf.NOTIFY) &gt;= 0 ? j.conf.NOTIFY
+                 : (j &amp;&amp; j.conf.HEARTBEAT === 'no' ? 'failures' : 'always'));
     $('#f_transfers').val(j &amp;&amp; j.conf.TRANSFERS ? j.conf.TRANSFERS : 4);
     $('#f_checkers').val(j &amp;&amp; j.conf.CHECKERS ? j.conf.CHECKERS : 8);
     $('#f_bwlimit').val(j &amp;&amp; j.conf.BWLIMIT ? j.conf.BWLIMIT : '');
@@ -2032,7 +2011,8 @@ $(function () {
       desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: $('#f_schedule').val(),
       engine: $('#f_engine').val(), mode: $('#f_mode').val(),
       src: $('#f_src').val().trim(), dst: $('#f_dst').val().trim(), script: $('#f_script').val().trim(),
-      dryrun: $('#f_dryrun').val(), transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
+      dryrun: $('#f_dryrun').val(), notify: $('#f_notify').val(),
+      transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
       warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim()
     };
@@ -2051,16 +2031,14 @@ $(function () {
   $('#rj-save-alerts').off('.rclonejobs').on('click.rclonejobs', function () {
     rjPost({
       action: 'save_alerts',
-      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val(),
-      tg_enabled: $('#a_tg').val(), tg_chat_id: $('#a_chatid').val(), tg_token: $('#a_token').val()
+      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val()
     }, function (res) {
       rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
-      if (res.ok) { $('#a_token').val(''); }
     });
   });
-  $('#rj-tg-test').off('.rclonejobs').on('click.rclonejobs', function () {
-    rjPanel('rj-alerts-result', 'sending...', false);
-    rjPost({ action: 'tg_test' }, function (res) {
+  $('#rj-nt-test').off('.rclonejobs').on('click.rclonejobs', function () {
+    rjPanel('rj-alerts-result', 'sending test notification...', false);
+    rjPost({ action: 'notify_test', level: $('#a_ntlevel').val() }, function (res) {
       rjPanel('rj-alerts-result', res.out || res.error || 'done', !res.ok);
     });
   });
@@ -2224,20 +2202,20 @@ $(function () {
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');
     $('#rj-doctor-pre').text('running tests (~seconds)...');
-    rjPost({ action: 'doctor', telegram: $('#rj-doctor-tg').is(':checked') ? 'yes' : 'no' }, function (res) {
+    rjPost({ action: 'doctor', notify: $('#rj-doctor-notify').is(':checked') ? 'yes' : 'no' }, function (res) {
       $b.prop('disabled', false).val('Run doctor');
       $('#rj-doctor-pre').text(res.out || res.error || 'no output');
     });
   });
 });
 </INLINE>
-<SHA256>632b4f3e8a2cfbb71a9fdffd09148389994c2902093ec54e34502707bd2a40ea</SHA256>
+<SHA256>ac3b018441f219055b0c6c11f6039fb32c04b3831869e3f86ebe2dca470011db</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07 - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07a - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2390,15 +2368,16 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>465d8281fd6442d3dff0f3d99e593fa9c9a6017628cd5ac17657faab17145797</SHA256>
+<SHA256>d85a5139d0dced8dfe533be9b76f525109b752f6db01466ff0f5c8cda365200c</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07 - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07a - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
-# NEVER touches: jobs/, paths.env, notify.env (existing content), logs/, status/, backup/.
+# NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
+# (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
 set -uo pipefail
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
@@ -2470,29 +2449,17 @@ else
   log "WARNING: $SRC missing - plugin files not in place yet"
 fi
 
-if [ ! -f "$SR/notify.env" ]; then
-  ( umask 077
-    printf '# rclone-jobs Telegram notifications - SECRET file, keep mode 600\n'
-    printf '# Get values from BotFather + your chat id, then set TG_ENABLED=yes\n'
-    printf 'TG_ENABLED=no\nTG_CHAT_ID=\n'
-    # key assembled at runtime so the empty template never matches a token scanner
-    printf 'TG_%s=\n' 'TOKEN'
-  ) &gt; "$SR/notify.env" 2&gt;/dev/null \
-    &amp;&amp; chmod 600 "$SR/notify.env" 2&gt;/dev/null \
-    &amp;&amp; log "created notify.env template (mode 600, Telegram disabled by default)" \
-    || log "WARNING: could not create $SR/notify.env"
-fi
 chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>6db0ed2cdf1803279f5aba7587b71e378d71b478aa7471b7263c4e3523b25cd9</SHA256>
+<SHA256>a3c1c355945fb842d8ed910b572652d631f7b65b43f9d8541af0dbeba0758395</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07 - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07a - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -2506,7 +2473,8 @@ mkdir -p "$B/jobs" 2&gt;/dev/null || true
 
 if [ ! -f "$B/paths.env" ]; then
   cat &gt; "$B/paths.env" &lt;&lt;'EOF'
-# rclone-jobs settings (no secrets here - Telegram lives in the storage folder notify.env).
+# rclone-jobs settings (no secrets here - the plugin stores none; notification agents
+# are configured in Unraid's own Settings -&gt; Notification Settings).
 # The engine re-reads this file on every run; edit via the WebUI or by hand.
 
 # Where job data (logs, status, backups, dry-run previews) is kept.
@@ -2540,7 +2508,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>62b65c45a13ef52adb2b26876069e53241f685fc164ab5c708117f551f53b4e1</SHA256>
+<SHA256>314467875b90d9ae26d7ec0340009bb7259331b08e6415f5928b08c9c0597462</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -2584,7 +2552,7 @@ exit 0
 <INLINE>
 #!/bin/bash
 # rclone-jobs 'array_started' event - storage disks are mounted now: deploy the
-# engine copy, create the storage tree + notify.env template, write the cron file.
+# engine copy, create the storage tree, write the cron file.
 set -u
 NAME="rclone-jobs"
 D="/usr/local/emhttp/plugins/$NAME"
@@ -2593,16 +2561,16 @@ logger -t "$NAME" -- "array_started event" 2&gt;/dev/null || true
 [ -x "$D/scripts/regen-cron.sh" ]     &amp;&amp; "$D/scripts/regen-cron.sh" &gt;/dev/null 2&gt;&amp;1
 exit 0
 </INLINE>
-<SHA256>81d0eb8e0e0626bf7b3ab2c790c05078101e0722600bd1646b17cffb8bad84e6</SHA256>
+<SHA256>361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/uninstalling" Mode="0755">
 <INLINE>
 #!/bin/bash
 # rclone-jobs 'uninstalling' event - remove OUR cron file and stop OUR running
-# jobs. User data (jobs/, paths.env, logs, status, backups, notify.env) is kept
-# on the storage disk; the .plg remove script deletes only plugin-owned system
-# files. Nothing outside rclone-jobs territory is touched.
+# jobs. User data (jobs/, paths.env, logs, status, backups, any legacy notify.env)
+# is kept on the storage disk; the .plg remove script deletes only plugin-owned
+# system files. Nothing outside rclone-jobs territory is touched.
 set -u
 NAME="rclone-jobs"
 logger -t "$NAME" -- "uninstalling event: removing schedule block, stopping jobs (data kept)" 2&gt;/dev/null || true
@@ -2615,7 +2583,7 @@ rm -f "/etc/cron.d/$NAME"   # legacy location, harmless if absent
 pkill -f 'rclone-jobs\.sh run ' 2&gt;/dev/null || true
 exit 0
 </INLINE>
-<SHA256>ec8ea40a6982bc6bbbb18d926e9a7ef919b2883c949b87b32cc35b86e86e7bd7</SHA256>
+<SHA256>3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
@@ -2641,7 +2609,8 @@ true
   </FILE>
   <!-- REMOVE: stops running jobs, splices our block out of the root crontab, deletes
        the code. Deliberately KEEPS /boot config and all storage data (logs, status,
-       backups, notify.env) - delete those by hand if you want them gone. -->
+       backups, and a legacy notify.env if one exists) - delete those by hand if you
+       want them gone. -->
   <FILE Run="/bin/bash" Method="remove">
     <INLINE>
 echo "----------------------------------------------------"
@@ -2662,7 +2631,7 @@ rm -f /etc/cron.d/&name;
 echo " deleting code: &pluginDir;"
 rm -rf "&pluginDir;"
 echo " KEPT on purpose: &bootDir; (your configs) and all storage data"
-echo "   (logs, status, backups, notify.env). Full cleanup by hand:"
+echo "   (logs, status, backups, legacy notify.env if present). Full cleanup by hand:"
 echo "   rm -rf &bootDir; /mnt/diskN/.rclone-jobs"
 logger -t rclone-jobs "&name; removed: code and schedule gone; &bootDir; and storage data kept on purpose"
 echo "----------------------------------------------------"

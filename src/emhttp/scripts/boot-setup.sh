@@ -13,7 +13,8 @@ mkdir -p "$B/jobs" 2>/dev/null || true
 
 if [ ! -f "$B/paths.env" ]; then
   cat > "$B/paths.env" <<'EOF'
-# rclone-jobs settings (no secrets here - Telegram lives in the storage folder notify.env).
+# rclone-jobs settings (no secrets here - the plugin stores none; notification agents
+# are configured in Unraid's own Settings -> Notification Settings).
 # The engine re-reads this file on every run; edit via the WebUI or by hand.
 
 # Where job data (logs, status, backups, dry-run previews) is kept.
