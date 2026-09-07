@@ -1,3 +1,18 @@
+## 2026.09.07f
+Async dry-run preview - long previews no longer run inside the web request:
+- Engine: new 'preview-start' / 'task-status' / 'task-cancel' subcommands. The dry-run
+  is detached with setsid (own process group so cancel reaches the rclone children);
+  output goes to $STATUS_DIR/task-<job>.out, exit code to .rc, session-leader pid to
+  .pid. task-status reports redacted output (tail-capped 256 KiB) exactly once
+  (single-consume) and cleans up; a dead child without an .rc is reported as 143.
+- save_job no longer previews inline (that call could hang an emhttp worker for
+  minutes on a huge remote); the UI chains the preview after the save and the task
+  survives the table reload (a sessionStorage flag makes the fresh page resume it).
+- WebUI: the Dry-run button now shows live 'running... Ns' progress with a Cancel
+  button; the job run-lock is checked before spawning, so a preview can never queue
+  behind a live run. Watchdog prunes finished task files older than 1 hour.
+- 'run_dry' (synchronous) is kept, deprecated, for one release for old cached pages.
+
 ## 2026.09.07e
 Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fixes:
 - Boot robustness: new 'started' event retries the engine deploy + cron block once the

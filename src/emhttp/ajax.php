@@ -169,12 +169,11 @@ case 'save_job':
     chmod($conf.'.tmp', 0600);
     rename($conf.'.tmp', $conf);
 
-    /* dry-run the saved config once so the UI shows a real preview immediately */
-    $eo = []; $erc = 0;
-    rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
+    /* NO inline preview here: a dry-run on a huge remote can take minutes and
+       used to hang this request. The UI chains preview_start + polling after
+       a successful save (the engine task keeps running across the page reload). */
     $rg = []; rj_regen($rg);
-    rj_out(['ok' => true, 'msg' => ($isNew ? 'Job created. ' : 'Job updated. ') . implode(' ', $rg),
-            'preview' => implode("\n", $eo), 'preview_rc' => $erc]);
+    rj_out(['ok' => true, 'msg' => ($isNew ? 'Job created. ' : 'Job updated. ') . implode(' ', $rg)]);
 
 case 'delete_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
@@ -186,10 +185,24 @@ case 'delete_job':
     rj_out(['ok' => true, 'msg' => 'Job deleted (config kept as '.$bk.') '.implode(' ', $rg)]);
 
 case 'run_dry':
+    /* DEPRECATED sync path (kept one release for old cached pages) - the UI now
+       uses preview_start + task_status so long dry-runs never block php-fpm. */
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     $eo = []; $erc = 0;
     rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
     rj_out(['ok' => true, 'out' => implode("\n", $eo), 'rc' => $erc]);
+
+case 'preview_start':
+case 'task_status':
+case 'task_cancel': {
+    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
+    $sub = ['preview_start' => 'preview-start', 'task_status' => 'task-status', 'task_cancel' => 'task-cancel'][$action];
+    $eo = []; $erc = 0;
+    rj_engine($sub . ' ' . escapeshellarg($name), $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj)) rj_out(['ok' => false, 'error' => 'bad task response (rc ' . $erc . ')']);
+    rj_out($bj);
+}
 
 case 'browse':
     /* read-only path picker listing; all confinement happens in the engine */

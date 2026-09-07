@@ -712,6 +712,105 @@ cmd_ack() { # acknowledge a deletion-heavy dry-run (UI confirms by typing the jo
   say "acknowledged the deletion preview for $JOB_NAME (stays valid until the next dry-run re-arms it)"
 }
 
+# ------------------------------------------------------- async preview tasks --
+# A dry-run on a huge remote can take minutes; it must never run inside the
+# php request that started it. preview-start detaches 'preview' into its own
+# session (setsid => own process group, so cancel reaches the rclone children
+# too); the UI polls task-status (single-consume: output + files are removed
+# when reported done) and may task-cancel while running. Files:
+#   $STATUS_DIR/task-<job>.out   stdout/stderr of the detached preview
+#   $STATUS_DIR/task-<job>.rc    exit code, written only when finished
+#   $STATUS_DIR/task-<job>.pid   pid of the session leader (written by the child)
+task_paths() { # sets TP_OUT TP_RC TP_PID for $JOB_NAME
+  TP_OUT="$STATUS_DIR/task-$JOB_NAME.out"
+  TP_RC="$STATUS_DIR/task-$JOB_NAME.rc"
+  TP_PID="$STATUS_DIR/task-$JOB_NAME.pid"
+}
+
+task_pid_alive() {
+  local pid
+  [ -f "$TP_PID" ] || return 1
+  pid="$(cat "$TP_PID" 2>/dev/null)"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+task_json_err() { # <message> - JSON error without jq (mirrors bj_json_err)
+  local e="${1//\\/\\\\}"; e="${e//\"/\\\"}"; e="${e//$'\n'/ }"; e="${e//$'\r'/ }"
+  printf '{"ok":false,"running":false,"error":"%s"}\n' "$e"
+  exit 0
+}
+
+cmd_preview_start() { # <job> -> exactly one JSON line (spawned | busy | error)
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || task_json_err "invalid job name '$JOB_NAME'"
+  load_paths
+  storage_guard
+  [ -f "$BOOT_DIR/jobs/$JOB_NAME.conf" ] || task_json_err "job '$JOB_NAME' not found"
+  task_paths
+  if task_pid_alive && [ ! -f "$TP_RC" ]; then
+    printf '{"ok":false,"busy":true,"error":"a preview task is already running for this job"}\n'; return 0
+  fi
+  local rlock="$LOCKDIR/$NAME-$JOB_NAME.lock"
+  if [ -f "$rlock" ] && ! flock -n "$rlock" true 2>/dev/null; then
+    printf '{"ok":false,"busy":true,"error":"a run of this job is in progress"}\n'; return 0
+  fi
+  rm -f "$TP_OUT" "$TP_RC" "$TP_PID"
+  # The CHILD records its own pid ($$): with setsid it is the session/group
+  # leader, so $! of the short-lived setsid wrapper would be the wrong pid.
+  # Positional args only - just a validated job name reaches the child.
+  local spawner="nohup" i=0
+  command -v setsid >/dev/null 2>&1 && spawner="setsid"
+  $spawner bash -c 'echo $$ > "$1"; "$2" "$3" "$4" > "$5" 2>&1; echo $? > "$6"' \
+    rj-task "$TP_PID" "$0" preview "$JOB_NAME" "$TP_OUT" "$TP_RC" >/dev/null 2>&1 </dev/null &
+  while [ $i -lt 20 ] && [ ! -s "$TP_PID" ]; do sleep 0.1; i=$((i + 1)); done
+  [ -s "$TP_PID" ] || task_json_err "failed to start the detached preview"
+  printf '{"ok":true,"job":"%s"}\n' "$JOB_NAME"
+}
+
+task_finish_emit() { # <rc> - redacted, size-capped JSON of the finished task; consumes files
+  local rc="$1" body
+  body="$(tail -c 262144 "$TP_OUT" 2>/dev/null | redact)"
+  rm -f "$TP_OUT" "$TP_RC" "$TP_PID"
+  command -v jq >/dev/null 2>&1 || { task_json_err "jq unavailable - task cleaned, rerun the preview"; }
+  jq -nc --argjson rc "$rc" --arg out "$body" '{running:false, done:true, rc:$rc, out:$out}'
+}
+
+cmd_task_status() { # <job> -> {"running":true} | done JSON (single-consume) | none
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || task_json_err "invalid job name '$JOB_NAME'"
+  load_paths
+  storage_guard
+  task_paths
+  local rc
+  if [ -f "$TP_RC" ]; then
+    rc="$(cat "$TP_RC" 2>/dev/null | tr -dc '0-9')"; rc="${rc:-143}"
+    task_finish_emit "$rc"
+  elif task_pid_alive; then
+    printf '{"running":true}\n'
+  elif [ -f "$TP_PID" ]; then
+    task_finish_emit 143   # hard-killed child never wrote its rc
+  else
+    printf '{"running":false,"none":true}\n'
+  fi
+}
+
+cmd_task_cancel() { # <job> -> ok JSON; group-kill when the child owns its session
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || task_json_err "invalid job name '$JOB_NAME'"
+  load_paths
+  storage_guard
+  task_paths
+  task_pid_alive || task_json_err "no preview task running for $JOB_NAME"
+  [ -f "$TP_RC" ] && task_json_err "task already finished"
+  local pid; pid="$(cat "$TP_PID" 2>/dev/null)"
+  kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  sleep 2
+  kill -0 "$pid" 2>/dev/null && { kill -KILL -- -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; }
+  echo 143 > "$TP_RC" 2>/dev/null || true   # normally the child's own trap-free exit writes 143 first
+  printf '{"ok":true}\n'
+}
+
 cmd_list() {
   local f n
   [ -d "$BOOT_DIR/jobs" ] || { say "(no jobs directory: $BOOT_DIR/jobs)"; return 0; }
@@ -748,10 +847,10 @@ cmd_status() {
   done
 }
 
-cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pruning
+cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
   load_paths
   storage_guard
-  local now f n nn sj last_ok running dedup lk
+  local now f n nn sj last_ok running dedup lk ttf
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -783,6 +882,14 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
         syslog_line "WATCHDOG: $n has no successful run in over 26h"
         notify_unraid warning "rclone-jobs: $n stale" "no successful run in over 26 hours" "job: $n - check the schedule and the job logs"
       fi
+    fi
+  done
+  # finished preview tasks older than 1h must not linger; running ones never
+  # carry an .rc, so a live task is never touched by this sweep
+  for ttf in "$STATUS_DIR"/task-*.rc; do
+    [ -e "$ttf" ] || continue
+    if [ $(( now - $(stat -c %Y "$ttf" 2>/dev/null || echo "$now") )) -gt 3600 ]; then
+      rm -f "$ttf" "${ttf%.rc}.out" "${ttf%.rc}.pid"
     fi
   done
   find "$LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'doctor-*.txt' \) -mtime +14 -delete 2>/dev/null
@@ -1056,6 +1163,9 @@ rclone-jobs v$ENGINE_VERSION - scheduled transfers with a dry-run gate (Unraid)
 usage:
   rclone-jobs.sh run <job> [--dry-run]   run a job (dry-run honors per-job + master switch)
   rclone-jobs.sh preview <job>           alias of: run <job> --dry-run
+  rclone-jobs.sh preview-start <job>     detached preview (WebUI); poll with task-status
+  rclone-jobs.sh task-status <job>       preview task: running | done output (consumed)
+  rclone-jobs.sh task-cancel <job>       terminate a running preview task
   rclone-jobs.sh ack <job>               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh list                    list job names
@@ -1073,6 +1183,9 @@ main() {
   case "$sub" in
     run)      [ $# -ge 1 ] || die 78 "usage: $0 run <job> [--dry-run]"; cmd_run "$@" ;;
     preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview <job>"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run ;;
+    preview-start) [ $# -ge 1 ] || die 78 "usage: $0 preview-start <job>"; cmd_preview_start "$1" ;;
+    task-status)   [ $# -ge 1 ] || die 78 "usage: $0 task-status <job>"; cmd_task_status "$1" ;;
+    task-cancel)   [ $# -ge 1 ] || die 78 "usage: $0 task-cancel <job>"; cmd_task_cancel "$1" ;;
     ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack <job>"; cmd_ack "$1" ;;
     status)   cmd_status ;;
     list)     cmd_list ;;

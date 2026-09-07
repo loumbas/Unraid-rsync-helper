@@ -124,6 +124,49 @@ function rjHumanize(cron) {
   return 'Monthly on day ' + p.dom + ' at ' + t();
 }
 
+/* ---------------- async dry-run preview (preview_start + 1s polling) -------
+   Long dry-runs are detached on the box (engine task files), so the php
+   request never hangs on a big remote. task_status output is single-consume;
+   cancel is a best-effort group kill. A post-save preview survives the table
+   reload via a sessionStorage flag that the fresh page consumes. */
+var rjP = { timer: null, polls: 0, job: '' };
+
+function rjPreviewStop() { if (rjP.timer) { clearInterval(rjP.timer); rjP.timer = null; } }
+
+function rjPreviewShow(txt, isError, cancellable) {
+  rjPanel('rj-preview', txt, isError);
+  $('#rj-preview-ctl').toggle(!!cancellable);
+}
+
+function rjPreviewPoll() {
+  rjP.polls++;
+  if (rjP.polls > 120) {
+    rjPreviewStop();
+    rjPreviewShow('Preview is still running after 120 s.\nThe task continues on the server - reload this page later and press Dry-run again to collect its result.', false, true);
+    return;
+  }
+  rjPost({ action: 'task_status', job: rjP.job }, function (res) {
+    if (!rjP.timer) return; /* cancelled or replaced while the request was in flight */
+    if (res.running) { rjPreviewShow('dry-run "' + rjP.job + '" running... ' + rjP.polls + 's', false, true); return; }
+    rjPreviewStop();
+    if (res.none) { rjPreviewShow('(no preview task on record - start one with the Dry-run button)', false, false); return; }
+    if (res.error) { rjPreviewShow('ERROR: ' + res.error, true, false); return; }
+    rjPreviewShow('exit code ' + res.rc + '\n\n' + (res.out || '(no output)'), res.rc !== 0, false);
+  });
+}
+
+function rjRunPreview(job) {
+  rjPreviewStop();
+  rjP.job = job; rjP.polls = 0;
+  rjPreviewShow('starting dry-run for "' + job + '" ...', false, false);
+  rjPost({ action: 'preview_start', job: job }, function (res) {
+    if (res.busy) { rjPreviewShow('Busy: ' + (res.error || 'a preview or run is already in progress for this job'), true, false); return; }
+    if (!res.ok) { rjPreviewShow('ERROR: ' + (res.error || '?'), true, false); return; }
+    rjP.timer = setInterval(rjPreviewPoll, 1000);
+    rjPreviewPoll();
+  });
+}
+
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
 function rjConfirm(title, text, btn, danger, cb) {
   if (typeof swal === 'function') {
@@ -382,14 +425,7 @@ $(function () {
       });
       return;
     }
-    if (act === 'dry') {
-      var $b = $(this); $b.val('...').prop('disabled', true);
-      rjPost({ action: 'run_dry', job: job }, function (res) {
-        $b.val('Dry-run').prop('disabled', false);
-        rjPanel('rj-preview', (res.out || res.error || ''), !res.ok);
-      });
-      return;
-    }
+    if (act === 'dry') { rjRunPreview(job); return; }
     if (act === 'run') {
       var doRun = function () {
         rjPost({ action: 'run_job', job: job }, function (res) {
@@ -433,9 +469,11 @@ $(function () {
     rjPost(data, function (res) {
       $sub.prop('disabled', false).val('Save job');
       if (res.ok) {
-        rjPanel('rj-preview', res.preview || res.msg, false);
         rjPanel('rj-result', res.msg, false);
-        setTimeout(function () { location.reload(); }, 2500);
+        /* start the dry-run AFTER the table reload: the detached task survives
+           it and the fresh page resumes polling from the sessionStorage flag */
+        try { sessionStorage.setItem('rj_autopreview', job); } catch (e) { /* private mode: skip auto-preview */ }
+        setTimeout(function () { location.reload(); }, 1200);
       } else {
         rjPanel('rj-result', 'ERROR: ' + res.error, true);
       }
@@ -617,6 +655,21 @@ $(function () {
       $f.eq(n).trigger('focus');
     }
   });
+
+  /* preview cancel + resume of a post-save preview scheduled before the reload */
+  $('#rj-preview-cancel').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $b = $(this);
+    if ($b.prop('disabled')) return;
+    $b.prop('disabled', true).val('cancelling...');
+    rjPost({ action: 'task_cancel', job: rjP.job }, function (res) {
+      $b.prop('disabled', false).val('Cancel preview');
+      if (!res.ok) rjPreviewShow('ERROR: ' + (res.error || '?'), true, false);
+      /* the running poll picks up the 143 exit and reports the partial output */
+    });
+  });
+  var rjAutoPreview = null;
+  try { rjAutoPreview = sessionStorage.getItem('rj_autopreview'); if (rjAutoPreview) sessionStorage.removeItem('rj_autopreview'); } catch (e) { rjAutoPreview = null; }
+  if (rjAutoPreview && D.jobs[rjAutoPreview]) rjRunPreview(rjAutoPreview);
 
   /* doctor tab */
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
