@@ -1,3 +1,16 @@
+## 2026.09.07i
+'stopping' event: a loud trace when jobs are cut off by an array stop:
+- New emhttp event 'stopping' (10 s timeout cap, always exits 0 - a shutdown is never
+  delayed): the engine's 'shutdown-notice' counts jobs whose status says running AND
+  whose run lock is actually held (a stale status from an old hard kill never notifies),
+  writes one syslog line and one bell notice (once-marker in /tmp).
+- cmd_run is now signal-aware: the transfer runs in the background and 'wait' lets a
+  TERM/INT trap mark the status rc=143 immediately, append 'interrupted by signal' to
+  the job log and publish the state over SSE before the engine exits 143. rclone
+  children are left to the shutdown's own kill pass (no force-killing from the engine).
+- The tty branch keeps the real engine exit code via a pipefail-wrapped subshell
+  (a bare backgrounded pipeline would report tee's status instead).
+
 ## 2026.09.07h
 Tail-log viewer in the WebUI:
 - Engine: the absolute log path is now recorded into the status file at run START (so a

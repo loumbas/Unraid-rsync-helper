@@ -20,3 +20,4 @@ emhttp/event/updating /usr/local/emhttp/plugins/rclone-jobs/event/updating 0755
 emhttp/event/array_started /usr/local/emhttp/plugins/rclone-jobs/event/array_started 0755
 emhttp/event/started /usr/local/emhttp/plugins/rclone-jobs/event/started 0755
 emhttp/event/uninstalling /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling 0755
+emhttp/event/stopping /usr/local/emhttp/plugins/rclone-jobs/event/stopping 0755

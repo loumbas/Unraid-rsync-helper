@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07h">
+<!ENTITY version   "2026.09.07i">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,19 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07i
+'stopping' event: a loud trace when jobs are cut off by an array stop:
+- New emhttp event 'stopping' (10 s timeout cap, always exits 0 - a shutdown is never
+  delayed): the engine's 'shutdown-notice' counts jobs whose status says running AND
+  whose run lock is actually held (a stale status from an old hard kill never notifies),
+  writes one syslog line and one bell notice (once-marker in /tmp).
+- cmd_run is now signal-aware: the transfer runs in the background and 'wait' lets a
+  TERM/INT trap mark the status rc=143 immediately, append 'interrupted by signal' to
+  the job log and publish the state over SSE before the engine exits 143. rclone
+  children are left to the shutdown's own kill pass (no force-killing from the engine).
+- The tty branch keeps the real engine exit code via a pipefail-wrapped subshell
+  (a bare backgrounded pipeline would report tee's status instead).
+
 ## 2026.09.07h
 Tail-log viewer in the WebUI:
 - Engine: the absolute log path is now recorded into the status file at run START (so a
@@ -147,12 +160,6 @@ Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fi
   previous version -&gt; new version, emhttp copy being cleared, boot-setup progress,
   deployed-file count, and exactly what removal keeps (config + storage data) with the
   full-cleanup command.
-
-## 2026.09.04l
-- Fix: clicking a tab header popped Unraid's 'External link' dialog. Tab headers no longer
-  carry href="#..." (Unraid's a[href] interceptor treats the bare hash as a navigation);
-  they are href-less a.rj-tab elements with keyboard support (Enter/Space) and the URL
-  still keeps #tab_rj_* so deep links and reloads land on the right tab.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -191,7 +198,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07h - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07i - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -213,7 +220,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07h"
+ENGINE_VERSION="2026.09.07i"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -856,13 +863,23 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   } &gt;&gt; "$logfile"
   say "rclone-jobs: $JOB_NAME starting ($([ "$dry" = yes ] &amp;&amp; echo dry-run || echo live)) log=$logfile"
   t0="$(unix_now)"
+  # signal-aware exec: 'wait' returns immediately (&gt;128) when TERM/INT arrive,
+  # so the trap can mark the status before the box goes down. rclone children
+  # are left to the shutdown's own kill pass (no force-killing from here).
+  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2&gt;/dev/null; sse_publish "$JOB_NAME" false 143; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" &gt;&gt; "$logfile" 2&gt;/dev/null; trap - TERM INT; exit 143' TERM INT
+  local jpid
   if [ -t 1 ]; then
-    ( umask "$J_UMASK"; "${CMD[@]}" ) 2&gt;&amp;1 | tee -a "$logfile"
-    rc="${PIPESTATUS[0]}"
+    # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
+    # inherited 'set -o pipefail' makes its status the engine's rc, not tee's
+    ( ( umask "$J_UMASK"; "${CMD[@]}" ) 2&gt;&amp;1 | tee -a "$logfile" ) &amp;
+    jpid=$!
+    wait "$jpid"; rc=$?
   else
-    ( umask "$J_UMASK"; "${CMD[@]}" ) &gt;&gt; "$logfile" 2&gt;&amp;1
-    rc=$?
+    ( umask "$J_UMASK"; "${CMD[@]}" ) &gt;&gt; "$logfile" 2&gt;&amp;1 &amp;
+    jpid=$!
+    wait "$jpid"; rc=$?
   fi
+  trap - TERM INT
   t1="$(unix_now)"
   local secs=$(( t1 - t0 ))
   parse_counters "$logfile"
@@ -1168,6 +1185,38 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
   return 0
 }
 
+cmd_shutdown_notice() { # 'stopping' event handler: loud trace for jobs cut off mid-run.
+  # MUST exit fast and 0 - a shutdown is never delayed by this. No storage_guard
+  # (its die would exit 78): everything degrades to a silent exit 0 instead.
+  load_paths
+  [ -n "$STORAGE_ROOT" ] &amp;&amp; [ -d "$STORAGE_ROOT/status" ] || exit 0
+  STATUS_DIR="$STORAGE_ROOT/status"
+  local sj n running="" cnt=0 lk
+  for sj in "$STATUS_DIR"/*.json; do
+    [ -e "$sj" ] || continue
+    case "$sj" in *-dryrun.json) continue ;; esac
+    [ "$(jq -r '.running // false' "$sj" 2&gt;/dev/null)" = "true" ] || continue
+    n="$(basename "$sj" .json)"
+    valid_jobname "$n" || continue
+    # stale 'running' status (hard-killed earlier) must not cry wolf: the lock
+    # must actually be held for this to be a live transfer
+    lk="$LOCKDIR/$NAME-$n.lock"
+    [ -f "$lk" ] &amp;&amp; ! flock -n "$lk" true 2&gt;/dev/null || continue
+    running="$running $n"
+    cnt=$((cnt + 1))
+  done
+  [ "$cnt" -gt 0 ] || exit 0
+  syslog_line "SHUTDOWN: $cnt job(s) still transferring when the array stopped:$running - cut off; the next run recovers (status marked rc=143)"
+  if [ ! -f "/tmp/$NAME-stopping-notice" ]; then
+    touch "/tmp/$NAME-stopping-notice" 2&gt;/dev/null || true
+    notify_unraid warning "rclone-jobs: $cnt job(s) running at shutdown" "still transferring when the array stopped:$running" "jobs: $running
+The transfers were cut off. This is survivable: rclone/rsync re-sync differences on the
+next run and the status files recover automatically. Consider the quiet window or a
+backup window that does not overlap with array stop/start times."
+  fi
+  exit 0
+}
+
 cmd_notify_test() { # [normal|warning|alert] - one native test notification (UI button + CLI)
   local lvl="${1:-normal}"
   case "$lvl" in normal|warning|alert) ;; *) die 78 "usage: $0 notify-test [normal|warning|alert]" ;; esac
@@ -1445,6 +1494,7 @@ usage:
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse &lt;local|rclone&gt; &lt;path&gt; [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
+  rclone-jobs.sh shutdown-notice         'stopping' event: trace jobs cut off mid-run (fast, exit 0)
   rclone-jobs.sh notify-test [level]     test notification via Unraid's notify script
                                          (level: normal|warning|alert, default normal)
   rclone-jobs.sh doctor [--notify]       self-test (PASS/FAIL table + paste-back block)
@@ -1467,6 +1517,7 @@ main() {
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
+    shutdown-notice) cmd_shutdown_notice ;;
     notify-test) cmd_notify_test "$@" ;;
     doctor)   cmd_doctor "$@" ;;
     *)        usage; exit 78 ;;
@@ -1475,7 +1526,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>dddf3076156b97ea360c198e66579d0e6494ae856c123350442d8a8a16ed58b9</SHA256>
+<SHA256>6b76ea3104415ede9f270061642fb42a340d61c73ed8d3bebe6a88b60406b32e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1652,7 +1703,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07h - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07i - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1701,7 +1752,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07h',
+    'version'    =&gt; '2026.09.07i',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1744,7 +1795,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07h"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07i"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1915,15 +1966,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07h &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07i &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>263548e2e1ef32fb71844492d453e17a9df58ef3b56a47d8ad3991ceb9cd2d39</SHA256>
+<SHA256>076cf4d72fa9ebfa6cd5dadce89810ccc4449d72b6ee72e33fb918076fa1b853</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07h - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07i - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2206,12 +2257,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>961e28f7a163e31527ef3036931d7f1965a3f688f5c535ceb3004629cd06edfb</SHA256>
+<SHA256>117f279db2595ce9543b8575dfaaf73f48c6f8ae82a13fbce0fa5c074a8f59a7</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07h - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07i - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2985,13 +3036,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>645f9b0fdd1ac26055dd9915a0c9f0971567c00b2aa83f1b5958da49ce5a3e23</SHA256>
+<SHA256>2df7ec2230b08389c9bb77b2f1d34556d05989aa1c8afed7a55976f60f7f3ea6</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07h - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07i - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -3144,13 +3195,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>281388d41f4393a806a65c295db5d6b8e923bddeddb67324474da158e028900e</SHA256>
+<SHA256>122a4f485328e2fcfb4ccbae66eb5cc64a78701bc2892aebda154d1e6beb0d55</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07h - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07i - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -3229,13 +3280,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>d137e873c4b9b9598ae1d36201e14101e444b68da05de706c33f623e5b652805</SHA256>
+<SHA256>4f2da884df60d9d56bdfce690d8c62676e88d0f46cc48054fa72588349d1cb83</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07h - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07i - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -3288,7 +3339,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>00ec8c484cea3c757ed4ac0146e18a5b43d840feca3efc7125f4902c27a4b42b</SHA256>
+<SHA256>106c7243073d3fba1bf435322371e65d4fffb9a34ea5d8c5c65329f56fe17a35</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -3383,6 +3434,28 @@ pkill -f 'rclone-jobs\.sh run ' 2&gt;/dev/null || true
 exit 0
 </INLINE>
 <SHA256>3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8</SHA256>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/stopping" Mode="0755">
+<INLINE>
+#!/bin/bash
+# rclone-jobs 'stopping' event - the array is about to stop. Jobs still
+# transferring will be cut off; leave a loud trace (syslog + one bell notice).
+# Everything is guarded and time-capped: a shutdown is NEVER delayed here.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+E="$D/engine/rclone-jobs.sh"
+if [ -x "$E" ]; then
+  if command -v timeout &gt;/dev/null 2&gt;&amp;1; then
+    timeout 10 /bin/bash "$E" shutdown-notice &gt;/dev/null 2&gt;&amp;1 || true
+  else
+    /bin/bash "$E" shutdown-notice &gt;/dev/null 2&gt;&amp;1 || true
+  fi
+fi
+exit 0
+</INLINE>
+<SHA256>d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

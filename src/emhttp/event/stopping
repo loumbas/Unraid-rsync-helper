@@ -1,0 +1,16 @@
+#!/bin/bash
+# rclone-jobs 'stopping' event - the array is about to stop. Jobs still
+# transferring will be cut off; leave a loud trace (syslog + one bell notice).
+# Everything is guarded and time-capped: a shutdown is NEVER delayed here.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+E="$D/engine/rclone-jobs.sh"
+if [ -x "$E" ]; then
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 10 /bin/bash "$E" shutdown-notice >/dev/null 2>&1 || true
+  else
+    /bin/bash "$E" shutdown-notice >/dev/null 2>&1 || true
+  fi
+fi
+exit 0

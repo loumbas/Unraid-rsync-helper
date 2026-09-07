@@ -665,13 +665,23 @@ cmd_run() { # <job> [--dry-run]
   } >> "$logfile"
   say "rclone-jobs: $JOB_NAME starting ($([ "$dry" = yes ] && echo dry-run || echo live)) log=$logfile"
   t0="$(unix_now)"
+  # signal-aware exec: 'wait' returns immediately (>128) when TERM/INT arrive,
+  # so the trap can mark the status before the box goes down. rclone children
+  # are left to the shutdown's own kill pass (no force-killing from here).
+  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null; sse_publish "$JOB_NAME" false 143; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" >> "$logfile" 2>/dev/null; trap - TERM INT; exit 143' TERM INT
+  local jpid
   if [ -t 1 ]; then
-    ( umask "$J_UMASK"; "${CMD[@]}" ) 2>&1 | tee -a "$logfile"
-    rc="${PIPESTATUS[0]}"
+    # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
+    # inherited 'set -o pipefail' makes its status the engine's rc, not tee's
+    ( ( umask "$J_UMASK"; "${CMD[@]}" ) 2>&1 | tee -a "$logfile" ) &
+    jpid=$!
+    wait "$jpid"; rc=$?
   else
-    ( umask "$J_UMASK"; "${CMD[@]}" ) >> "$logfile" 2>&1
-    rc=$?
+    ( umask "$J_UMASK"; "${CMD[@]}" ) >> "$logfile" 2>&1 &
+    jpid=$!
+    wait "$jpid"; rc=$?
   fi
+  trap - TERM INT
   t1="$(unix_now)"
   local secs=$(( t1 - t0 ))
   parse_counters "$logfile"
@@ -977,6 +987,38 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
   return 0
 }
 
+cmd_shutdown_notice() { # 'stopping' event handler: loud trace for jobs cut off mid-run.
+  # MUST exit fast and 0 - a shutdown is never delayed by this. No storage_guard
+  # (its die would exit 78): everything degrades to a silent exit 0 instead.
+  load_paths
+  [ -n "$STORAGE_ROOT" ] && [ -d "$STORAGE_ROOT/status" ] || exit 0
+  STATUS_DIR="$STORAGE_ROOT/status"
+  local sj n running="" cnt=0 lk
+  for sj in "$STATUS_DIR"/*.json; do
+    [ -e "$sj" ] || continue
+    case "$sj" in *-dryrun.json) continue ;; esac
+    [ "$(jq -r '.running // false' "$sj" 2>/dev/null)" = "true" ] || continue
+    n="$(basename "$sj" .json)"
+    valid_jobname "$n" || continue
+    # stale 'running' status (hard-killed earlier) must not cry wolf: the lock
+    # must actually be held for this to be a live transfer
+    lk="$LOCKDIR/$NAME-$n.lock"
+    [ -f "$lk" ] && ! flock -n "$lk" true 2>/dev/null || continue
+    running="$running $n"
+    cnt=$((cnt + 1))
+  done
+  [ "$cnt" -gt 0 ] || exit 0
+  syslog_line "SHUTDOWN: $cnt job(s) still transferring when the array stopped:$running - cut off; the next run recovers (status marked rc=143)"
+  if [ ! -f "/tmp/$NAME-stopping-notice" ]; then
+    touch "/tmp/$NAME-stopping-notice" 2>/dev/null || true
+    notify_unraid warning "rclone-jobs: $cnt job(s) running at shutdown" "still transferring when the array stopped:$running" "jobs: $running
+The transfers were cut off. This is survivable: rclone/rsync re-sync differences on the
+next run and the status files recover automatically. Consider the quiet window or a
+backup window that does not overlap with array stop/start times."
+  fi
+  exit 0
+}
+
 cmd_notify_test() { # [normal|warning|alert] - one native test notification (UI button + CLI)
   local lvl="${1:-normal}"
   case "$lvl" in normal|warning|alert) ;; *) die 78 "usage: $0 notify-test [normal|warning|alert]" ;; esac
@@ -1254,6 +1296,7 @@ usage:
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
+  rclone-jobs.sh shutdown-notice         'stopping' event: trace jobs cut off mid-run (fast, exit 0)
   rclone-jobs.sh notify-test [level]     test notification via Unraid's notify script
                                          (level: normal|warning|alert, default normal)
   rclone-jobs.sh doctor [--notify]       self-test (PASS/FAIL table + paste-back block)
@@ -1276,6 +1319,7 @@ main() {
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
+    shutdown-notice) cmd_shutdown_notice ;;
     notify-test) cmd_notify_test "$@" ;;
     doctor)   cmd_doctor "$@" ;;
     *)        usage; exit 78 ;;

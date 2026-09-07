@@ -8,8 +8,8 @@ byte-identical output, every new shipped file added to `src/MANIFEST`, `pwsh -No
 weakens the safety model (dry-run gate, `--max-delete`, mount guard, storage policy).
 i18n scaffolding (`_()` + catalogs) is out of scope by owner decision — not listed.
 
-Priority order (value per effort): ~~**2**~~ 07f, ~~**1**~~ 07g, ~~**3**~~ 07h shipped →
-**5**, **6** (robustness) → **4**, **7** (features).
+Priority order (value per effort): ~~2/1/3/5~~ shipped (07f/07g/07h/07i) → **6**
+(robustness) → **4**, **7** (features).
 
 ---
 
@@ -174,9 +174,18 @@ flag leaves originals untouched.
 
 ---
 
-## 5. `stopping` event: notice for jobs that hold a lock during shutdown
+## 5. `stopping` event: notice for jobs that hold a lock during shutdown — SHIPPED 2026.09.07i
 
-**Motivation.** Array stop with a running job means rclone gets cut off (SIGKILL after
+**Shipped notes.** New `emhttp/event/stopping` (0755, MANIFEST) calls the engine's
+`shutdown-notice` under `timeout 10`, always exits 0. The subcommand counts jobs with
+`running:true` AND the run lock actually held (a stale status from an old hard kill
+never cries wolf), writes one syslog line and one bell notice (once-marker
+`/tmp/rclone-jobs-stopping-notice`). `cmd_run` now executes via background + `wait`
+with a TERM/INT trap: status is marked rc=143 immediately (verified: engine exits 143
+within the signal, log gets an 'interrupted by signal' line); rclone children are left
+to the shutdown's own kill pass, exactly as drafted.
+
+**Motivation (pre-ship).** Array stop with a running job means rclone gets cut off (SIGKILL after
 grace). Today that is silent. A `stopping` event (fires before array stop) can at least
 leave a loud trace — the engine already survives hard kills (status file is rewritten
 on next run), and the docs list `stopping` as a standard emhttp event.
