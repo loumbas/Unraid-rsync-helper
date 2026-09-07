@@ -790,6 +790,7 @@ d_line() { # <PASS|WARN|FAIL|INFO> <text> - buffered once, printed once in the f
 
 cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
+  local njobs nact jen jsched
   for a in "$@"; do [ "$a" = "--notify" ] && opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
@@ -840,9 +841,21 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync logger pgrep findmnt fuser sha256sum)"
   else d_line FAIL "missing binaries:$missing"; fi
   if find_php; then d_line PASS "php CLI: $PHP_BIN"; else d_line WARN "php CLI not found - structured dry-run previews disabled"; fi
+  njobs=0; nact=0
+  if [ -d "$BOOT_DIR/jobs" ]; then
+    for sj in "$BOOT_DIR/jobs"/*.conf; do
+      [ -e "$sj" ] || continue
+      njobs=$(( njobs + 1 ))
+      jen="$(sed -nE 's/^[[:space:]]*ENABLED[[:space:]]*=[[:space:]]*"?([^"]*)"?.*/\1/p' "$sj" | tail -1)"
+      jsched="$(sed -nE 's/^[[:space:]]*SCHEDULE[[:space:]]*=[[:space:]]*"?([^"]*)"?.*/\1/p' "$sj" | tail -1)"
+      [ "$jen" != "no" ] && [ -n "$jsched" ] && nact=$(( nact + 1 ))
+    done
+  fi
   if [ -f "$CRON_FILE" ]; then
     if grep -qF '# rclone-jobs BEGIN' "$CRON_FILE"; then d_line PASS "managed block present in $CRON_FILE"
-    else d_line WARN "no managed block in $CRON_FILE - scheduled jobs are INACTIVE (save any job or run regen-cron.sh)"; fi
+    elif [ "$nact" -gt 0 ]; then d_line WARN "no managed block in $CRON_FILE - scheduled jobs are INACTIVE (save any job or run regen-cron.sh)"
+    elif [ "$njobs" -eq 0 ]; then d_line INFO "no managed cron block - no jobs configured, nothing to schedule (the block appears automatically when you save an enabled job)"
+    else d_line INFO "no managed cron block - no enabled job with a schedule, nothing to schedule (the block appears automatically when you enable a job)"; fi
     regen="$EMHTTP_DIR/scripts/regen-cron.sh"
     if [ -x "$regen" ]; then
       drc=0; drift="$("$regen" --check 2>&1)" || drc=$?
@@ -858,11 +871,14 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   env -i PATH=/usr/bin:/bin "$RCLONE_BIN" version >/dev/null 2>&1 || probe_rc=$?
   if [ "$probe_rc" -eq 0 ]; then
     d_line INFO "minimal-PATH probe: rclone works even under cron's PATH (no compensation needed)"
+  elif [ "$probe_rc" -eq 127 ]; then
+    d_line INFO "minimal-PATH probe: fails with 127 exactly as designed - cron's PATH lacks /usr/sbin; the engine exports a full PATH and the crontab lines invoke bash by absolute path (this is the fix)"
   else
-    d_line WARN "minimal-PATH probe fails (exit $probe_rc) AS EXPECTED: cron's PATH lacks /usr/sbin; the engine exports a full PATH and the crontab lines invoke bash by absolute path (this is the fix)"
+    d_line WARN "minimal-PATH probe failed with exit $probe_rc (expected 0 or 127) - rclone misbehaves under a minimal PATH, check the rclone plugin wrapper"
   fi
   now="$(unix_now)"
   if [ -d "$BOOT_DIR/jobs" ]; then
+    if [ "$njobs" -eq 0 ]; then d_line INFO "no jobs configured yet - add one on the Jobs tab"; fi
     for sj in "$BOOT_DIR/jobs"/*.conf; do
       [ -e "$sj" ] || continue
       lo="$(basename "$sj" .conf)"

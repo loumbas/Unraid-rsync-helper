@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07c">
+<!ENTITY version   "2026.09.07d">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,19 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07d
+- Doctor fix (seen on a box with no jobs): the report no longer WARNs that the cron
+  block is missing when nothing is scheduled - with zero jobs (or only disabled ones)
+  a missing block is the CORRECT state and regen-cron.sh would add nothing. The
+  report now says explicitly 'no jobs configured' and the WARN still appears when
+  enabled jobs exist but the block does not.
+- Doctor fix: the by-design minimal-PATH probe failure (exit 127 - cron's PATH lacks
+  /usr/sbin) is reported as INFO instead of WARN; a WARN now only appears on an
+  unexpected exit code.
+- Doctor tab: explanatory text added - what the checks cover, the PASS/INFO/WARN/FAIL
+  legend, that the run is read-only apart from saving a report copy, and that the
+  fenced block at the end is a paste-ready summary for support threads.
+
 ## 2026.09.07c
 - No cron knowledge needed anymore: the job form's Schedule field is now a visual
   builder - every N minutes | hourly | daily | weekly (weekday checkboxes) |
@@ -103,12 +116,6 @@
   ARGS --delete-excluded is refused; custom-engine jobs warn once per change (Telegram
   + notify + syslog) because no exclude can be injected there. Doctor reports the
   overlap per job; the job form shows an inline hint on SRC/DST.
-
-## 2026.09.04g
-- WebUI restyled to the native settings-page anatomy: icon .title section headers
-  replace all fieldsets/legends (Add job, Safety, Telegram notifications, Doctor);
-  button rows are now dl rows aligned with the fields; wide inputs use the webgui
-  'variable' class; jobs table gains click-to-sort headers (native tablesorter).
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -147,7 +154,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07c - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07d - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -169,7 +176,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07c"
+ENGINE_VERSION="2026.09.07d"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -937,6 +944,7 @@ d_line() { # &lt;PASS|WARN|FAIL|INFO&gt; &lt;text&gt; - buffered once, printed o
 
 cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
+  local njobs nact jen jsched
   for a in "$@"; do [ "$a" = "--notify" ] &amp;&amp; opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
@@ -987,9 +995,21 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   if [ -z "$missing" ]; then d_line PASS "required binaries present (jq flock rsync logger pgrep findmnt fuser sha256sum)"
   else d_line FAIL "missing binaries:$missing"; fi
   if find_php; then d_line PASS "php CLI: $PHP_BIN"; else d_line WARN "php CLI not found - structured dry-run previews disabled"; fi
+  njobs=0; nact=0
+  if [ -d "$BOOT_DIR/jobs" ]; then
+    for sj in "$BOOT_DIR/jobs"/*.conf; do
+      [ -e "$sj" ] || continue
+      njobs=$(( njobs + 1 ))
+      jen="$(sed -nE 's/^[[:space:]]*ENABLED[[:space:]]*=[[:space:]]*"?([^"]*)"?.*/\1/p' "$sj" | tail -1)"
+      jsched="$(sed -nE 's/^[[:space:]]*SCHEDULE[[:space:]]*=[[:space:]]*"?([^"]*)"?.*/\1/p' "$sj" | tail -1)"
+      [ "$jen" != "no" ] &amp;&amp; [ -n "$jsched" ] &amp;&amp; nact=$(( nact + 1 ))
+    done
+  fi
   if [ -f "$CRON_FILE" ]; then
     if grep -qF '# rclone-jobs BEGIN' "$CRON_FILE"; then d_line PASS "managed block present in $CRON_FILE"
-    else d_line WARN "no managed block in $CRON_FILE - scheduled jobs are INACTIVE (save any job or run regen-cron.sh)"; fi
+    elif [ "$nact" -gt 0 ]; then d_line WARN "no managed block in $CRON_FILE - scheduled jobs are INACTIVE (save any job or run regen-cron.sh)"
+    elif [ "$njobs" -eq 0 ]; then d_line INFO "no managed cron block - no jobs configured, nothing to schedule (the block appears automatically when you save an enabled job)"
+    else d_line INFO "no managed cron block - no enabled job with a schedule, nothing to schedule (the block appears automatically when you enable a job)"; fi
     regen="$EMHTTP_DIR/scripts/regen-cron.sh"
     if [ -x "$regen" ]; then
       drc=0; drift="$("$regen" --check 2&gt;&amp;1)" || drc=$?
@@ -1005,11 +1025,14 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   env -i PATH=/usr/bin:/bin "$RCLONE_BIN" version &gt;/dev/null 2&gt;&amp;1 || probe_rc=$?
   if [ "$probe_rc" -eq 0 ]; then
     d_line INFO "minimal-PATH probe: rclone works even under cron's PATH (no compensation needed)"
+  elif [ "$probe_rc" -eq 127 ]; then
+    d_line INFO "minimal-PATH probe: fails with 127 exactly as designed - cron's PATH lacks /usr/sbin; the engine exports a full PATH and the crontab lines invoke bash by absolute path (this is the fix)"
   else
-    d_line WARN "minimal-PATH probe fails (exit $probe_rc) AS EXPECTED: cron's PATH lacks /usr/sbin; the engine exports a full PATH and the crontab lines invoke bash by absolute path (this is the fix)"
+    d_line WARN "minimal-PATH probe failed with exit $probe_rc (expected 0 or 127) - rclone misbehaves under a minimal PATH, check the rclone plugin wrapper"
   fi
   now="$(unix_now)"
   if [ -d "$BOOT_DIR/jobs" ]; then
+    if [ "$njobs" -eq 0 ]; then d_line INFO "no jobs configured yet - add one on the Jobs tab"; fi
     for sj in "$BOOT_DIR/jobs"/*.conf; do
       [ -e "$sj" ] || continue
       lo="$(basename "$sj" .conf)"
@@ -1197,7 +1220,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>90b52fc2b2e4aec2e5c65c29630aa38f1a922f985896b7748e77eaafdb4ab4bb</SHA256>
+<SHA256>bb4ed8356c658e51559f93875ce6fc970f77661ed02b5ea9d9b875e00a1e1d0e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1374,7 +1397,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07c - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07d - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1423,7 +1446,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07c',
+    'version'    =&gt; '2026.09.07d',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1463,7 +1486,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07c"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07d"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1621,21 +1644,21 @@ $rjdata = [
     &lt;div class="title"&gt;
       &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-stethoscope title'&gt;&lt;/i&gt;Doctor&lt;/span&gt;
     &lt;/div&gt;
-    &lt;p&gt;&lt;/p&gt;
+    &lt;p class="gray"&gt;Doctor is a read-only self-test of the whole setup: plugin/engine versions, the rclone plugin's wrapper and config file, the storage folder (share policy, writability, free space), required binaries and php, the cron integration (our managed block in the root crontab, drift against the jobs folder, the cron daemon), every job config (validity, storage overlap, last-run status, staleness) and rclone's behavior under cron's minimal PATH. It changes nothing - the only side effect is a copy of the report saved under the plugin's logs folder. PASS = healthy, INFO = detail, WARN = worth a look, FAIL = broken (schedules cannot be trusted until fixed). The fenced block at the end of the output is a paste-ready summary for support threads. The checkbox additionally sends one test notification through Unraid's own notify system (bell + the agents enabled under Settings &amp;rarr; Notification Settings).&lt;/p&gt;
     &lt;p&gt;&lt;input type="button" id="rj-doctor" value="Run doctor" class="rj-btn"&gt;
        &lt;input type="checkbox" id="rj-doctor-notify"&gt; include test notification (bell + your enabled agents)&lt;/p&gt;
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07c &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07d &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>c2d9f9c32953c88ddb028d17d57c806954ed06156899cd6ecb5f1392eaf12fd5</SHA256>
+<SHA256>a8dbef8e54fc4d5041a1e429218508374bfcba676c18a46aeacdc79ba434f55e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07c - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07d - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1873,12 +1896,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>0859d357299b63a8571e6f240dddb90ff0d303338a5e30bde47054c9daddb1a3</SHA256>
+<SHA256>4d9256b4242222d2576d3d3c38eb42ea46f70031ceb28928396d19ca263c8828</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07c - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07d - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2473,13 +2496,13 @@ $(function () {
   });
 });
 </INLINE>
-<SHA256>a904ec2928d8dfc001f7afe4a43a52f629c18bf940c38e986fc5c43f53f37c05</SHA256>
+<SHA256>b47254b298715ee06dc3bb5be30439b3da1822b7d0ae410470ba1daaa9f70eee</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07c - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07d - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2632,13 +2655,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>ea9bfd821826fdeebfa709e4b364cc89aac00d80b7e7e0727fe8b6917a16032c</SHA256>
+<SHA256>74029720562070229c101fa5e6689d35de0dcaf878f1ae3ccb3af6a8c060e2f8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07c - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07d - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -2717,13 +2740,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>71462595c6728a8fb803b7554d8e82f305884463abc7c279f50f483c28877432</SHA256>
+<SHA256>33538633ac9ff25082eecb6d0fff817916b4f349682044660dbf0f035d3733eb</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07c - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07d - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -2772,7 +2795,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>31016abdd25d0451768d5cd37eef5db8897d427fa727ec4a352fc969dde5a222</SHA256>
+<SHA256>a4940f490919345565aa98b9793a96d76b9470c5ec8f07bf840886a8ec426ca8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">

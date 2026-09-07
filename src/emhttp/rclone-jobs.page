@@ -250,7 +250,7 @@ $rjdata = [
     <div class="title">
       <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-stethoscope title'></i>Doctor</span>
     </div>
-    <p></p>
+    <p class="gray">Doctor is a read-only self-test of the whole setup: plugin/engine versions, the rclone plugin's wrapper and config file, the storage folder (share policy, writability, free space), required binaries and php, the cron integration (our managed block in the root crontab, drift against the jobs folder, the cron daemon), every job config (validity, storage overlap, last-run status, staleness) and rclone's behavior under cron's minimal PATH. It changes nothing - the only side effect is a copy of the report saved under the plugin's logs folder. PASS = healthy, INFO = detail, WARN = worth a look, FAIL = broken (schedules cannot be trusted until fixed). The fenced block at the end of the output is a paste-ready summary for support threads. The checkbox additionally sends one test notification through Unraid's own notify system (bell + the agents enabled under Settings &rarr; Notification Settings).</p>
     <p><input type="button" id="rj-doctor" value="Run doctor" class="rj-btn">
        <input type="checkbox" id="rj-doctor-notify"> include test notification (bell + your enabled agents)</p>
     <pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px">Not run yet.</pre>

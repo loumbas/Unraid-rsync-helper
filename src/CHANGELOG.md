@@ -1,3 +1,16 @@
+## 2026.09.07d
+- Doctor fix (seen on a box with no jobs): the report no longer WARNs that the cron
+  block is missing when nothing is scheduled - with zero jobs (or only disabled ones)
+  a missing block is the CORRECT state and regen-cron.sh would add nothing. The
+  report now says explicitly 'no jobs configured' and the WARN still appears when
+  enabled jobs exist but the block does not.
+- Doctor fix: the by-design minimal-PATH probe failure (exit 127 - cron's PATH lacks
+  /usr/sbin) is reported as INFO instead of WARN; a WARN now only appears on an
+  unexpected exit code.
+- Doctor tab: explanatory text added - what the checks cover, the PASS/INFO/WARN/FAIL
+  legend, that the run is read-only apart from saving a report copy, and that the
+  fenced block at the end is a paste-ready summary for support threads.
+
 ## 2026.09.07c
 - No cron knowledge needed anymore: the job form's Schedule field is now a visual
   builder - every N minutes | hourly | daily | weekly (weekday checkboxes) |
