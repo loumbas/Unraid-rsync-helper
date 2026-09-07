@@ -150,6 +150,7 @@ $rjdata = [
             <input type='button' value='Dry-run' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>'>
             <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>'>
             <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>'><?php endif; ?>
+            <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='tail of the last log (redacted)'>
             <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>'>
             <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>'>
           </td>

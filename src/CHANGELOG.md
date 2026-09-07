@@ -1,3 +1,14 @@
+## 2026.09.07h
+Tail-log viewer in the WebUI:
+- Engine: the absolute log path is now recorded into the status file at run START (so a
+  live run's log is viewable too) and kept by status_finish; new 'tail-log <job>'
+  subcommand returns the redacted tail (64 KiB, NUL-stripped) of that log as JSON with a
+  byte-count banner. The path comes only from the validated status file and must sit
+  inside LOG_DIR - a request can never name a path (no traversal).
+- WebUI: a 'Log' button per job row shows the redacted tail in the result panel; ajax
+  'tail_log' is a thin POST+CSRF passthrough like every other action.
+- Old status files (from before the log key) get a clear 'run it once' message.
+
 ## 2026.09.07g
 Live status via nchan SSE - the Jobs table now updates itself:
 - Engine: sse_publish() sends a fire-and-forget POST to http://localhost/pub/rclone-jobs

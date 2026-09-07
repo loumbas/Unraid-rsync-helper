@@ -226,18 +226,19 @@ status_file() { printf '%s/%s.json\n' "$STATUS_DIR" "$1"; }
 dryrun_file() { printf '%s/%s-dryrun.json\n' "$STATUS_DIR" "$1"; }
 conf_hash()   { sha256sum "$1" 2>/dev/null | cut -c1-16; }
 
-status_set_running() { # <job> <confhash>
+status_set_running() { # <job> <confhash> <logfile>
   local f tmp; f="$(status_file "$1")"; tmp="$f.tmp"
   if [ -s "$f" ]; then
-    jq --arg c "$2" '. + {running:true, confhash:$c}' "$f" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f"
+    jq --arg c "$2" --arg l "${3:-}" '. + {running:true, confhash:$c} + (if $l=="" then {} else {log:$l} end)' "$f" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f"
   else
-    jq -n --arg j "$1" --arg c "$2" \
-      '{job:$j, rc:null, secs:null, errors:null, run:null, last_ok:0, last_ok_run:null, transferred:"", running:true, confhash:$c}' \
+    jq -n --arg j "$1" --arg c "$2" --arg l "${3:-}" \
+      '{job:$j, rc:null, secs:null, errors:null, run:null, last_ok:0, last_ok_run:null, transferred:"", running:true, confhash:$c}
+        + (if $l=="" then {} else {log:$l} end)' \
       > "$tmp" 2>/dev/null && mv -f "$tmp" "$f"
   fi
 }
 
-status_finish() { # <job> <rc> <secs> <errors> <transferred> <running true|false> <confhash>
+status_finish() { # <job> <rc> <secs> <errors> <transferred> <running true|false> <confhash> [logfile]
   local f ok_run="" last_ok=0
   f="$(status_file "$1")"
   if [ -f "$f" ]; then last_ok="$(jq -r '.last_ok // 0' "$f" 2>/dev/null || echo 0)"; fi
@@ -245,10 +246,11 @@ status_finish() { # <job> <rc> <secs> <errors> <transferred> <running true|false
   jq -n \
     --arg job "$1" --argjson rc "$2" --argjson secs "$3" --argjson errors "${4:-0}" \
     --arg run "$(stamp_now)" --argjson last_ok "$last_ok" --arg ok_run "$ok_run" \
-    --arg transferred "$5" --argjson running "$6" --arg confhash "$7" \
+    --arg transferred "$5" --argjson running "$6" --arg confhash "$7" --arg log "${8:-}" \
     '{job:$job, rc:$rc, secs:$secs, errors:$errors, run:$run, last_ok:$last_ok,
       last_ok_run:(if $ok_run=="" then null else $ok_run end),
-      transferred:$transferred, running:$running, confhash:$confhash}' \
+      transferred:$transferred, running:$running, confhash:$confhash}
+      + (if $log=="" then {} else {log:$log} end)' \
     > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f"
 }
 
@@ -647,11 +649,13 @@ cmd_run() { # <job> [--dry-run]
   local chash sj ts logfile t0 t1 rc
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
-  status_set_running "$JOB_NAME" "$chash"
-  sse_publish "$JOB_NAME" true null
-  build_command "$dry"
   ts="$(date +%Y%m%d-%H%M%S)"
   if [ "$dry" = yes ]; then logfile="$LOG_DIR/$JOB_NAME-DRYRUN-$ts.log"; else logfile="$LOG_DIR/$JOB_NAME-$ts.log"; fi
+  # log path recorded in the status BEFORE the run: the WebUI Log button finds
+  # the file of a live run too, not only of finished ones
+  status_set_running "$JOB_NAME" "$chash" "$logfile"
+  sse_publish "$JOB_NAME" true null
+  build_command "$dry"
   {
     printf 'rclone-jobs %s | job: %s | mode: %s | engine: %s | %s\n' \
       "$ENGINE_VERSION" "$JOB_NAME" "$([ "$dry" = yes ] && echo DRY-RUN || echo LIVE)" "$J_ENGINE" "$(stamp_now)"
@@ -684,10 +688,10 @@ cmd_run() { # <job> [--dry-run]
       perr="$(jq -r '.errors // 0' "$sj" 2>/dev/null)"
       ptr="$(jq -r '.transferred // ""' "$sj" 2>/dev/null)"
     fi
-    status_finish "$JOB_NAME" "${prc:-0}" 0 "${perr:-0}" "$ptr" false "$chash"
+    status_finish "$JOB_NAME" "${prc:-0}" 0 "${perr:-0}" "$ptr" false "$chash" "$logfile"
     sse_publish "$JOB_NAME" false null
   else
-    status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
+    status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash" "$logfile"
     sse_publish "$JOB_NAME" false "$rc"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
       # recovered: clear stale problem notices from the bell + fresh watchdog dedup
@@ -825,6 +829,31 @@ cmd_task_cancel() { # <job> -> ok JSON; group-kill when the child owns its sessi
   kill -0 "$pid" 2>/dev/null && { kill -KILL -- -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; }
   echo 143 > "$TP_RC" 2>/dev/null || true   # normally the child's own trap-free exit writes 143 first
   printf '{"ok":true}\n'
+}
+
+cmd_tail_log() { # <job> -> JSON {ok,log,size,text}: redacted tail of the recorded log.
+  # The path comes ONLY from the validated status file and must sit inside
+  # LOG_DIR - the request never supplies paths (no traversal possible).
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || { printf '{"ok":false,"error":"invalid job name"}\n'; return 0; }
+  load_paths
+  storage_guard
+  command -v jq >/dev/null 2>&1 || { printf '{"ok":false,"error":"jq unavailable"}\n'; return 0; }
+  local sj log sz text head=""
+  sj="$(status_file "$JOB_NAME")"
+  [ -f "$sj" ] || { printf '{"ok":false,"error":"no run recorded for %s yet"}\n' "$JOB_NAME"; return 0; }
+  log="$(jq -r '.log // ""' "$sj" 2>/dev/null)"
+  case "$log" in
+    "$LOG_DIR"/*.log) : ;;
+    *) printf '{"ok":false,"error":"no log path recorded for %s (run it once, or status predates v%s)"}\n' "$JOB_NAME" "$ENGINE_VERSION"; return 0 ;;
+  esac
+  [ -f "$log" ] || { printf '{"ok":false,"error":"log file is gone (pruned after 14 days?)"}\n'; return 0; }
+  sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
+  if [ "${sz:-0}" -gt 65536 ]; then head="[last 64 KiB of ${sz} bytes - truncated]
+"; fi
+  text="$(tail -c 65536 "$log" | tr -d '\0' | redact)"  # nulls cannot live in $vars or json
+  jq -nc --arg log "$log" --arg text "$head$text" --argjson size "${sz:-0}" \
+    '{ok:true, log:$log, size:$size, text:$text}'
 }
 
 cmd_list() {
@@ -1221,6 +1250,7 @@ usage:
   rclone-jobs.sh ack <job>               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh status-json             all jobs' live state as one JSON object
+  rclone-jobs.sh tail-log <job>          redacted tail (64 KiB) of the job's last log as JSON
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
@@ -1242,6 +1272,7 @@ main() {
     ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack <job>"; cmd_ack "$1" ;;
     status)   cmd_status ;;
     status-json) cmd_status_json ;;
+    tail-log) [ $# -ge 1 ] || die 78 "usage: $0 tail-log <job>"; cmd_tail_log "$1" ;;
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;

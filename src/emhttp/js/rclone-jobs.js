@@ -517,6 +517,17 @@ $(function () {
       }
       return;
     }
+    if (act === 'log') {
+      var $lb = $(this);
+      if ($lb.prop('disabled')) return;
+      $lb.prop('disabled', true).val('...');
+      rjPost({ action: 'tail_log', job: job }, function (res) {
+        $lb.prop('disabled', false).val('Log');
+        if (res.ok) rjPanel('rj-result', 'log: ' + res.log + '  (' + res.size + ' bytes total)\n\n' + res.text, false);
+        else rjPanel('rj-result', 'ERROR: ' + (res.error || '?'), true);
+      });
+      return;
+    }
     if (act === 'ack') { rjAckDialog(job); }
   });
 

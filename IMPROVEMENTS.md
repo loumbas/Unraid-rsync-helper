@@ -8,8 +8,8 @@ byte-identical output, every new shipped file added to `src/MANIFEST`, `pwsh -No
 weakens the safety model (dry-run gate, `--max-delete`, mount guard, storage policy).
 i18n scaffolding (`_()` + catalogs) is out of scope by owner decision — not listed.
 
-Priority order (value per effort): ~~**2**~~ SHIPPED 2026.09.07f, ~~**1**~~ SHIPPED
-2026.09.07g → **3** (UX) → **5**, **6** (robustness) → **4**, **7** (features).
+Priority order (value per effort): ~~**2**~~ 07f, ~~**1**~~ 07g, ~~**3**~~ 07h shipped →
+**5**, **6** (robustness) → **4**, **7** (features).
 
 ---
 
@@ -103,9 +103,15 @@ stays responsive; no `task-*` files older than 1 h after abort.
 
 ---
 
-## 3. "Tail last log" viewer in the WebUI
+## 3. "Tail last log" viewer in the WebUI — SHIPPED 2026.09.07h
 
-**Motivation.** Diagnosing a failed run today means syslog or SSH. The engine already
+**Shipped notes.** Engine `tail-log <job>` (path read only from the validated status
+file, must sit under LOG_DIR; NUL-stripped, redacted, 64 KiB tail with a byte-count
+banner) + `log` key written into the status at run START (live runs viewable too).
+Page: 'Log' button per row renders into the existing result panel. ajax `tail_log` is a
+thin passthrough.
+
+**Motivation (pre-ship).** Diagnosing a failed run today means syslog or SSH. The engine already
 writes `LOG_DIR/<job>-<stamp>.log` (redacted stats exist); a read-only viewer closes
 the loop.
 

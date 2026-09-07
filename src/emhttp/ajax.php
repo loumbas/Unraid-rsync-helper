@@ -218,6 +218,16 @@ case 'browse':
     if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad browse response (rc ' . $erc . ')']);
     rj_out($bj);
 
+case 'tail_log':
+    /* read-only: the engine takes the path from the validated status file and
+       re-applies the redaction filter; no path ever comes from the request */
+    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
+    $eo = []; $erc = 0;
+    rj_engine('tail-log ' . escapeshellarg($name), $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad log response (rc ' . $erc . ')']);
+    rj_out($bj);
+
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
