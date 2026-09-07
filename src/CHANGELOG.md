@@ -1,3 +1,12 @@
+## 2026.09.07b
+- Tabs now look like tabs. The page CSS is injected from a small inline script at
+  parse time: an inline <style> block inside .page content did not survive rendering
+  on Unraid 7.3.2, so the strip showed as a bare bulleted list spread across the
+  whole page. Real tab strip now: compact, left-aligned, no bullets, active tab
+  connected to a full-width underline bar (theme-independent, dark+light safe).
+- Quiet-window inputs stay on one row (fixed small width, spaced 'to'); the Test
+  level dropdown no longer stretches across the whole column.
+
 ## 2026.09.07a
 - Notifications now use ONLY the native Unraid system: every alert goes through the
   webGui notify script, and delivery (WebUI bell, email, Telegram, Discord, Pushover)

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07a">
+<!ENTITY version   "2026.09.07b">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,15 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07b
+- Tabs now look like tabs. The page CSS is injected from a small inline script at
+  parse time: an inline &lt;style&gt; block inside .page content did not survive rendering
+  on Unraid 7.3.2, so the strip showed as a bare bulleted list spread across the
+  whole page. Real tab strip now: compact, left-aligned, no bullets, active tab
+  connected to a full-width underline bar (theme-independent, dark+light safe).
+- Quiet-window inputs stay on one row (fixed small width, spaced 'to'); the Test
+  level dropdown no longer stretches across the whole column.
+
 ## 2026.09.07a
 - Notifications now use ONLY the native Unraid system: every alert goes through the
   webGui notify script, and delivery (WebUI bell, email, Telegram, Discord, Pushover)
@@ -94,13 +103,6 @@
 - Help text added for every field on both tabs: cron syntax, engines, mode,
   source/destination rules, delete limits, backup dir, master switch, quiet window,
   Telegram token/chat id storage.
-
-## 2026.09.04e
-- Fix: every ajax action returned 403 - Unraid 7.2+ local_prepend.php validates the CSRF
-  token and then UNSETS it from $_POST and the X-CSRF header before plugin PHP runs, so
-  our re-check always saw an empty token. Token is now recovered from the raw urlencoded
-  body (php://input, re-readable since PHP 5.6); the hash_equals re-check is kept as
-  defense-in-depth.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -139,7 +141,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07a - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07b - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -161,7 +163,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07a"
+ENGINE_VERSION="2026.09.07b"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1189,7 +1191,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>3c913c8c28f997428bd063298a8a942f67239799bd7f7dd25d9be0d8240ff54d</SHA256>
+<SHA256>884be07026c9f60432e9fed172680858597dc82b39cce96347bde7b1f9faaa93</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1366,7 +1368,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07a - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07b - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1415,32 +1417,47 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07a',
+    'version'    =&gt; '2026.09.07b',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
     'jobs'       =&gt; $jobs,
 ];
 ?&gt;
-&lt;style&gt;
-  /* native dl/dt/dd layout does the sizing; fields capped to the browse-row width */
-  #tab_rj_jobs input[type=text], #tab_rj_alerts input[type=text] { box-sizing:border-box; width:420px; max-width:100%; }
-  #tab_rj_jobs input.rj-size, #tab_rj_alerts input.rj-size { width:auto; }
-  #tab_rj_jobs input[type=number] { width:64px; }
-  #tab_rj_jobs dd.rj-inline, #tab_rj_alerts dd.rj-inline { white-space:nowrap; }
-  ul.tabs li.active &gt; a { font-weight:bold; }
-  ul.tabs a.rj-tab { cursor:pointer; }
-  #tab_rj_jobs table.rclone-jobs { width:100%; }
-  #tab_rj_jobs td { word-break:break-word; }
-  #tab_rj_jobs td [data-act] { white-space:nowrap; }
-&lt;/style&gt;
+&lt;?php /* the page CSS is injected from an inline SCRIPT, not a &lt;style&gt; tag: inline
+         style blocks inside .page content do not survive rendering on Unraid 7 (the
+         tab strip showed up as a bare bulleted list), while inline scripts do. */ ?&gt;
+&lt;script id="rj-style"&gt;
+(function () {
+  var css = [
+    '#tab_rj_jobs input[type=text],#tab_rj_alerts input[type=text]{box-sizing:border-box;width:420px;max-width:100%}',
+    '#tab_rj_jobs input.rj-size,#tab_rj_alerts input.rj-size{width:auto}',
+    '#tab_rj_alerts #a_qstart,#tab_rj_alerts #a_qend{width:64px}',
+    '#tab_rj_alerts #a_ntlevel{width:150px;max-width:100%}',
+    '#tab_rj_jobs input[type=number]{width:64px}',
+    '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
+    'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid #46505a}',
+    'ul#rj-tabs&gt;li{list-style:none!important;display:block!important;float:none!important;width:auto!important;margin:0 3px -1px 0;padding:0;background:none;border:none}',
+    'ul#rj-tabs&gt;li&gt;a{display:block;padding:9px 26px;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;color:#93a0ab;background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;outline:none}',
+    'ul#rj-tabs&gt;li&gt;a:hover{color:#e8eef3;background:rgba(255,255,255,0.05)}',
+    'ul#rj-tabs&gt;li.active&gt;a{color:#fff;font-weight:bold;background:#242b31;border-color:#46505a;border-bottom:1px solid #242b31}',
+    '#tab_rj_jobs table.rclone-jobs{width:100%}',
+    '#tab_rj_jobs td{word-break:break-word}',
+    '#tab_rj_jobs td [data-act]{white-space:nowrap}'
+  ].join('\n');
+  var s = document.createElement('style');
+  s.type = 'text/css';
+  if (s.styleSheet) { s.styleSheet.cssText = css; } else { s.appendChild(document.createTextNode(css)); }
+  (document.head || document.getElementsByTagName('head')[0]).appendChild(s);
+})();
+&lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07a"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07b"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
 
-&lt;ul class="tabs"&gt;
+&lt;ul class="tabs" id="rj-tabs"&gt;
   &lt;li&gt;&lt;a class="rj-tab" data-tab="tab_rj_jobs" tabindex="0" role="tab"&gt;Jobs&lt;/a&gt;&lt;/li&gt;
   &lt;li&gt;&lt;a class="rj-tab" data-tab="tab_rj_alerts" tabindex="0" role="tab"&gt;Alerts &amp;amp; Safety&lt;/a&gt;&lt;/li&gt;
   &lt;li&gt;&lt;a class="rj-tab" data-tab="tab_rj_doctor" tabindex="0" role="tab"&gt;Doctor&lt;/a&gt;&lt;/li&gt;
@@ -1554,8 +1571,8 @@ $rjdata = [
       &lt;dl&gt;&lt;dt&gt;Master dry-run switch:&lt;/dt&gt;
         &lt;dd&gt;&lt;select id="a_master"&gt;&lt;option value="yes"&gt;YES - all scheduled runs are dry-runs&lt;/option&gt;&lt;option value="no"&gt;no - scheduled runs transfer for real&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;When YES, nothing is ever written by the schedule, regardless of per-job settings - every scheduled run is a simulation. Turn it off only after dry-runs of all jobs look right.&lt;/p&gt;&lt;/blockquote&gt;
-      &lt;dl&gt;&lt;dt&gt;Quiet window (heartbeats):&lt;/dt&gt;
-        &lt;dd class="rj-inline"&gt;&lt;input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"&gt; to &lt;input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
+      &lt;dl&gt;&lt;dt id="dt_quiet"&gt;Quiet window (heartbeats):&lt;/dt&gt;
+        &lt;dd class="rj-inline"&gt;&lt;input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"&gt;&lt;span style="margin:0 8px"&gt;to&lt;/span&gt;&lt;input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;24-hour clock. Inside this window the OK notices of successful runs are suppressed; failures and warnings are always sent.&lt;/p&gt;&lt;/blockquote&gt;
     &lt;div class="title"&gt;
       &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-bell title'&gt;&lt;/i&gt;Delivery (Unraid notifications)&lt;/span&gt;
@@ -1583,15 +1600,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07a &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07b &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>0b11b7f4452bf63905ef04a790b6e4673513c4ef8e8cc9efb61d552e7cd2ec1d</SHA256>
+<SHA256>3d937f5449073eaadc6ecc6727edb698404dc0083c8554e083749bae90d0e45b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07a - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07b - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1803,12 +1820,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>c85b5f864546447171fd1dfebcbeef7f548f7b4b7c54e4dfbef5964056ea81e5</SHA256>
+<SHA256>62e56af4c0158194beb78d37a787bd059d9b9cf39f1456abc671ee128faf88d7</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07a - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07b - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2209,13 +2226,13 @@ $(function () {
   });
 });
 </INLINE>
-<SHA256>ac3b018441f219055b0c6c11f6039fb32c04b3831869e3f86ebe2dca470011db</SHA256>
+<SHA256>8d5166fbb23471aa7939ae654fdd268d0eb41525d5eec7f070e5e7fc3a270139</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07a - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07b - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2368,13 +2385,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>d85a5139d0dced8dfe533be9b76f525109b752f6db01466ff0f5c8cda365200c</SHA256>
+<SHA256>e48c0c574a38bae636083bcb62ac4952c4b5f5d0ece0d454aab5d20fc66e973b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07a - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07b - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -2453,13 +2470,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>a3c1c355945fb842d8ed910b572652d631f7b65b43f9d8541af0dbeba0758395</SHA256>
+<SHA256>3c9063dc43ed1fd642bd75114409bffa8c8498d2cf8a636d10c37ab3936855f9</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07a - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07b - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -2508,7 +2525,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>314467875b90d9ae26d7ec0340009bb7259331b08e6415f5928b08c9c0597462</SHA256>
+<SHA256>2f69ef820b7d9e211f15f745d23838dc8574e3440b730de9039853dd866576e1</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
