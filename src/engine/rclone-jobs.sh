@@ -252,6 +252,19 @@ status_finish() { # <job> <rc> <secs> <errors> <transferred> <running true|false
     > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f"
 }
 
+# -------------------------------------------------------------- live status --
+# nchan ships with Unraid 7: POST /pub/<channel> reaches every browser holding
+# EventSource('/sub/<channel>'). Strictly fire-and-forget: cron or CLI runs on
+# a box without nginx must not care whether this works.
+sse_publish() { # <job> <running true|false> <rc number|null>
+  local j="$1" run="$2" rcv="${3:-null}"
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s -m 2 -o /dev/null -X POST "http://localhost/pub/$NAME" \
+    -H "Content-Type: application/json" \
+    -d "{\"plugin\":\"$NAME\",\"job\":\"$j\",\"running\":$run,\"rc\":$rcv,\"ts\":$(unix_now)}"
+  return 0
+}
+
 # --------------------------------------------------------------------- jobs --
 J_ENGINE=""; J_MODE=""; J_SRC=""; J_DST=""; J_SCHEDULE=""; J_ENABLED="yes"
 J_DRYRUN="yes"; J_ARGS=""; J_TRANSFERS="4"; J_CHECKERS="8"; J_BWLIMIT=""
@@ -635,6 +648,7 @@ cmd_run() { # <job> [--dry-run]
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
   status_set_running "$JOB_NAME" "$chash"
+  sse_publish "$JOB_NAME" true null
   build_command "$dry"
   ts="$(date +%Y%m%d-%H%M%S)"
   if [ "$dry" = yes ]; then logfile="$LOG_DIR/$JOB_NAME-DRYRUN-$ts.log"; else logfile="$LOG_DIR/$JOB_NAME-$ts.log"; fi
@@ -671,8 +685,10 @@ cmd_run() { # <job> [--dry-run]
       ptr="$(jq -r '.transferred // ""' "$sj" 2>/dev/null)"
     fi
     status_finish "$JOB_NAME" "${prc:-0}" 0 "${perr:-0}" "$ptr" false "$chash"
+    sse_publish "$JOB_NAME" false null
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
+    sse_publish "$JOB_NAME" false "$rc"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
       # recovered: clear stale problem notices from the bell + fresh watchdog dedup
       notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
@@ -845,6 +861,42 @@ cmd_status() {
     fi
     printf '%-20s %-4s %-4s %-6s %-17s %-17s %s\n' "$n" "$en" "${rc:-?}" "${secs:-?}" "${run:-?}" "${lastok:-never}" "${dry:--}"
   done
+}
+
+cmd_status_json() { # every job's run + dry-run state as ONE json object (live UI refresh)
+  load_paths
+  storage_guard
+  local f n sj dj first=true st dy warn
+  printf '{"ok":true,"jobs":{'
+  for f in "$BOOT_DIR/jobs"/*.conf; do
+    [ -e "$f" ] || continue
+    n="$(basename "$f" .conf)"
+    valid_jobname "$n" || continue
+    [ "$first" = true ] || printf ','
+    first=false
+    printf '"%s":' "$n"   # validated ^[A-Za-z0-9_-]{1,40}$ above - safe unescaped
+    sj="$(status_file "$n")"; dj="$(dryrun_file "$n")"
+    st=''; dy=''
+    [ -f "$sj" ] && st="$(jq -c '.' "$sj" 2>/dev/null)"
+    [ -f "$dj" ] && dy="$(jq -c '.' "$dj" 2>/dev/null)"
+    [ -n "$st" ] || st='null'
+    [ -n "$dy" ] || dy='null'
+    warn="$(sed -nE 's/^WARN_DELETE=//p' "$f" | tail -1 | tr -d '"')"
+    [[ "$warn" =~ ^[0-9]+$ ]] || warn="$DEFAULT_WARN_DELETE"
+    # per-job object even on jq failure (|| fallback) so one broken file cannot
+    # corrupt the whole response the browser parses
+    jq -nc --argjson st "$st" --argjson dy "$dy" --argjson warn "$warn" \
+      '{rc:(if $st==null then null elif ($st.running // false) then "RUN" else ($st.rc // null) end),
+        running:($st.running // false),
+        secs:($st.secs // null),
+        run:($st.run // null),
+        last_ok_run:($st.last_ok_run // null),
+        dry:(if $dy==null then null else {stamp:($dy.stamp // "?"),copies:($dy.copies // 0),
+          deletes:($dy.deletes // 0),fails:($dy.fails // 0),ack:($dy.ack // false),
+          warnDelete:($dy.warnDelete // $warn)} end)}' 2>/dev/null \
+      || printf '{"error":"status unreadable"}'
+  done
+  printf '}}\n'
 }
 
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
@@ -1168,6 +1220,7 @@ usage:
   rclone-jobs.sh task-cancel <job>       terminate a running preview task
   rclone-jobs.sh ack <job>               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
+  rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
@@ -1188,6 +1241,7 @@ main() {
     task-cancel)   [ $# -ge 1 ] || die 78 "usage: $0 task-cancel <job>"; cmd_task_cancel "$1" ;;
     ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack <job>"; cmd_ack "$1" ;;
     status)   cmd_status ;;
+    status-json) cmd_status_json ;;
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;

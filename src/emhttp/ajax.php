@@ -221,7 +221,16 @@ case 'browse':
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
-    rj_out(['ok' => true, 'msg' => 'Started in background - status updates within a minute (see Last run column after reload).']);
+    rj_out(['ok' => true, 'msg' => 'Started in background - the Jobs table updates live when it starts and finishes.']);
+
+case 'status_json':
+    /* no job parameter: the whole status map for the live (SSE-triggered or 60 s
+       fallback) refresh of the Jobs table; the engine emits exactly one JSON */
+    $eo = []; $erc = 0;
+    rj_engine('status-json', $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad status response (rc ' . $erc . ')']);
+    rj_out($bj);
 
 case 'ack_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);

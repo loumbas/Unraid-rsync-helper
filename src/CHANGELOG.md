@@ -1,3 +1,18 @@
+## 2026.09.07g
+Live status via nchan SSE - the Jobs table now updates itself:
+- Engine: sse_publish() sends a fire-and-forget POST to http://localhost/pub/rclone-jobs
+  (nchan ships with Unraid 7; 2 s curl cap, never fatal - cron runs without nginx do not
+  care) at run start (after the lock) and at both finish paths (dry + live).
+- Engine: new 'status-json' subcommand returns every job's run + dry-run state as one
+  JSON object; a corrupt status file degrades that job's fields to null instead of
+  breaking the response.
+- WebUI: EventSource('/sub/rclone-jobs') patches the Last run / Last OK / Last dry-run
+  cells in place (debounced 500 ms) and adds/removes the [NEEDS ACK] badge + Ack button
+  by the real gate rule; row buttons are now delegated so the live-added Ack works.
+  After two socket failures the page degrades to a 60 s auto-refresh (there was none at
+  all before) with a 'live: off' indicator; the indicator shows live/connecting/off.
+- Run button message no longer tells the user to reload - the table updates live.
+
 ## 2026.09.07f
 Async dry-run preview - long previews no longer run inside the web request:
 - Engine: new 'preview-start' / 'task-status' / 'task-cancel' subcommands. The dry-run

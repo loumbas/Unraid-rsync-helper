@@ -108,6 +108,7 @@ $rjdata = [
 
   <!-- ======================= JOBS TAB ======================= -->
   <div id="tab_rj_jobs">
+    <p id="rj-live-ind" class="gray" style="margin:4px 0 2px;font-size:11px"></p>
     <table class="rclone-jobs view-table sortable">
       <thead><tr>
         <th>Job</th><th>Enabled</th><th>Schedule</th><th>Engine</th>

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07f">
+<!ENTITY version   "2026.09.07g">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,21 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07g
+Live status via nchan SSE - the Jobs table now updates itself:
+- Engine: sse_publish() sends a fire-and-forget POST to http://localhost/pub/rclone-jobs
+  (nchan ships with Unraid 7; 2 s curl cap, never fatal - cron runs without nginx do not
+  care) at run start (after the lock) and at both finish paths (dry + live).
+- Engine: new 'status-json' subcommand returns every job's run + dry-run state as one
+  JSON object; a corrupt status file degrades that job's fields to null instead of
+  breaking the response.
+- WebUI: EventSource('/sub/rclone-jobs') patches the Last run / Last OK / Last dry-run
+  cells in place (debounced 500 ms) and adds/removes the [NEEDS ACK] badge + Ack button
+  by the real gate rule; row buttons are now delegated so the live-added Ack works.
+  After two socket failures the page degrades to a 60 s auto-refresh (there was none at
+  all before) with a 'live: off' indicator; the indicator shows live/connecting/off.
+- Run button message no longer tells the user to reload - the table updates live.
+
 ## 2026.09.07f
 Async dry-run preview - long previews no longer run inside the web request:
 - Engine: new 'preview-start' / 'task-status' / 'task-cancel' subcommands. The dry-run
@@ -130,13 +145,6 @@ Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fi
 
 ## 2026.09.04k
 - Plugin author changed to "sir_lou" (shown in Plugin Manager).
-
-## 2026.09.04j
-- The plugin info popup now carries the last 10 builds: the .plg &lt;CHANGES&gt; block embeds
-  up to 10 '## ' sections of the changelog (newest first) instead of just the latest one.
-- Plugins list: a brief description is now shown under the plugin name (desc attribute
-  on the PLUGIN tag): "Schedule rclone/rsync jobs with a dry-run gate, mount guard,
-  delete limits and Telegram/Dynamix alerts".
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -175,7 +183,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07f - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07g - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -197,7 +205,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07f"
+ENGINE_VERSION="2026.09.07g"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -425,6 +433,19 @@ status_finish() { # &lt;job&gt; &lt;rc&gt; &lt;secs&gt; &lt;errors&gt; &lt;trans
       last_ok_run:(if $ok_run=="" then null else $ok_run end),
       transferred:$transferred, running:$running, confhash:$confhash}' \
     &gt; "$f.tmp" 2&gt;/dev/null &amp;&amp; mv -f "$f.tmp" "$f"
+}
+
+# -------------------------------------------------------------- live status --
+# nchan ships with Unraid 7: POST /pub/&lt;channel&gt; reaches every browser holding
+# EventSource('/sub/&lt;channel&gt;'). Strictly fire-and-forget: cron or CLI runs on
+# a box without nginx must not care whether this works.
+sse_publish() { # &lt;job&gt; &lt;running true|false&gt; &lt;rc number|null&gt;
+  local j="$1" run="$2" rcv="${3:-null}"
+  command -v curl &gt;/dev/null 2&gt;&amp;1 || return 0
+  curl -s -m 2 -o /dev/null -X POST "http://localhost/pub/$NAME" \
+    -H "Content-Type: application/json" \
+    -d "{\"plugin\":\"$NAME\",\"job\":\"$j\",\"running\":$run,\"rc\":$rcv,\"ts\":$(unix_now)}"
+  return 0
 }
 
 # --------------------------------------------------------------------- jobs --
@@ -810,6 +831,7 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
   status_set_running "$JOB_NAME" "$chash"
+  sse_publish "$JOB_NAME" true null
   build_command "$dry"
   ts="$(date +%Y%m%d-%H%M%S)"
   if [ "$dry" = yes ]; then logfile="$LOG_DIR/$JOB_NAME-DRYRUN-$ts.log"; else logfile="$LOG_DIR/$JOB_NAME-$ts.log"; fi
@@ -846,8 +868,10 @@ cmd_run() { # &lt;job&gt; [--dry-run]
       ptr="$(jq -r '.transferred // ""' "$sj" 2&gt;/dev/null)"
     fi
     status_finish "$JOB_NAME" "${prc:-0}" 0 "${perr:-0}" "$ptr" false "$chash"
+    sse_publish "$JOB_NAME" false null
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
+    sse_publish "$JOB_NAME" false "$rc"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
       # recovered: clear stale problem notices from the bell + fresh watchdog dedup
       notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
@@ -1020,6 +1044,42 @@ cmd_status() {
     fi
     printf '%-20s %-4s %-4s %-6s %-17s %-17s %s\n' "$n" "$en" "${rc:-?}" "${secs:-?}" "${run:-?}" "${lastok:-never}" "${dry:--}"
   done
+}
+
+cmd_status_json() { # every job's run + dry-run state as ONE json object (live UI refresh)
+  load_paths
+  storage_guard
+  local f n sj dj first=true st dy warn
+  printf '{"ok":true,"jobs":{'
+  for f in "$BOOT_DIR/jobs"/*.conf; do
+    [ -e "$f" ] || continue
+    n="$(basename "$f" .conf)"
+    valid_jobname "$n" || continue
+    [ "$first" = true ] || printf ','
+    first=false
+    printf '"%s":' "$n"   # validated ^[A-Za-z0-9_-]{1,40}$ above - safe unescaped
+    sj="$(status_file "$n")"; dj="$(dryrun_file "$n")"
+    st=''; dy=''
+    [ -f "$sj" ] &amp;&amp; st="$(jq -c '.' "$sj" 2&gt;/dev/null)"
+    [ -f "$dj" ] &amp;&amp; dy="$(jq -c '.' "$dj" 2&gt;/dev/null)"
+    [ -n "$st" ] || st='null'
+    [ -n "$dy" ] || dy='null'
+    warn="$(sed -nE 's/^WARN_DELETE=//p' "$f" | tail -1 | tr -d '"')"
+    [[ "$warn" =~ ^[0-9]+$ ]] || warn="$DEFAULT_WARN_DELETE"
+    # per-job object even on jq failure (|| fallback) so one broken file cannot
+    # corrupt the whole response the browser parses
+    jq -nc --argjson st "$st" --argjson dy "$dy" --argjson warn "$warn" \
+      '{rc:(if $st==null then null elif ($st.running // false) then "RUN" else ($st.rc // null) end),
+        running:($st.running // false),
+        secs:($st.secs // null),
+        run:($st.run // null),
+        last_ok_run:($st.last_ok_run // null),
+        dry:(if $dy==null then null else {stamp:($dy.stamp // "?"),copies:($dy.copies // 0),
+          deletes:($dy.deletes // 0),fails:($dy.fails // 0),ack:($dy.ack // false),
+          warnDelete:($dy.warnDelete // $warn)} end)}' 2&gt;/dev/null \
+      || printf '{"error":"status unreadable"}'
+  done
+  printf '}}\n'
 }
 
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
@@ -1343,6 +1403,7 @@ usage:
   rclone-jobs.sh task-cancel &lt;job&gt;       terminate a running preview task
   rclone-jobs.sh ack &lt;job&gt;               acknowledge a deletion-heavy dry-run
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
+  rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh browse &lt;local|rclone&gt; &lt;path&gt; [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
@@ -1363,6 +1424,7 @@ main() {
     task-cancel)   [ $# -ge 1 ] || die 78 "usage: $0 task-cancel &lt;job&gt;"; cmd_task_cancel "$1" ;;
     ack)      [ $# -ge 1 ] || die 78 "usage: $0 ack &lt;job&gt;"; cmd_ack "$1" ;;
     status)   cmd_status ;;
+    status-json) cmd_status_json ;;
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
@@ -1374,7 +1436,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>8b01db0088167b1131f713a1e437a926830463ea27422628be9868f227bd181c</SHA256>
+<SHA256>085556a3e8b5298695eb7fc37d0a75eb51d109a640d97daac5527c72a7ef6a3a</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1551,7 +1613,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07f - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07g - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1600,7 +1662,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07f',
+    'version'    =&gt; '2026.09.07g',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1643,7 +1705,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07f"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07g"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1656,6 +1718,7 @@ $rjdata = [
 
   &lt;!-- ======================= JOBS TAB ======================= --&gt;
   &lt;div id="tab_rj_jobs"&gt;
+    &lt;p id="rj-live-ind" class="gray" style="margin:4px 0 2px;font-size:11px"&gt;&lt;/p&gt;
     &lt;table class="rclone-jobs view-table sortable"&gt;
       &lt;thead&gt;&lt;tr&gt;
         &lt;th&gt;Job&lt;/th&gt;&lt;th&gt;Enabled&lt;/th&gt;&lt;th&gt;Schedule&lt;/th&gt;&lt;th&gt;Engine&lt;/th&gt;
@@ -1812,15 +1875,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07f &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07g &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>bb7cfa2719894e176b9f60f10e00ca8d0f5faec55dec47656ba9b68b336a39af</SHA256>
+<SHA256>b8ff0bbcb6d8f4474fb925e2662fbd88313b674d777745ee13395bde13c679a4</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07f - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07g - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2042,7 +2105,16 @@ case 'browse':
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
-    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Started in background - status updates within a minute (see Last run column after reload).']);
+    rj_out(['ok' =&gt; true, 'msg' =&gt; 'Started in background - the Jobs table updates live when it starts and finishes.']);
+
+case 'status_json':
+    /* no job parameter: the whole status map for the live (SSE-triggered or 60 s
+       fallback) refresh of the Jobs table; the engine emits exactly one JSON */
+    $eo = []; $erc = 0;
+    rj_engine('status-json', $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' =&gt; false, 'error' =&gt; 'bad status response (rc ' . $erc . ')']);
+    rj_out($bj);
 
 case 'ack_job':
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
@@ -2084,12 +2156,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>f8d232030d6853dc74b2a8b4fd6cf8860e8be7652e6f2eabef6cedded01dec15</SHA256>
+<SHA256>5ff49c484f8e45334d8882ccc245c47d500dd71cabc26c5e2576c459b7f32adf</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07f - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07g - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2256,6 +2328,79 @@ function rjRunPreview(job) {
     rjP.timer = setInterval(rjPreviewPoll, 1000);
     rjPreviewPoll();
   });
+}
+
+/* ---------------- live status (nchan SSE, 60 s polling fallback) ----------
+   The engine POSTs /pub/rclone-jobs at run start/end; this page subscribes
+   with EventSource('/sub/rclone-jobs') (same-origin, Unraid 7 ships nchan)
+   and patches the Jobs table in place from the engine's status-json.
+   EventSource missing or failing twice =&gt; plain 60 s auto-refresh instead
+   (there was none before this feature - keep it as the degraded mode). */
+var rjLive = { es: null, errs: 0, timer: null, pending: false };
+
+function rjLiveInd(mode) {
+  var $i = $('#rj-live-ind');
+  if (!$i.length) return;
+  if (mode === 'on') $i.text('\u25CF live').css('color', '#7dcf7d').attr('title', 'nchan SSE: status updates arrive the moment a run starts or ends');
+  else if (mode === 'poll') $i.text('\u25CB live: off - refreshing every 60 s').css('color', '#9aa7b2').attr('title', 'EventSource unavailable on this box; the table still refreshes once a minute');
+  else $i.text('\u25CB live: connecting...').css('color', '#9aa7b2');
+}
+
+function rjApplyStatus(jobs) {
+  $('#tab_rj_jobs tbody tr[data-job]').each(function () {
+    var name = String($(this).data('job')), j = jobs[name];
+    if (!j) return;
+    var $td = $(this).find('td');
+    if ($td.length &lt; 9) return;
+    var rcTxt = (j.rc === null || j.rc === undefined) ? '-' : String(j.rc);
+    $td.eq(5).text(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : ''));
+    $td.eq(6).text(j.last_ok_run || 'never');
+    var d = j.dry;
+    if (d) {
+      /* same rule as the engine's gate_check and the server-rendered badge */
+      var needAck = (d.deletes || 0) &gt; (d.warnDelete || 0) &amp;&amp; !d.ack;
+      $td.eq(7).text(d.stamp + ' copy+' + d.copies + ' del-' + d.deletes + ' fail:' + d.fails + (needAck ? ' [NEEDS ACK]' : ''));
+      var $ack = $(this).find("[data-act='ack']");
+      if (needAck &amp;&amp; $ack.length === 0) {
+        $(this).find("[data-act='run']").after(" &lt;input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "'&gt;");
+      } else if (!needAck &amp;&amp; $ack.length) {
+        $ack.remove();
+      }
+    } else {
+      $td.eq(7).text('-');
+      $(this).find("[data-act='ack']").remove();
+    }
+  });
+}
+
+function rjStatusRefresh() {
+  rjPost({ action: 'status_json' }, function (res) {
+    if (res &amp;&amp; res.ok &amp;&amp; res.jobs) rjApplyStatus(res.jobs);
+  });
+}
+
+function rjLiveFallback() {
+  if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* already gone */ } rjLive.es = null; }
+  if (!rjLive.timer) rjLive.timer = setInterval(rjStatusRefresh, 60000);
+  rjLiveInd('poll');
+}
+
+function rjLiveStart() {
+  if (typeof EventSource === 'undefined') { rjLiveFallback(); return; }
+  rjLiveInd('init');
+  try { rjLive.es = new EventSource('/sub/' + 'rclone-jobs'); } catch (e) { rjLiveFallback(); return; }
+  rjLive.es.onmessage = function () {
+    rjLive.errs = 0;
+    rjLiveInd('on');
+    if (rjLive.pending) return; /* debounce: a watchdog sweep + real run can fire together */
+    rjLive.pending = true;
+    setTimeout(function () { rjLive.pending = false; rjStatusRefresh(); }, 500);
+  };
+  rjLive.es.onerror = function () {
+    /* EventSource retries on its own; two consecutive failures mean the
+       channel does not exist here (old nginx, dev box) -&gt; degrade */
+    if (++rjLive.errs &gt;= 2) rjLiveFallback();
+  };
 }
 
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
@@ -2498,8 +2643,9 @@ $(function () {
     $('#rj-result').hide();
   });
 
-  /* table buttons */
-  $('.rj-btn').off('.rclonejobs').on('click.rclonejobs', function () {
+  /* table buttons - delegated from document because live status refreshes add
+     and remove the per-row Ack button after the initial page render */
+  $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
     var act = $(this).data('act'), job = $(this).data('job');
     if (act === 'edit') {
       var j = D.jobs[job]; if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
@@ -2771,15 +2917,20 @@ $(function () {
       $('#rj-doctor-pre').text(res.out || res.error || 'no output');
     });
   });
+
+  /* live status: opened only after everything else is bound and rendered -
+     a dead socket must never delay or break the page */
+  rjLiveStart();
+  $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>71a76ad46891b51865e3b99e6e41682ffaa45babe90f86ad32311985f59e210d</SHA256>
+<SHA256>1dd5eaff2cf5bcd5915953d2f6e75c936a452abfe3cc0e46278adeb33903aa54</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07f - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07g - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2932,13 +3083,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>581a89ad0a711715f58079c8d56b02eb8a1d3ef97b0a2ccdbdbb54650599e62e</SHA256>
+<SHA256>c12bd64285ff1a13d3d4faf619b2cc0284612adb6e56bb6069ebdfcd202b01cc</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07f - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07g - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -3017,13 +3168,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>893910b054a9aef0491744c1dbef0c56458c11f1a14aff6417b148ff067e0737</SHA256>
+<SHA256>f1488ea28a8ca48d34041e503a03947eb442476d3098b0c51c25883dc0753b54</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07f - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07g - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -3076,7 +3227,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>b0c982b4e32fa23e53a33deccfbd031cfb2711a702e4f51203922f6760ff3d5a</SHA256>
+<SHA256>c1594c1bac5e3945b7b5db0ef775761aad423f456d0c6c4c50a8777beb618a02</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">

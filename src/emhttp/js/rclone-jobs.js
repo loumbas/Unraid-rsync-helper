@@ -167,6 +167,79 @@ function rjRunPreview(job) {
   });
 }
 
+/* ---------------- live status (nchan SSE, 60 s polling fallback) ----------
+   The engine POSTs /pub/rclone-jobs at run start/end; this page subscribes
+   with EventSource('/sub/rclone-jobs') (same-origin, Unraid 7 ships nchan)
+   and patches the Jobs table in place from the engine's status-json.
+   EventSource missing or failing twice => plain 60 s auto-refresh instead
+   (there was none before this feature - keep it as the degraded mode). */
+var rjLive = { es: null, errs: 0, timer: null, pending: false };
+
+function rjLiveInd(mode) {
+  var $i = $('#rj-live-ind');
+  if (!$i.length) return;
+  if (mode === 'on') $i.text('\u25CF live').css('color', '#7dcf7d').attr('title', 'nchan SSE: status updates arrive the moment a run starts or ends');
+  else if (mode === 'poll') $i.text('\u25CB live: off - refreshing every 60 s').css('color', '#9aa7b2').attr('title', 'EventSource unavailable on this box; the table still refreshes once a minute');
+  else $i.text('\u25CB live: connecting...').css('color', '#9aa7b2');
+}
+
+function rjApplyStatus(jobs) {
+  $('#tab_rj_jobs tbody tr[data-job]').each(function () {
+    var name = String($(this).data('job')), j = jobs[name];
+    if (!j) return;
+    var $td = $(this).find('td');
+    if ($td.length < 9) return;
+    var rcTxt = (j.rc === null || j.rc === undefined) ? '-' : String(j.rc);
+    $td.eq(5).text(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : ''));
+    $td.eq(6).text(j.last_ok_run || 'never');
+    var d = j.dry;
+    if (d) {
+      /* same rule as the engine's gate_check and the server-rendered badge */
+      var needAck = (d.deletes || 0) > (d.warnDelete || 0) && !d.ack;
+      $td.eq(7).text(d.stamp + ' copy+' + d.copies + ' del-' + d.deletes + ' fail:' + d.fails + (needAck ? ' [NEEDS ACK]' : ''));
+      var $ack = $(this).find("[data-act='ack']");
+      if (needAck && $ack.length === 0) {
+        $(this).find("[data-act='run']").after(" <input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "'>");
+      } else if (!needAck && $ack.length) {
+        $ack.remove();
+      }
+    } else {
+      $td.eq(7).text('-');
+      $(this).find("[data-act='ack']").remove();
+    }
+  });
+}
+
+function rjStatusRefresh() {
+  rjPost({ action: 'status_json' }, function (res) {
+    if (res && res.ok && res.jobs) rjApplyStatus(res.jobs);
+  });
+}
+
+function rjLiveFallback() {
+  if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* already gone */ } rjLive.es = null; }
+  if (!rjLive.timer) rjLive.timer = setInterval(rjStatusRefresh, 60000);
+  rjLiveInd('poll');
+}
+
+function rjLiveStart() {
+  if (typeof EventSource === 'undefined') { rjLiveFallback(); return; }
+  rjLiveInd('init');
+  try { rjLive.es = new EventSource('/sub/' + 'rclone-jobs'); } catch (e) { rjLiveFallback(); return; }
+  rjLive.es.onmessage = function () {
+    rjLive.errs = 0;
+    rjLiveInd('on');
+    if (rjLive.pending) return; /* debounce: a watchdog sweep + real run can fire together */
+    rjLive.pending = true;
+    setTimeout(function () { rjLive.pending = false; rjStatusRefresh(); }, 500);
+  };
+  rjLive.es.onerror = function () {
+    /* EventSource retries on its own; two consecutive failures mean the
+       channel does not exist here (old nginx, dev box) -> degrade */
+    if (++rjLive.errs >= 2) rjLiveFallback();
+  };
+}
+
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
 function rjConfirm(title, text, btn, danger, cb) {
   if (typeof swal === 'function') {
@@ -407,8 +480,9 @@ $(function () {
     $('#rj-result').hide();
   });
 
-  /* table buttons */
-  $('.rj-btn').off('.rclonejobs').on('click.rclonejobs', function () {
+  /* table buttons - delegated from document because live status refreshes add
+     and remove the per-row Ack button after the initial page render */
+  $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
     var act = $(this).data('act'), job = $(this).data('job');
     if (act === 'edit') {
       var j = D.jobs[job]; if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
@@ -680,4 +754,9 @@ $(function () {
       $('#rj-doctor-pre').text(res.out || res.error || 'no output');
     });
   });
+
+  /* live status: opened only after everything else is bound and rendered -
+     a dead socket must never delay or break the page */
+  rjLiveStart();
+  $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });

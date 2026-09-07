@@ -8,14 +8,22 @@ byte-identical output, every new shipped file added to `src/MANIFEST`, `pwsh -No
 weakens the safety model (dry-run gate, `--max-delete`, mount guard, storage policy).
 i18n scaffolding (`_()` + catalogs) is out of scope by owner decision — not listed.
 
-Priority order (value per effort): **2** (correctness on big remotes) → **1**, **3**
-(UX) → **5**, **6** (robustness) → **4**, **7** (features).
+Priority order (value per effort): ~~**2**~~ SHIPPED 2026.09.07f, ~~**1**~~ SHIPPED
+2026.09.07g → **3** (UX) → **5**, **6** (robustness) → **4**, **7** (features).
 
 ---
 
-## 1. Live status via nchan SSE (drop full-page reloads)
+## 1. Live status via nchan SSE (drop full-page reloads) — SHIPPED 2026.09.07g
 
-**Status (2026.09.07f research).** Corrected premises: there is NO timed auto-refresh
+**Shipped notes.** Engine: `sse_publish()` (fire-and-forget curl, 2 s cap) called at run
+start (after the lock) and both finish paths; new `status-json` subcommand = one JSON per
+refresh. Page: `EventSource('/sub/rclone-jobs')` patches rows in place (delegated
+`.rj-btn` handler so the live-added Ack button works); after 2 consecutive socket errors
+it degrades to the new 60 s interval refresh + "live: off" indicator. **Correction to the
+draft below:** publish is `POST http://localhost/pub/<channel>` (per
+`plugin-docs/docs/core/nchan-websocket.md`), not `PUT /sub/...`.
+
+**Status (2026.09.07f research, pre-ship).** Corrected premises: there is NO timed auto-refresh
 today — status only changes on a manual page reload — so this item must ADD the 60 s
 fallback itself. There is also no `stop` subcommand; drop it from the call-site list.
 
