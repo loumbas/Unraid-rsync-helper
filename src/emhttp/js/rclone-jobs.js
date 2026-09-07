@@ -68,7 +68,8 @@ function rjNextRuns(cron, n) {
   var f = String(cron || '').trim().split(/\s+/);
   if (f.length !== 5) return [];
   var sMin = rjFieldSet(f[0], 0, 59), sHr = rjFieldSet(f[1], 0, 23),
-      sDom = rjFieldSet(f[2], 1, 31), sMon = rjFieldSet(f[3], 1, 12), sDow = rjFieldSet(f[4], 0, 6);
+      sDom = rjFieldSet(f[2], 1, 31), sMon = rjFieldSet(f[3], 1, 12), sDow = rjFieldSet(f[4], 0, 7);
+  if (sDow && sDow[7]) { sDow[0] = true; delete sDow[7]; } /* Vixie: 7 = Sunday = 0 */
   if (!sMin || !sHr || !sDom || !sMon || !sDow) return [];
   var domStar = f[2] === '*', dowStar = f[4] === '*';
   var d = new Date(); d.setSeconds(0, 0); d.setMinutes(d.getMinutes() + 1);
@@ -102,7 +103,7 @@ function rjParseCron(cron) {
   if (iv(f[0], 0, 59) && f[1] === '*' && f[2] === '*' && f[4] === '*') return { freq: 'hourly', hmin: +f[0] };
   if (iv(f[0], 0, 59) && iv(f[1], 0, 23) && f[2] === '*' && f[4] === '*') return { freq: 'daily', hour: +f[1], min: +f[0] };
   if (iv(f[0], 0, 59) && iv(f[1], 0, 23) && f[2] === '*' && /^\d(?:,\d)*$/.test(f[4])) {
-    var ds = f[4].split(',').map(Number);
+    var ds = f[4].split(',').map(function (x) { return +x === 7 ? 0 : +x; }); /* 7 = Sunday */
     if (ds.every(function (x) { return x >= 0 && x <= 6; }) &&
         ds.length === ds.filter(function (x, i) { return ds.indexOf(x) === i; }).length) {
       return { freq: 'weekly', hour: +f[1], min: +f[0], dow: ds };
@@ -131,6 +132,39 @@ function rjConfirm(title, text, btn, danger, cb) {
            confirmButtonColor: danger ? '#d33' : '#2e97c2' },
          function (ok) { if (ok) cb(); });
   } else if (window.confirm(title + '\n' + text + '\n\n-> ' + btn + '?')) { cb(); }
+}
+
+/* typed-confirmation dialog for the deletion Ack - self-contained (like the
+   browse modal) instead of openBox/swal: no dependency on webGui box APIs,
+   styled with theme variables + dark fallbacks */
+function rjAckDialog(job) {
+  function send(t) {
+    rjPost({ action: 'ack_job', job: job, confirm: t }, function (res) {
+      rjPanel('rj-result', res.ok ? (res.out || 'acknowledged') : ('ERROR: ' + res.error), !res.ok);
+      if (res.ok) setTimeout(function () { location.reload(); }, 900);
+    });
+  }
+  if ($('#rj-ack-ov').length === 0) {
+    var ov = $('<div id="rj-ack-ov" role="dialog" aria-modal="true"></div>').css({ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.55)', zIndex: 9998, display: 'none' });
+    var box = $('<div></div>').css({ position: 'relative', width: '440px', maxWidth: '92vw', margin: '12vh auto', background: 'var(--background,#23292e)', border: '1px solid var(--border,#5a6570)', borderRadius: '6px', color: 'var(--text,#e8e8e8)', padding: '14px', fontSize: '12px' });
+    box.append($('<div id="rj-ack-text" style="margin:0 0 10px"></div>'));
+    box.append($('<input type="text" id="rj-ack-in" autocomplete="off">').css({ width: '100%', boxSizing: 'border-box', marginBottom: '12px' }));
+    box.append($('<input type="button" id="rj-ack-ok" value="Acknowledge" class="rj-btn rj-del">')).append($('<input type="button" id="rj-ack-cancel" value="Cancel">'));
+    ov.append(box).appendTo('body');
+    ov.on('click', function (ev) { if (ev.target === this) ov.fadeOut(60); });
+    $('#rj-ack-cancel').on('click', function () { ov.fadeOut(60); });
+    $('#rj-ack-in').on('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); $('#rj-ack-ok').trigger('click'); } });
+    $(document).on('keydown.rjack', function (ev) { if (ev.key === 'Escape' && $('#rj-ack-ov').is(':visible')) $('#rj-ack-ov').fadeOut(60); });
+  }
+  $('#rj-ack-text').text('This dry-run wants to DELETE files for job "' + job + '". Type the job name exactly (' + job + ') to acknowledge:');
+  $('#rj-ack-in').val('');
+  $('#rj-ack-ok').off('.rjack').on('click.rjack', function () {
+    var t = $('#rj-ack-in').val();
+    $('#rj-ack-ov').fadeOut(60);
+    send(t); /* server re-checks the typed name - a wrong one is refused there */
+  });
+  $('#rj-ack-ov').stop(true, true).fadeIn(80);
+  $('#rj-ack-in').trigger('focus');
 }
 
 $(function () {
@@ -231,9 +265,9 @@ $(function () {
     if (!cron) { $('#rj-sched-summary').addClass('rj-warn').text('Pick at least one weekday.'); return; }
     var fields = cron.split(/\s+/);
     if (f === 'custom') {
-      var lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]], bad = fields.length !== 5;
+      var lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]], bad = fields.length !== 5;
       if (!bad) for (var i = 0; i < 5; i++) if (!rjFieldSet(fields[i], lim[i][0], lim[i][1])) { bad = true; break; }
-      if (bad) { $('#rj-sched-summary').addClass('rj-warn').text('Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-6).'); return; }
+      if (bad) { $('#rj-sched-summary').addClass('rj-warn').text('Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; 7 = Sunday).'); return; }
     }
     var msgs = [rjHumanize(cron) || 'Custom cron', 'cron: ' + cron];
     var runs = rjNextRuns(cron, 3);
@@ -373,14 +407,7 @@ $(function () {
       }
       return;
     }
-    if (act === 'ack') {
-      var t = prompt('This dry-run wants to DELETE files.\nType the job name exactly (' + job + ') to acknowledge:');
-      if (t === null) return;
-      rjPost({ action: 'ack_job', job: job, confirm: t }, function (res) {
-        rjPanel('rj-result', res.ok ? (res.out || 'acknowledged') : ('ERROR: ' + res.error), !res.ok);
-        if (res.ok) setTimeout(function () { location.reload(); }, 900);
-      });
-    }
+    if (act === 'ack') { rjAckDialog(job); }
   });
 
   /* save job */
@@ -400,7 +427,11 @@ $(function () {
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
       warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim()
     };
+    var $sub = $('#rj-jobform input[type=submit]');
+    if ($sub.prop('disabled')) return; /* double-submit guard (save previews take seconds) */
+    $sub.prop('disabled', true).val('Saving...');
     rjPost(data, function (res) {
+      $sub.prop('disabled', false).val('Save job');
       if (res.ok) {
         rjPanel('rj-preview', res.preview || res.msg, false);
         rjPanel('rj-result', res.msg, false);
@@ -413,10 +444,14 @@ $(function () {
 
   /* alerts tab */
   $('#rj-save-alerts').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $b = $(this);
+    if ($b.prop('disabled')) return;
+    $b.prop('disabled', true).val('Saving...');
     rjPost({
       action: 'save_alerts',
       master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val()
     }, function (res) {
+      $b.prop('disabled', false).val('Save settings');
       rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
     });
   });
@@ -432,13 +467,14 @@ $(function () {
 
   function rjBrowseBuild() {
     if (rjB.built) return;
+    /* structural colors via theme vars with dark fallbacks (light-theme safe) */
     var css = '#rj-browse-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:none}'
-      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:#23292e;border:1px solid #5a6570;border-radius:6px;color:#e8e8e8;box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
-      + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #444e57}'
+      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:var(--background,#23292e);border:1px solid var(--border,#5a6570);border-radius:6px;color:var(--text,#e8e8e8);box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
+      + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border,#444e57)}'
       + '#rj-browse-title{font-weight:bold;margin-right:auto}'
-      + '.rj-b-tab{padding:3px 10px;border:1px solid #5a6570;background:transparent;color:#cfd6dc;cursor:pointer;border-radius:3px}'
+      + '.rj-b-tab{padding:3px 10px;border:1px solid var(--border,#5a6570);background:transparent;color:var(--text,#cfd6dc);cursor:pointer;border-radius:3px}'
       + '.rj-b-tab.on{background:#2e97c2;border-color:#2e97c2;color:#fff}'
-      + '#rj-browse-pathbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid #444e57;flex-wrap:wrap}'
+      + '#rj-browse-pathbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border,#444e57);flex-wrap:wrap}'
       + '#rj-browse-crumbs{display:flex;gap:2px;flex-wrap:wrap;align-items:center}'
       + '.rj-b-crumb{cursor:pointer;color:#7fc7e8;text-decoration:underline}'
       + '#rj-browse-list{max-height:46vh;overflow:auto;padding:4px 0}'
@@ -447,9 +483,9 @@ $(function () {
       + '.rj-b-row:hover .rj-b-ic{color:#fff}'
       + '.rj-b-row .rj-b-ic{width:14px;color:#9aa7b2}'
       + '.rj-b-note{padding:8px 12px;color:#9aa7b2}'
-      + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #444e57}'
-      + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:#cfe3ef}'
-      + '.rj-b-x{background:transparent;border:none;color:#cfd6dc;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}';
+      + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border,#444e57)}'
+      + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:var(--text,#cfe3ef)}'
+      + '.rj-b-x{background:transparent;border:none;color:var(--text,#cfd6dc);font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}';
     $('<style>').text(css).appendTo('head');
     var ov = $('<div id="rj-browse-ov"></div>');
     var box = $('<div id="rj-browse" role="dialog" aria-modal="true"></div>');

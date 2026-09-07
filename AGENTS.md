@@ -54,7 +54,8 @@ no CI — verification is the offline lint + manual on-box testing.
 - Unraid 7 WebUI: `.page` content must be INLINE (the `File=` directive is dead); ajax and
   script URLs must be absolute. Page lives at Settings via `Menu="Utilities"`.
 - Storage policy (engine-enforced): plugin data only in a hidden dot-folder on an array
-  disk (`/mnt/diskN/.rclone-jobs`); `/mnt/user`, `/etc`, `/usr`, `/var/log`, `/` rejected.
+  disk (`/mnt/diskN/.rclone-jobs`); `/mnt/user`, `/boot`, `/etc`, `/usr`, `/var/log`, `/`
+  rejected (mirror kept in `install-engine.sh`).
 - Generated FILE blocks must keep their `<SHA256>` (hashed from the **version-stamped**
   bytes, {{VERSION}} substituted before hashing): the plugin manager skips an existing
   destination unless a supplied checksum fails, so dropping the checksums silently breaks

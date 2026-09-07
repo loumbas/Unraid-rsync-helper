@@ -69,13 +69,16 @@ redact() { # stdin->stdout: mask anything secret-looking before it hits a log
 # lexical normalization (realpath -m: no mkdir side effects) + fail-closed policy
 policy_ok() { # <path> -> 0 allowed / 1 forbidden (checks RAW string AND normalized path)
   # raw prefix gate first: a plugin-managed path may never START with a share
-  # prefix, even if '../' segments would lexically escape it afterwards
-  case "$1" in /mnt/user|/mnt/user/*) return 1 ;; esac
+  # prefix, even if '../' segments would lexically escape it afterwards.
+  # /boot is refused too: the flash device must not take plugin data (USB wear,
+  # and the plugin's own config lives in /boot/config/plugins).
+  case "$1" in /mnt/user|/mnt/user/*|/boot|/boot/*) return 1 ;; esac
   local rp
   rp="$(realpath -m -- "$1" 2>/dev/null)" || return 1
   case "$rp" in
     /)                       return 1 ;;
     /mnt/user|/mnt/user/*)   return 1 ;;
+    /boot|/boot/*)           return 1 ;;
     /etc|/etc/*)             return 1 ;;
     /usr|/usr/*)             return 1 ;;
     /var/log|/var/log/*)     return 1 ;;
@@ -138,7 +141,7 @@ load_paths() {
 
 storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
   [ -n "$STORAGE_ROOT" ] || die 78 "STORAGE_ROOT is not set and no array disk was found - start the array or set STORAGE_ROOT in $BOOT_DIR/paths.env"
-  policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT '$STORAGE_ROOT' is REFUSED: plugin data must live outside /mnt/user, /etc, /usr, /var/log and outside / (share policy)"
+  policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT '$STORAGE_ROOT' is REFUSED: plugin data must live outside /mnt/user, /boot, /etc, /usr, /var/log and outside / (share policy)"
   [ -d "$STORAGE_ROOT" ] || mkdir -p "$STORAGE_ROOT" 2>/dev/null || die 78 "cannot create STORAGE_ROOT '$STORAGE_ROOT' (array not started? read-only?)"
   STORAGE_ROOT="$(realpath -- "$STORAGE_ROOT" 2>/dev/null)" || die 78 "cannot resolve STORAGE_ROOT"
   policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT resolves to '$STORAGE_ROOT' which the share policy forbids (possible ../ smuggling)"
@@ -197,6 +200,18 @@ job_notify_setting() { # <job name> -> always|failures|off (legacy HEARTBEAT=no 
   v="$(sed -nE 's/^NOTIFY=//p' "$f" 2>/dev/null | tail -1)"
   [ -n "$v" ] || v="$([ "$(sed -nE 's/^HEARTBEAT=//p' "$f" 2>/dev/null | tail -1)" = no ] && printf failures || printf always)"
   case "$v" in failures|off) printf '%s' "$v" ;; *) printf 'always' ;; esac
+}
+
+notify_dismiss() { # <subject> - clear a stale problem notification (event+subject match)
+  # etiquette per Unraid docs: a recovered problem should not leave an alert in
+  # the bell; dismissing is never itself an alert, so job NOTIFY=off cannot skip it
+  local n
+  for n in "$NOTIFY_SCRIPT" "$NOTIFY_SCRIPT_DYN"; do
+    [ -x "$n" ] || continue
+    "$n" -e "$NAME" -s "$1" -x >/dev/null 2>&1
+    return 0
+  done
+  return 1
 }
 
 alert_refuse() { # <message> - loud everywhere; used for pre-transfer refusals
@@ -659,6 +674,11 @@ cmd_run() { # <job> [--dry-run]
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
+      # recovered: clear stale problem notices from the bell + fresh watchdog dedup
+      notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
+      notify_dismiss "rclone-jobs: refused to run $JOB_NAME"
+      notify_dismiss "rclone-jobs gate: $JOB_NAME"
+      rm -f "$STATUS_DIR/.wd-$JOB_NAME" 2>/dev/null || true
       if [ "$J_NOTIFY" = always ] && ! quiet_now; then
         notify_job normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred" \
           "job: $JOB_NAME
@@ -765,7 +785,7 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
       fi
     fi
   done
-  find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +14 -delete 2>/dev/null
+  find "$LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'doctor-*.txt' \) -mtime +14 -delete 2>/dev/null
   return 0
 }
 
@@ -818,7 +838,7 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   else
     rp="$(realpath -m -- "$STORAGE_ROOT" 2>/dev/null)"
     if policy_ok "$STORAGE_ROOT"; then d_line PASS "STORAGE_ROOT policy: $rp"
-    else d_line FAIL "STORAGE_ROOT '$STORAGE_ROOT' violates the share policy (outside /mnt/user, /etc, /usr, /var/log, /)"; fi
+    else d_line FAIL "STORAGE_ROOT '$STORAGE_ROOT' violates the share policy (must be outside /mnt/user, /boot, /etc, /usr, /var/log and outside /)"; fi
     if [ -d "$STORAGE_ROOT" ]; then
       if touch "$STORAGE_ROOT/.rjprobe" 2>/dev/null; then rm -f "$STORAGE_ROOT/.rjprobe"; d_line PASS "STORAGE_ROOT writable"
       else d_line FAIL "STORAGE_ROOT not writable: $STORAGE_ROOT"; fi

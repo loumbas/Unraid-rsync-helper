@@ -36,6 +36,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 
 /* ---- helpers (mirror engine validators) ---- */
 function rj_out($arr) { echo json_encode($arr); exit; }
+function rj_str($v)   { return is_string($v) ? $v : ''; }
+function rj_num($v)   { return is_numeric($v) ? (int)$v : -1; } /* -1 always fails the range checks below */
 function rj_name_ok($n)  { return is_string($n) && preg_match('/^[A-Za-z0-9_-]{1,40}$/', $n); }
 function rj_badfield($v) { return preg_match('/[`$;|&<>*?"\'\\\\\r\n]/', $v) === 1; }
 function rj_sched_part($x, $lo, $hi) {
@@ -81,12 +83,15 @@ function rj_env_upsert($file, $pairs, $mode = null) {
         }
         if (!$found) $lines[] = $newl;
     }
-    file_put_contents($file, implode("\n", $lines)."\n");
-    if ($mode !== null) @chmod($file, $mode);
+    /* atomic: temp file + rename (never a half-written paths.env) */
+    file_put_contents($file.'.tmp', implode("\n", $lines)."\n");
+    if ($mode !== null) @chmod($file.'.tmp', $mode);
+    @rename($file.'.tmp', $file);
 }
 function rj_engine($args, &$out = null, &$rc = null, $bg = false) {
     $cmd = '/bin/bash ' . escapeshellarg($GLOBALS['RJ_ENGINE']) . ' ' . $args;
-    if ($bg) { exec($cmd . ' > /dev/null 2>&1 &', $o, $r); $out = []; $rc = 0; return; }
+    /* bg: nohup keeps the job alive when php-fpm reaps the request's children */
+    if ($bg) { exec('nohup ' . $cmd . ' > /dev/null 2>&1 &', $o, $r); $out = []; $rc = 0; return; }
     exec($cmd . ' 2>&1', $o, $r); $out = $o; $rc = $r;
 }
 function rj_regen(&$out) {
@@ -94,39 +99,43 @@ function rj_regen(&$out) {
     return $rc;
 }
 
-$action = $_POST['action'] ?? '';
+$action = rj_str($_POST['action'] ?? '');
 $name   = $_POST['job'] ?? '';
 
 switch ($action) {
 
 case 'save_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name (letters, digits, dash, underscore, max 40)']);
-    $engine   = $_POST['engine'] ?? 'rclone';
+    $engine   = rj_str($_POST['engine'] ?? 'rclone');
     if (!in_array($engine, ['rclone', 'rsync', 'custom'], true)) rj_out(['ok' => false, 'error' => 'engine must be rclone|rsync|custom']);
-    $mode     = $_POST['mode'] ?? '';
-    $src      = trim((string)($_POST['src'] ?? ''));
-    $dst      = trim((string)($_POST['dst'] ?? ''));
-    $script   = trim((string)($_POST['script'] ?? ''));
-    $sched    = trim((string)($_POST['schedule'] ?? ''));
-    $enabled  = ($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
-    $dryrun   = ($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
-    $notify   = in_array($_POST['notify'] ?? 'always', ['always', 'failures', 'off'], true) ? $_POST['notify'] : 'always';
-    $desc     = substr(trim((string)($_POST['desc'] ?? '')), 0, 120);
-    $trans    = (int)($_POST['transfers'] ?? 4);
-    $check    = (int)($_POST['checkers'] ?? 8);
-    $bwlimit  = trim((string)($_POST['bwlimit'] ?? ''));
-    $maxdel   = (int)($_POST['maxdelete'] ?? 100);
-    $warndel  = (int)($_POST['warndelete'] ?? 100);
-    $bdir     = trim((string)($_POST['backupdir'] ?? ''));
+    $mode     = rj_str($_POST['mode'] ?? '');
+    $src      = trim(rj_str($_POST['src'] ?? ''));
+    $dst      = trim(rj_str($_POST['dst'] ?? ''));
+    $script   = trim(rj_str($_POST['script'] ?? ''));
+    $sched    = trim(rj_str($_POST['schedule'] ?? ''));
+    $enabled  = rj_str($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $dryrun   = rj_str($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $notifyIn = rj_str($_POST['notify'] ?? 'always');
+    $notify   = in_array($notifyIn, ['always', 'failures', 'off'], true) ? $notifyIn : 'always';
+    $desc     = substr(trim(rj_str($_POST['desc'] ?? '')), 0, 120);
+    $trans    = rj_num($_POST['transfers'] ?? 4);
+    $check    = rj_num($_POST['checkers'] ?? 8);
+    $bwlimit  = trim(rj_str($_POST['bwlimit'] ?? ''));
+    $maxdel   = rj_num($_POST['maxdelete'] ?? 100);
+    $warndel  = rj_num($_POST['warndelete'] ?? 100);
+    $bdir     = trim(rj_str($_POST['backupdir'] ?? ''));
     if (rj_badfield($desc) || rj_badfield($bwlimit) || rj_badfield($bdir))
         rj_out(['ok' => false, 'error' => 'description/limit/backupdir contain forbidden characters']);
+
+    /* every engine is scheduled by cron - a job without a valid SCHEDULE would be
+       written to disk but silently skipped by regen-cron.sh: refuse at save time */
+    if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' => false, 'error' => 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
 
     if ($engine === 'custom') {
         if ($script === '' || rj_badfield($script)) rj_out(['ok' => false, 'error' => 'custom job needs a Script path without shell metacharacters']);
         if (strpos($script, '/') !== 0) rj_out(['ok' => false, 'error' => 'Script must be an absolute path']);
-        $mode = ''; $src = ''; $dst = ''; $schedOrig = $sched;
+        $mode = ''; $src = ''; $dst = '';
     } else {
-        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' => false, 'error' => 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
         if ($src === '' || $dst === '') rj_out(['ok' => false, 'error' => 'SRC and DST are required']);
         if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' => false, 'error' => 'SRC/DST contain forbidden characters']);
         if ($engine === 'rclone' && !in_array($mode, ['sync', 'copy', 'check'], true)) rj_out(['ok' => false, 'error' => 'rclone mode must be sync|copy|check']);
@@ -155,8 +164,10 @@ case 'save_job':
     }
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
     $isNew = !file_exists($conf);
-    file_put_contents($conf, implode("\n", $L)."\n");
-    chmod($conf, 0600);
+    /* atomic: write .tmp then rename - a job config is never half-written */
+    file_put_contents($conf.'.tmp', implode("\n", $L)."\n");
+    chmod($conf.'.tmp', 0600);
+    rename($conf.'.tmp', $conf);
 
     /* dry-run the saved config once so the UI shows a real preview immediately */
     $eo = []; $erc = 0;
@@ -182,8 +193,8 @@ case 'run_dry':
 
 case 'browse':
     /* read-only path picker listing; all confinement happens in the engine */
-    $bscope = ($_POST['scope'] ?? '') === 'rclone' ? 'rclone' : 'local';
-    $bpath  = trim((string)($_POST['path'] ?? ''));
+    $bscope = rj_str($_POST['scope'] ?? '') === 'rclone' ? 'rclone' : 'local';
+    $bpath  = trim(rj_str($_POST['path'] ?? ''));
     if ($bpath !== '' && rj_badfield($bpath)) rj_out(['ok' => false, 'error' => 'path contains forbidden characters']);
     if (strlen($bpath) > 1024) rj_out(['ok' => false, 'error' => 'path too long']);
     if ($bscope === 'local' && $bpath !== '' && $bpath[0] !== '/') rj_out(['ok' => false, 'error' => 'local paths must start with /']);
@@ -209,18 +220,20 @@ case 'ack_job':
 case 'save_alerts':
     $pairs = [];
     if (isset($_POST['master'])) {
-        $m = $_POST['master'] === 'no' ? 'no' : 'yes';
+        $m = rj_str($_POST['master']) === 'no' ? 'no' : 'yes';
         rj_env_upsert($RJ_BOOT.'/paths.env', ['DRY_RUN_MASTER' => $m], 0600);
     }
-    $qs = trim((string)($_POST['quiet_start'] ?? '')); $qe = trim((string)($_POST['quiet_end'] ?? ''));
+    $qs = trim(rj_str($_POST['quiet_start'] ?? '')); $qe = trim(rj_str($_POST['quiet_end'] ?? ''));
     $qp = [];
-    if ($qs === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qs)) $qp['QUIET_START'] = $qs;
-    if ($qe === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qe)) $qp['QUIET_END'] = $qe;
-    if ($qp) rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
+    /* same shape the engine's quiet_now() accepts (single-digit hour allowed) */
+    if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qs) && $qs !== '') rj_out(['ok' => false, 'error' => 'quiet window start must be HH:MM (24h) or empty']);
+    if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qe) && $qe !== '') rj_out(['ok' => false, 'error' => 'quiet window end must be HH:MM (24h) or empty']);
+    $qp['QUIET_START'] = $qs; $qp['QUIET_END'] = $qe;
+    rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
     rj_out(['ok' => true, 'msg' => 'Settings saved. Delivery (email/Telegram/...) is configured in Settings -> Notification Settings.']);
 
 case 'notify_test':
-    $lvl = (string)($_POST['level'] ?? 'normal');
+    $lvl = rj_str($_POST['level'] ?? 'normal');
     if (!in_array($lvl, ['normal', 'warning', 'alert'], true)) $lvl = 'normal';
     $eo = []; $erc = 0;
     rj_engine('notify-test ' . $lvl, $eo, $erc);

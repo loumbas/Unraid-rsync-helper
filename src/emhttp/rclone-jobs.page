@@ -76,11 +76,14 @@ $rjdata = [
     '#rj-sched-summary{margin:4px 0 2px;font-size:11px;color:#9aa7b2}',
     '#rj-sched-summary.rj-warn{color:#e6867e}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
-    'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid #46505a}',
+    /* structural colors use webGui theme variables (--background/--text/--border)
+       with the classic dark values as fallback, so light themes stay readable and
+       the look is unchanged when the variables are absent */
+    'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid var(--border,#46505a)}',
     'ul#rj-tabs>li{list-style:none!important;display:block!important;float:none!important;width:auto!important;margin:0 3px -1px 0;padding:0;background:none;border:none}',
-    'ul#rj-tabs>li>a{display:block;padding:9px 26px;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;color:#93a0ab;background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;outline:none}',
-    'ul#rj-tabs>li>a:hover{color:#e8eef3;background:rgba(255,255,255,0.05)}',
-    'ul#rj-tabs>li.active>a{color:#fff;font-weight:bold;background:#242b31;border-color:#46505a;border-bottom:1px solid #242b31}',
+    'ul#rj-tabs>li>a{display:block;padding:9px 26px;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;color:var(--gray-text,#93a0ab);background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;outline:none}',
+    'ul#rj-tabs>li>a:hover{color:var(--text,#e8eef3);background:rgba(128,128,128,0.12)}',
+    'ul#rj-tabs>li.active>a{color:var(--text,#fff);font-weight:bold;background:var(--background,#242b31);border-color:var(--border,#46505a);border-bottom:1px solid var(--background,#242b31)}',
     '#tab_rj_jobs table.rclone-jobs{width:100%}',
     '#tab_rj_jobs td{word-break:break-word}',
     '#tab_rj_jobs td [data-act]{white-space:nowrap}'
@@ -121,11 +124,15 @@ $rjdata = [
           $run = $s['run'] ?? '-';
           $lastok = $s['last_ok_run'] ?? 'never';
           $drysum = '-';
+          $needAck = false;
           if ($d) {
               $drysum = ($d['stamp'] ?? '?')." copy+".($d['copies'] ?? 0)." del-".($d['deletes'] ?? 0)." fail:".($d['fails'] ?? 0);
-              if (!empty($d['ack_blocked'])) $drysum .= " [NEEDS ACK]";
+              /* same rule as the engine's gate_check: deletions over the job's
+                 WARN_DELETE threshold stay blocked for live runs until acked */
+              $warn = isset($d['warnDelete']) ? (int)$d['warnDelete'] : (int)($c['WARN_DELETE'] ?? 0);
+              $needAck = ($d['deletes'] ?? 0) > $warn && empty($d['ack']);
+              if ($needAck) $drysum .= " [NEEDS ACK]";
           }
-          $needAck = $d && empty($d['ok']) && ($d['deletes'] ?? 0) > 0;
       ?>
         <tr data-job="<?= htmlspecialchars($name) ?>">
           <td><b><?= htmlspecialchars($name) ?></b><br><span class="gray"><?= htmlspecialchars($c['DESC'] ?? '') ?></span></td>

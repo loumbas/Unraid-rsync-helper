@@ -20,7 +20,7 @@ if [ ! -f "$B/paths.env" ]; then
 # Where job data (logs, status, backups, dry-run previews) is kept.
 # Leave commented to auto-detect: first mounted array disk, hidden dot-folder
 # (e.g. /mnt/disk1/.rclone-jobs - not visible in the /mnt/user share namespace).
-# Shares (/mnt/user/...) and system paths are refused by policy.
+# Shares (/mnt/user/...), the flash (/boot) and system paths are refused by policy.
 #STORAGE_ROOT=/mnt/disk1/.rclone-jobs
 
 # Master safety switch: yes = every scheduled run executes as DRY-RUN until you
@@ -30,6 +30,10 @@ DRY_RUN_MASTER=yes
 # Quiet hours for alerts (24h, used by watchdog; blank = always alert)
 QUIET_START=23:00
 QUIET_END=07:00
+
+# Config schema marker (readers must ignore unknown keys; a future release that
+# changes this file's format bumps the number and migrates from the old value).
+CONFIG_VERSION=1
 EOF
   log "created default $B/paths.env"
 fi

@@ -1,3 +1,30 @@
+## 2026.09.07e
+Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fixes:
+- Boot robustness: new 'started' event retries the engine deploy + cron block once the
+  array is fully mounted - covers the case where array_started fired before /mnt/diskN
+  were actually mounted (deferred deploys used to wait for the next boot/save).
+- Safety policy: STORAGE_ROOT under /boot is now REFUSED everywhere (engine,
+  install-engine, doctor) - the flash device must not take job data (USB wear).
+- Custom-script jobs: the schedule is validated at save time like every other engine -
+  an invalid SCHEDULE used to be written and then silently skipped by the scheduler.
+- Jobs table: the [NEEDS ACK] badge and the Ack button now follow the engine's real
+  gate rule (predicted deletions > WARN_DELETE and not yet acked); previously the
+  badge could never appear.
+- Recovery etiquette: a successful run clears its stale FAILED / refused / gate
+  notifications from the WebUI bell and re-arms the watchdog dedup.
+- Live runs started from the WebUI are detached with nohup (survive php-fpm child
+  reaping). Job configs and paths.env are written atomically (tmp+rename).
+- Ajax hardening: non-scalar POST values are rejected instead of warning; a malformed
+  quiet-window value is now reported as an error instead of being silently dropped.
+- WebUI: weekday 7 (=Sunday) is accepted in the Custom cron preview like the server
+  accepts it; deletion Ack uses a proper typed-confirmation dialog instead of prompt();
+  Save buttons disable while their request is in flight; tab strip and Browse/Ack
+  dialogs use webGui theme variables (light theme safe) with the old colors as fallback.
+- paths.env gains a CONFIG_VERSION=1 marker on fresh installs (readers ignore unknown
+  keys; future format changes migrate from this value).
+- Build lint: shellcheck (severity=warning) and php -l now run over the shipped
+  scripts/PHP when those tools exist on the build box; skipped with a note when absent.
+
 ## 2026.09.07d
 - Doctor fix (seen on a box with no jobs): the report no longer WARNs that the cron
   block is missing when nothing is scheduled - with zero jobs (or only disabled ones)

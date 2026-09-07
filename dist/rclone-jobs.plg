@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07d">
+<!ENTITY version   "2026.09.07e">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,33 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07e
+Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fixes:
+- Boot robustness: new 'started' event retries the engine deploy + cron block once the
+  array is fully mounted - covers the case where array_started fired before /mnt/diskN
+  were actually mounted (deferred deploys used to wait for the next boot/save).
+- Safety policy: STORAGE_ROOT under /boot is now REFUSED everywhere (engine,
+  install-engine, doctor) - the flash device must not take job data (USB wear).
+- Custom-script jobs: the schedule is validated at save time like every other engine -
+  an invalid SCHEDULE used to be written and then silently skipped by the scheduler.
+- Jobs table: the [NEEDS ACK] badge and the Ack button now follow the engine's real
+  gate rule (predicted deletions &gt; WARN_DELETE and not yet acked); previously the
+  badge could never appear.
+- Recovery etiquette: a successful run clears its stale FAILED / refused / gate
+  notifications from the WebUI bell and re-arms the watchdog dedup.
+- Live runs started from the WebUI are detached with nohup (survive php-fpm child
+  reaping). Job configs and paths.env are written atomically (tmp+rename).
+- Ajax hardening: non-scalar POST values are rejected instead of warning; a malformed
+  quiet-window value is now reported as an error instead of being silently dropped.
+- WebUI: weekday 7 (=Sunday) is accepted in the Custom cron preview like the server
+  accepts it; deletion Ack uses a proper typed-confirmation dialog instead of prompt();
+  Save buttons disable while their request is in flight; tab strip and Browse/Ack
+  dialogs use webGui theme variables (light theme safe) with the old colors as fallback.
+- paths.env gains a CONFIG_VERSION=1 marker on fresh installs (readers ignore unknown
+  keys; future format changes migrate from this value).
+- Build lint: shellcheck (severity=warning) and php -l now run over the shipped
+  scripts/PHP when those tools exist on the build box; skipped with a note when absent.
+
 ## 2026.09.07d
 - Doctor fix (seen on a box with no jobs): the report no longer WARNs that the cron
   block is missing when nothing is scheduled - with zero jobs (or only disabled ones)
@@ -105,17 +132,6 @@
 - Tabs now behave as tabs: the plugin initializes the ul.tabs strip itself (first tab
   active, other panels hidden, hash deep-links #tab_rj_* honored). State-setting and
   event-namespaced (.rjtab), so it coexists with any platform tab js.
-
-## 2026.09.04h
-- Storage-overlap guard: a job whose SRC or DST is inside the plugin storage folder
-  is now REFUSED (exit 78 + alert) - logs/status/notify.env can no longer be uploaded
-  or --delete-erased by a misconfigured job. A job whose SRC/DST contains the storage
-  folder (the hosting disk root, or /mnt/user - shfs surfaces the dot-folder there)
-  runs with the storage top folder auto-excluded: rclone gets two anchored --exclude
-  patterns, rsync gets an anchored --exclude (which also shields it from --delete).
-  ARGS --delete-excluded is refused; custom-engine jobs warn once per change (Telegram
-  + notify + syslog) because no exclude can be injected there. Doctor reports the
-  overlap per job; the job form shows an inline hint on SRC/DST.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -154,7 +170,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07d - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07e - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -176,7 +192,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07d"
+ENGINE_VERSION="2026.09.07e"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -223,13 +239,16 @@ redact() { # stdin-&gt;stdout: mask anything secret-looking before it hits a log
 # lexical normalization (realpath -m: no mkdir side effects) + fail-closed policy
 policy_ok() { # &lt;path&gt; -&gt; 0 allowed / 1 forbidden (checks RAW string AND normalized path)
   # raw prefix gate first: a plugin-managed path may never START with a share
-  # prefix, even if '../' segments would lexically escape it afterwards
-  case "$1" in /mnt/user|/mnt/user/*) return 1 ;; esac
+  # prefix, even if '../' segments would lexically escape it afterwards.
+  # /boot is refused too: the flash device must not take plugin data (USB wear,
+  # and the plugin's own config lives in /boot/config/plugins).
+  case "$1" in /mnt/user|/mnt/user/*|/boot|/boot/*) return 1 ;; esac
   local rp
   rp="$(realpath -m -- "$1" 2&gt;/dev/null)" || return 1
   case "$rp" in
     /)                       return 1 ;;
     /mnt/user|/mnt/user/*)   return 1 ;;
+    /boot|/boot/*)           return 1 ;;
     /etc|/etc/*)             return 1 ;;
     /usr|/usr/*)             return 1 ;;
     /var/log|/var/log/*)     return 1 ;;
@@ -292,7 +311,7 @@ load_paths() {
 
 storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
   [ -n "$STORAGE_ROOT" ] || die 78 "STORAGE_ROOT is not set and no array disk was found - start the array or set STORAGE_ROOT in $BOOT_DIR/paths.env"
-  policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT '$STORAGE_ROOT' is REFUSED: plugin data must live outside /mnt/user, /etc, /usr, /var/log and outside / (share policy)"
+  policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT '$STORAGE_ROOT' is REFUSED: plugin data must live outside /mnt/user, /boot, /etc, /usr, /var/log and outside / (share policy)"
   [ -d "$STORAGE_ROOT" ] || mkdir -p "$STORAGE_ROOT" 2&gt;/dev/null || die 78 "cannot create STORAGE_ROOT '$STORAGE_ROOT' (array not started? read-only?)"
   STORAGE_ROOT="$(realpath -- "$STORAGE_ROOT" 2&gt;/dev/null)" || die 78 "cannot resolve STORAGE_ROOT"
   policy_ok "$STORAGE_ROOT" || die 78 "STORAGE_ROOT resolves to '$STORAGE_ROOT' which the share policy forbids (possible ../ smuggling)"
@@ -351,6 +370,18 @@ job_notify_setting() { # &lt;job name&gt; -&gt; always|failures|off (legacy HEAR
   v="$(sed -nE 's/^NOTIFY=//p' "$f" 2&gt;/dev/null | tail -1)"
   [ -n "$v" ] || v="$([ "$(sed -nE 's/^HEARTBEAT=//p' "$f" 2&gt;/dev/null | tail -1)" = no ] &amp;&amp; printf failures || printf always)"
   case "$v" in failures|off) printf '%s' "$v" ;; *) printf 'always' ;; esac
+}
+
+notify_dismiss() { # &lt;subject&gt; - clear a stale problem notification (event+subject match)
+  # etiquette per Unraid docs: a recovered problem should not leave an alert in
+  # the bell; dismissing is never itself an alert, so job NOTIFY=off cannot skip it
+  local n
+  for n in "$NOTIFY_SCRIPT" "$NOTIFY_SCRIPT_DYN"; do
+    [ -x "$n" ] || continue
+    "$n" -e "$NAME" -s "$1" -x &gt;/dev/null 2&gt;&amp;1
+    return 0
+  done
+  return 1
 }
 
 alert_refuse() { # &lt;message&gt; - loud everywhere; used for pre-transfer refusals
@@ -813,6 +844,11 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
+      # recovered: clear stale problem notices from the bell + fresh watchdog dedup
+      notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
+      notify_dismiss "rclone-jobs: refused to run $JOB_NAME"
+      notify_dismiss "rclone-jobs gate: $JOB_NAME"
+      rm -f "$STATUS_DIR/.wd-$JOB_NAME" 2&gt;/dev/null || true
       if [ "$J_NOTIFY" = always ] &amp;&amp; ! quiet_now; then
         notify_job normal "rclone-jobs: $JOB_NAME OK" "${secs}s - ${TR} transferred" \
           "job: $JOB_NAME
@@ -919,7 +955,7 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log pru
       fi
     fi
   done
-  find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime +14 -delete 2&gt;/dev/null
+  find "$LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'doctor-*.txt' \) -mtime +14 -delete 2&gt;/dev/null
   return 0
 }
 
@@ -972,7 +1008,7 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   else
     rp="$(realpath -m -- "$STORAGE_ROOT" 2&gt;/dev/null)"
     if policy_ok "$STORAGE_ROOT"; then d_line PASS "STORAGE_ROOT policy: $rp"
-    else d_line FAIL "STORAGE_ROOT '$STORAGE_ROOT' violates the share policy (outside /mnt/user, /etc, /usr, /var/log, /)"; fi
+    else d_line FAIL "STORAGE_ROOT '$STORAGE_ROOT' violates the share policy (must be outside /mnt/user, /boot, /etc, /usr, /var/log and outside /)"; fi
     if [ -d "$STORAGE_ROOT" ]; then
       if touch "$STORAGE_ROOT/.rjprobe" 2&gt;/dev/null; then rm -f "$STORAGE_ROOT/.rjprobe"; d_line PASS "STORAGE_ROOT writable"
       else d_line FAIL "STORAGE_ROOT not writable: $STORAGE_ROOT"; fi
@@ -1220,7 +1256,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>bb4ed8356c658e51559f93875ce6fc970f77661ed02b5ea9d9b875e00a1e1d0e</SHA256>
+<SHA256>187677b0669260a5756bbc7953e31a07aeb486effbd71af030a8bb8b82d57071</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1397,7 +1433,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07d - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07e - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1446,7 +1482,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07d',
+    'version'    =&gt; '2026.09.07e',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1470,11 +1506,14 @@ $rjdata = [
     '#rj-sched-summary{margin:4px 0 2px;font-size:11px;color:#9aa7b2}',
     '#rj-sched-summary.rj-warn{color:#e6867e}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
-    'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid #46505a}',
+    /* structural colors use webGui theme variables (--background/--text/--border)
+       with the classic dark values as fallback, so light themes stay readable and
+       the look is unchanged when the variables are absent */
+    'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid var(--border,#46505a)}',
     'ul#rj-tabs&gt;li{list-style:none!important;display:block!important;float:none!important;width:auto!important;margin:0 3px -1px 0;padding:0;background:none;border:none}',
-    'ul#rj-tabs&gt;li&gt;a{display:block;padding:9px 26px;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;color:#93a0ab;background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;outline:none}',
-    'ul#rj-tabs&gt;li&gt;a:hover{color:#e8eef3;background:rgba(255,255,255,0.05)}',
-    'ul#rj-tabs&gt;li.active&gt;a{color:#fff;font-weight:bold;background:#242b31;border-color:#46505a;border-bottom:1px solid #242b31}',
+    'ul#rj-tabs&gt;li&gt;a{display:block;padding:9px 26px;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;color:var(--gray-text,#93a0ab);background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;outline:none}',
+    'ul#rj-tabs&gt;li&gt;a:hover{color:var(--text,#e8eef3);background:rgba(128,128,128,0.12)}',
+    'ul#rj-tabs&gt;li.active&gt;a{color:var(--text,#fff);font-weight:bold;background:var(--background,#242b31);border-color:var(--border,#46505a);border-bottom:1px solid var(--background,#242b31)}',
     '#tab_rj_jobs table.rclone-jobs{width:100%}',
     '#tab_rj_jobs td{word-break:break-word}',
     '#tab_rj_jobs td [data-act]{white-space:nowrap}'
@@ -1486,7 +1525,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07d"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07e"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1515,11 +1554,15 @@ $rjdata = [
           $run = $s['run'] ?? '-';
           $lastok = $s['last_ok_run'] ?? 'never';
           $drysum = '-';
+          $needAck = false;
           if ($d) {
               $drysum = ($d['stamp'] ?? '?')." copy+".($d['copies'] ?? 0)." del-".($d['deletes'] ?? 0)." fail:".($d['fails'] ?? 0);
-              if (!empty($d['ack_blocked'])) $drysum .= " [NEEDS ACK]";
+              /* same rule as the engine's gate_check: deletions over the job's
+                 WARN_DELETE threshold stay blocked for live runs until acked */
+              $warn = isset($d['warnDelete']) ? (int)$d['warnDelete'] : (int)($c['WARN_DELETE'] ?? 0);
+              $needAck = ($d['deletes'] ?? 0) &gt; $warn &amp;&amp; empty($d['ack']);
+              if ($needAck) $drysum .= " [NEEDS ACK]";
           }
-          $needAck = $d &amp;&amp; empty($d['ok']) &amp;&amp; ($d['deletes'] ?? 0) &gt; 0;
       ?&gt;
         &lt;tr data-job="&lt;?= htmlspecialchars($name) ?&gt;"&gt;
           &lt;td&gt;&lt;b&gt;&lt;?= htmlspecialchars($name) ?&gt;&lt;/b&gt;&lt;br&gt;&lt;span class="gray"&gt;&lt;?= htmlspecialchars($c['DESC'] ?? '') ?&gt;&lt;/span&gt;&lt;/td&gt;
@@ -1650,15 +1693,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07d &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07e &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>a8dbef8e54fc4d5041a1e429218508374bfcba676c18a46aeacdc79ba434f55e</SHA256>
+<SHA256>c14608038381d8e27ee5413679d346184c21a26e5edc1d56843780c5e286abff</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07d - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07e - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1695,6 +1738,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 
 /* ---- helpers (mirror engine validators) ---- */
 function rj_out($arr) { echo json_encode($arr); exit; }
+function rj_str($v)   { return is_string($v) ? $v : ''; }
+function rj_num($v)   { return is_numeric($v) ? (int)$v : -1; } /* -1 always fails the range checks below */
 function rj_name_ok($n)  { return is_string($n) &amp;&amp; preg_match('/^[A-Za-z0-9_-]{1,40}$/', $n); }
 function rj_badfield($v) { return preg_match('/[`$;|&amp;&lt;&gt;*?"\'\\\\\r\n]/', $v) === 1; }
 function rj_sched_part($x, $lo, $hi) {
@@ -1740,12 +1785,15 @@ function rj_env_upsert($file, $pairs, $mode = null) {
         }
         if (!$found) $lines[] = $newl;
     }
-    file_put_contents($file, implode("\n", $lines)."\n");
-    if ($mode !== null) @chmod($file, $mode);
+    /* atomic: temp file + rename (never a half-written paths.env) */
+    file_put_contents($file.'.tmp', implode("\n", $lines)."\n");
+    if ($mode !== null) @chmod($file.'.tmp', $mode);
+    @rename($file.'.tmp', $file);
 }
 function rj_engine($args, &amp;$out = null, &amp;$rc = null, $bg = false) {
     $cmd = '/bin/bash ' . escapeshellarg($GLOBALS['RJ_ENGINE']) . ' ' . $args;
-    if ($bg) { exec($cmd . ' &gt; /dev/null 2&gt;&amp;1 &amp;', $o, $r); $out = []; $rc = 0; return; }
+    /* bg: nohup keeps the job alive when php-fpm reaps the request's children */
+    if ($bg) { exec('nohup ' . $cmd . ' &gt; /dev/null 2&gt;&amp;1 &amp;', $o, $r); $out = []; $rc = 0; return; }
     exec($cmd . ' 2&gt;&amp;1', $o, $r); $out = $o; $rc = $r;
 }
 function rj_regen(&amp;$out) {
@@ -1753,39 +1801,43 @@ function rj_regen(&amp;$out) {
     return $rc;
 }
 
-$action = $_POST['action'] ?? '';
+$action = rj_str($_POST['action'] ?? '');
 $name   = $_POST['job'] ?? '';
 
 switch ($action) {
 
 case 'save_job':
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name (letters, digits, dash, underscore, max 40)']);
-    $engine   = $_POST['engine'] ?? 'rclone';
+    $engine   = rj_str($_POST['engine'] ?? 'rclone');
     if (!in_array($engine, ['rclone', 'rsync', 'custom'], true)) rj_out(['ok' =&gt; false, 'error' =&gt; 'engine must be rclone|rsync|custom']);
-    $mode     = $_POST['mode'] ?? '';
-    $src      = trim((string)($_POST['src'] ?? ''));
-    $dst      = trim((string)($_POST['dst'] ?? ''));
-    $script   = trim((string)($_POST['script'] ?? ''));
-    $sched    = trim((string)($_POST['schedule'] ?? ''));
-    $enabled  = ($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
-    $dryrun   = ($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
-    $notify   = in_array($_POST['notify'] ?? 'always', ['always', 'failures', 'off'], true) ? $_POST['notify'] : 'always';
-    $desc     = substr(trim((string)($_POST['desc'] ?? '')), 0, 120);
-    $trans    = (int)($_POST['transfers'] ?? 4);
-    $check    = (int)($_POST['checkers'] ?? 8);
-    $bwlimit  = trim((string)($_POST['bwlimit'] ?? ''));
-    $maxdel   = (int)($_POST['maxdelete'] ?? 100);
-    $warndel  = (int)($_POST['warndelete'] ?? 100);
-    $bdir     = trim((string)($_POST['backupdir'] ?? ''));
+    $mode     = rj_str($_POST['mode'] ?? '');
+    $src      = trim(rj_str($_POST['src'] ?? ''));
+    $dst      = trim(rj_str($_POST['dst'] ?? ''));
+    $script   = trim(rj_str($_POST['script'] ?? ''));
+    $sched    = trim(rj_str($_POST['schedule'] ?? ''));
+    $enabled  = rj_str($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $dryrun   = rj_str($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    $notifyIn = rj_str($_POST['notify'] ?? 'always');
+    $notify   = in_array($notifyIn, ['always', 'failures', 'off'], true) ? $notifyIn : 'always';
+    $desc     = substr(trim(rj_str($_POST['desc'] ?? '')), 0, 120);
+    $trans    = rj_num($_POST['transfers'] ?? 4);
+    $check    = rj_num($_POST['checkers'] ?? 8);
+    $bwlimit  = trim(rj_str($_POST['bwlimit'] ?? ''));
+    $maxdel   = rj_num($_POST['maxdelete'] ?? 100);
+    $warndel  = rj_num($_POST['warndelete'] ?? 100);
+    $bdir     = trim(rj_str($_POST['backupdir'] ?? ''));
     if (rj_badfield($desc) || rj_badfield($bwlimit) || rj_badfield($bdir))
         rj_out(['ok' =&gt; false, 'error' =&gt; 'description/limit/backupdir contain forbidden characters']);
+
+    /* every engine is scheduled by cron - a job without a valid SCHEDULE would be
+       written to disk but silently skipped by regen-cron.sh: refuse at save time */
+    if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
 
     if ($engine === 'custom') {
         if ($script === '' || rj_badfield($script)) rj_out(['ok' =&gt; false, 'error' =&gt; 'custom job needs a Script path without shell metacharacters']);
         if (strpos($script, '/') !== 0) rj_out(['ok' =&gt; false, 'error' =&gt; 'Script must be an absolute path']);
-        $mode = ''; $src = ''; $dst = ''; $schedOrig = $sched;
+        $mode = ''; $src = ''; $dst = '';
     } else {
-        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
         if ($src === '' || $dst === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC and DST are required']);
         if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC/DST contain forbidden characters']);
         if ($engine === 'rclone' &amp;&amp; !in_array($mode, ['sync', 'copy', 'check'], true)) rj_out(['ok' =&gt; false, 'error' =&gt; 'rclone mode must be sync|copy|check']);
@@ -1814,8 +1866,10 @@ case 'save_job':
     }
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
     $isNew = !file_exists($conf);
-    file_put_contents($conf, implode("\n", $L)."\n");
-    chmod($conf, 0600);
+    /* atomic: write .tmp then rename - a job config is never half-written */
+    file_put_contents($conf.'.tmp', implode("\n", $L)."\n");
+    chmod($conf.'.tmp', 0600);
+    rename($conf.'.tmp', $conf);
 
     /* dry-run the saved config once so the UI shows a real preview immediately */
     $eo = []; $erc = 0;
@@ -1841,8 +1895,8 @@ case 'run_dry':
 
 case 'browse':
     /* read-only path picker listing; all confinement happens in the engine */
-    $bscope = ($_POST['scope'] ?? '') === 'rclone' ? 'rclone' : 'local';
-    $bpath  = trim((string)($_POST['path'] ?? ''));
+    $bscope = rj_str($_POST['scope'] ?? '') === 'rclone' ? 'rclone' : 'local';
+    $bpath  = trim(rj_str($_POST['path'] ?? ''));
     if ($bpath !== '' &amp;&amp; rj_badfield($bpath)) rj_out(['ok' =&gt; false, 'error' =&gt; 'path contains forbidden characters']);
     if (strlen($bpath) &gt; 1024) rj_out(['ok' =&gt; false, 'error' =&gt; 'path too long']);
     if ($bscope === 'local' &amp;&amp; $bpath !== '' &amp;&amp; $bpath[0] !== '/') rj_out(['ok' =&gt; false, 'error' =&gt; 'local paths must start with /']);
@@ -1868,18 +1922,20 @@ case 'ack_job':
 case 'save_alerts':
     $pairs = [];
     if (isset($_POST['master'])) {
-        $m = $_POST['master'] === 'no' ? 'no' : 'yes';
+        $m = rj_str($_POST['master']) === 'no' ? 'no' : 'yes';
         rj_env_upsert($RJ_BOOT.'/paths.env', ['DRY_RUN_MASTER' =&gt; $m], 0600);
     }
-    $qs = trim((string)($_POST['quiet_start'] ?? '')); $qe = trim((string)($_POST['quiet_end'] ?? ''));
+    $qs = trim(rj_str($_POST['quiet_start'] ?? '')); $qe = trim(rj_str($_POST['quiet_end'] ?? ''));
     $qp = [];
-    if ($qs === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qs)) $qp['QUIET_START'] = $qs;
-    if ($qe === '' || preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $qe)) $qp['QUIET_END'] = $qe;
-    if ($qp) rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
+    /* same shape the engine's quiet_now() accepts (single-digit hour allowed) */
+    if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qs) &amp;&amp; $qs !== '') rj_out(['ok' =&gt; false, 'error' =&gt; 'quiet window start must be HH:MM (24h) or empty']);
+    if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qe) &amp;&amp; $qe !== '') rj_out(['ok' =&gt; false, 'error' =&gt; 'quiet window end must be HH:MM (24h) or empty']);
+    $qp['QUIET_START'] = $qs; $qp['QUIET_END'] = $qe;
+    rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
     rj_out(['ok' =&gt; true, 'msg' =&gt; 'Settings saved. Delivery (email/Telegram/...) is configured in Settings -&gt; Notification Settings.']);
 
 case 'notify_test':
-    $lvl = (string)($_POST['level'] ?? 'normal');
+    $lvl = rj_str($_POST['level'] ?? 'normal');
     if (!in_array($lvl, ['normal', 'warning', 'alert'], true)) $lvl = 'normal';
     $eo = []; $erc = 0;
     rj_engine('notify-test ' . $lvl, $eo, $erc);
@@ -1896,12 +1952,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>4d9256b4242222d2576d3d3c38eb42ea46f70031ceb28928396d19ca263c8828</SHA256>
+<SHA256>63983d58d4106c71bbd5f8794ded36922bb83b3f57ba2d333dd33ec35d11b4ca</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07d - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07e - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1971,7 +2027,8 @@ function rjNextRuns(cron, n) {
   var f = String(cron || '').trim().split(/\s+/);
   if (f.length !== 5) return [];
   var sMin = rjFieldSet(f[0], 0, 59), sHr = rjFieldSet(f[1], 0, 23),
-      sDom = rjFieldSet(f[2], 1, 31), sMon = rjFieldSet(f[3], 1, 12), sDow = rjFieldSet(f[4], 0, 6);
+      sDom = rjFieldSet(f[2], 1, 31), sMon = rjFieldSet(f[3], 1, 12), sDow = rjFieldSet(f[4], 0, 7);
+  if (sDow &amp;&amp; sDow[7]) { sDow[0] = true; delete sDow[7]; } /* Vixie: 7 = Sunday = 0 */
   if (!sMin || !sHr || !sDom || !sMon || !sDow) return [];
   var domStar = f[2] === '*', dowStar = f[4] === '*';
   var d = new Date(); d.setSeconds(0, 0); d.setMinutes(d.getMinutes() + 1);
@@ -2005,7 +2062,7 @@ function rjParseCron(cron) {
   if (iv(f[0], 0, 59) &amp;&amp; f[1] === '*' &amp;&amp; f[2] === '*' &amp;&amp; f[4] === '*') return { freq: 'hourly', hmin: +f[0] };
   if (iv(f[0], 0, 59) &amp;&amp; iv(f[1], 0, 23) &amp;&amp; f[2] === '*' &amp;&amp; f[4] === '*') return { freq: 'daily', hour: +f[1], min: +f[0] };
   if (iv(f[0], 0, 59) &amp;&amp; iv(f[1], 0, 23) &amp;&amp; f[2] === '*' &amp;&amp; /^\d(?:,\d)*$/.test(f[4])) {
-    var ds = f[4].split(',').map(Number);
+    var ds = f[4].split(',').map(function (x) { return +x === 7 ? 0 : +x; }); /* 7 = Sunday */
     if (ds.every(function (x) { return x &gt;= 0 &amp;&amp; x &lt;= 6; }) &amp;&amp;
         ds.length === ds.filter(function (x, i) { return ds.indexOf(x) === i; }).length) {
       return { freq: 'weekly', hour: +f[1], min: +f[0], dow: ds };
@@ -2034,6 +2091,39 @@ function rjConfirm(title, text, btn, danger, cb) {
            confirmButtonColor: danger ? '#d33' : '#2e97c2' },
          function (ok) { if (ok) cb(); });
   } else if (window.confirm(title + '\n' + text + '\n\n-&gt; ' + btn + '?')) { cb(); }
+}
+
+/* typed-confirmation dialog for the deletion Ack - self-contained (like the
+   browse modal) instead of openBox/swal: no dependency on webGui box APIs,
+   styled with theme variables + dark fallbacks */
+function rjAckDialog(job) {
+  function send(t) {
+    rjPost({ action: 'ack_job', job: job, confirm: t }, function (res) {
+      rjPanel('rj-result', res.ok ? (res.out || 'acknowledged') : ('ERROR: ' + res.error), !res.ok);
+      if (res.ok) setTimeout(function () { location.reload(); }, 900);
+    });
+  }
+  if ($('#rj-ack-ov').length === 0) {
+    var ov = $('&lt;div id="rj-ack-ov" role="dialog" aria-modal="true"&gt;&lt;/div&gt;').css({ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.55)', zIndex: 9998, display: 'none' });
+    var box = $('&lt;div&gt;&lt;/div&gt;').css({ position: 'relative', width: '440px', maxWidth: '92vw', margin: '12vh auto', background: 'var(--background,#23292e)', border: '1px solid var(--border,#5a6570)', borderRadius: '6px', color: 'var(--text,#e8e8e8)', padding: '14px', fontSize: '12px' });
+    box.append($('&lt;div id="rj-ack-text" style="margin:0 0 10px"&gt;&lt;/div&gt;'));
+    box.append($('&lt;input type="text" id="rj-ack-in" autocomplete="off"&gt;').css({ width: '100%', boxSizing: 'border-box', marginBottom: '12px' }));
+    box.append($('&lt;input type="button" id="rj-ack-ok" value="Acknowledge" class="rj-btn rj-del"&gt;')).append($('&lt;input type="button" id="rj-ack-cancel" value="Cancel"&gt;'));
+    ov.append(box).appendTo('body');
+    ov.on('click', function (ev) { if (ev.target === this) ov.fadeOut(60); });
+    $('#rj-ack-cancel').on('click', function () { ov.fadeOut(60); });
+    $('#rj-ack-in').on('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); $('#rj-ack-ok').trigger('click'); } });
+    $(document).on('keydown.rjack', function (ev) { if (ev.key === 'Escape' &amp;&amp; $('#rj-ack-ov').is(':visible')) $('#rj-ack-ov').fadeOut(60); });
+  }
+  $('#rj-ack-text').text('This dry-run wants to DELETE files for job "' + job + '". Type the job name exactly (' + job + ') to acknowledge:');
+  $('#rj-ack-in').val('');
+  $('#rj-ack-ok').off('.rjack').on('click.rjack', function () {
+    var t = $('#rj-ack-in').val();
+    $('#rj-ack-ov').fadeOut(60);
+    send(t); /* server re-checks the typed name - a wrong one is refused there */
+  });
+  $('#rj-ack-ov').stop(true, true).fadeIn(80);
+  $('#rj-ack-in').trigger('focus');
 }
 
 $(function () {
@@ -2134,9 +2224,9 @@ $(function () {
     if (!cron) { $('#rj-sched-summary').addClass('rj-warn').text('Pick at least one weekday.'); return; }
     var fields = cron.split(/\s+/);
     if (f === 'custom') {
-      var lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]], bad = fields.length !== 5;
+      var lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]], bad = fields.length !== 5;
       if (!bad) for (var i = 0; i &lt; 5; i++) if (!rjFieldSet(fields[i], lim[i][0], lim[i][1])) { bad = true; break; }
-      if (bad) { $('#rj-sched-summary').addClass('rj-warn').text('Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-6).'); return; }
+      if (bad) { $('#rj-sched-summary').addClass('rj-warn').text('Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; 7 = Sunday).'); return; }
     }
     var msgs = [rjHumanize(cron) || 'Custom cron', 'cron: ' + cron];
     var runs = rjNextRuns(cron, 3);
@@ -2276,14 +2366,7 @@ $(function () {
       }
       return;
     }
-    if (act === 'ack') {
-      var t = prompt('This dry-run wants to DELETE files.\nType the job name exactly (' + job + ') to acknowledge:');
-      if (t === null) return;
-      rjPost({ action: 'ack_job', job: job, confirm: t }, function (res) {
-        rjPanel('rj-result', res.ok ? (res.out || 'acknowledged') : ('ERROR: ' + res.error), !res.ok);
-        if (res.ok) setTimeout(function () { location.reload(); }, 900);
-      });
-    }
+    if (act === 'ack') { rjAckDialog(job); }
   });
 
   /* save job */
@@ -2303,7 +2386,11 @@ $(function () {
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
       warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim()
     };
+    var $sub = $('#rj-jobform input[type=submit]');
+    if ($sub.prop('disabled')) return; /* double-submit guard (save previews take seconds) */
+    $sub.prop('disabled', true).val('Saving...');
     rjPost(data, function (res) {
+      $sub.prop('disabled', false).val('Save job');
       if (res.ok) {
         rjPanel('rj-preview', res.preview || res.msg, false);
         rjPanel('rj-result', res.msg, false);
@@ -2316,10 +2403,14 @@ $(function () {
 
   /* alerts tab */
   $('#rj-save-alerts').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $b = $(this);
+    if ($b.prop('disabled')) return;
+    $b.prop('disabled', true).val('Saving...');
     rjPost({
       action: 'save_alerts',
       master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val()
     }, function (res) {
+      $b.prop('disabled', false).val('Save settings');
       rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
     });
   });
@@ -2335,13 +2426,14 @@ $(function () {
 
   function rjBrowseBuild() {
     if (rjB.built) return;
+    /* structural colors via theme vars with dark fallbacks (light-theme safe) */
     var css = '#rj-browse-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:none}'
-      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:#23292e;border:1px solid #5a6570;border-radius:6px;color:#e8e8e8;box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
-      + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #444e57}'
+      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:var(--background,#23292e);border:1px solid var(--border,#5a6570);border-radius:6px;color:var(--text,#e8e8e8);box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
+      + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border,#444e57)}'
       + '#rj-browse-title{font-weight:bold;margin-right:auto}'
-      + '.rj-b-tab{padding:3px 10px;border:1px solid #5a6570;background:transparent;color:#cfd6dc;cursor:pointer;border-radius:3px}'
+      + '.rj-b-tab{padding:3px 10px;border:1px solid var(--border,#5a6570);background:transparent;color:var(--text,#cfd6dc);cursor:pointer;border-radius:3px}'
       + '.rj-b-tab.on{background:#2e97c2;border-color:#2e97c2;color:#fff}'
-      + '#rj-browse-pathbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid #444e57;flex-wrap:wrap}'
+      + '#rj-browse-pathbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border,#444e57);flex-wrap:wrap}'
       + '#rj-browse-crumbs{display:flex;gap:2px;flex-wrap:wrap;align-items:center}'
       + '.rj-b-crumb{cursor:pointer;color:#7fc7e8;text-decoration:underline}'
       + '#rj-browse-list{max-height:46vh;overflow:auto;padding:4px 0}'
@@ -2350,9 +2442,9 @@ $(function () {
       + '.rj-b-row:hover .rj-b-ic{color:#fff}'
       + '.rj-b-row .rj-b-ic{width:14px;color:#9aa7b2}'
       + '.rj-b-note{padding:8px 12px;color:#9aa7b2}'
-      + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #444e57}'
-      + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:#cfe3ef}'
-      + '.rj-b-x{background:transparent;border:none;color:#cfd6dc;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}';
+      + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border,#444e57)}'
+      + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:var(--text,#cfe3ef)}'
+      + '.rj-b-x{background:transparent;border:none;color:var(--text,#cfd6dc);font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}';
     $('&lt;style&gt;').text(css).appendTo('head');
     var ov = $('&lt;div id="rj-browse-ov"&gt;&lt;/div&gt;');
     var box = $('&lt;div id="rj-browse" role="dialog" aria-modal="true"&gt;&lt;/div&gt;');
@@ -2496,13 +2588,13 @@ $(function () {
   });
 });
 </INLINE>
-<SHA256>b47254b298715ee06dc3bb5be30439b3da1822b7d0ae410470ba1daaa9f70eee</SHA256>
+<SHA256>c4e1f128b01b28150d0624755d6add00e65babb1ec85e27da16f44dbe0385116</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07d - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07e - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2655,13 +2747,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>74029720562070229c101fa5e6689d35de0dcaf878f1ae3ccb3af6a8c060e2f8</SHA256>
+<SHA256>5712d4fe07730cb93068ecd69acfaa4352636e55cd2b33f7721a495a4951fa3b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07d - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07e - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -2675,12 +2767,12 @@ log() { printf '%s\n' "$*"; logger -t "$NAME" -- "install-engine: $*" 2&gt;/dev/
 # keep in sync with engine policy_ok()
 policy_ok() {
   case "$1" in
-    /|/mnt/user|/mnt/user/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
+    /|/mnt/user|/mnt/user/*|/boot|/boot/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
   esac
   local rp
   rp="$(realpath -m -- "$1" 2&gt;/dev/null)" || return 1
   case "$rp" in
-    /|/mnt/user|/mnt/user/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
+    /|/mnt/user|/mnt/user/*|/boot|/boot/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
   esac
   return 0
 }
@@ -2715,7 +2807,7 @@ if [ -z "$SR" ]; then
   exit 0
 fi
 if ! policy_ok "$SR"; then
-  log "REFUSED STORAGE_ROOT '$SR' (must live outside /, /mnt/user, /etc, /usr, /var/log) - nothing done"
+  log "REFUSED STORAGE_ROOT '$SR' (must live outside /, /mnt/user, /boot, /etc, /usr, /var/log) - nothing done"
   exit 1
 fi
 if ! mkdir -p "$SR" "$SR/logs" "$SR/status" "$SR/backup" 2&gt;/dev/null; then
@@ -2740,13 +2832,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>33538633ac9ff25082eecb6d0fff817916b4f349682044660dbf0f035d3733eb</SHA256>
+<SHA256>caefc3330773007203efbc3087b373de80468460a8c4f554fdeb3274e4ac0ba3</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07d - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07e - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -2767,7 +2859,7 @@ if [ ! -f "$B/paths.env" ]; then
 # Where job data (logs, status, backups, dry-run previews) is kept.
 # Leave commented to auto-detect: first mounted array disk, hidden dot-folder
 # (e.g. /mnt/disk1/.rclone-jobs - not visible in the /mnt/user share namespace).
-# Shares (/mnt/user/...) and system paths are refused by policy.
+# Shares (/mnt/user/...), the flash (/boot) and system paths are refused by policy.
 #STORAGE_ROOT=/mnt/disk1/.rclone-jobs
 
 # Master safety switch: yes = every scheduled run executes as DRY-RUN until you
@@ -2777,6 +2869,10 @@ DRY_RUN_MASTER=yes
 # Quiet hours for alerts (24h, used by watchdog; blank = always alert)
 QUIET_START=23:00
 QUIET_END=07:00
+
+# Config schema marker (readers must ignore unknown keys; a future release that
+# changes this file's format bumps the number and migrates from the old value).
+CONFIG_VERSION=1
 EOF
   log "created default $B/paths.env"
 fi
@@ -2795,7 +2891,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>a4940f490919345565aa98b9793a96d76b9470c5ec8f07bf840886a8ec426ca8</SHA256>
+<SHA256>e97ac206c57d7ea27e32886cbb19d65c16552e814304b0f6d103195b3a9c8db8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -2849,6 +2945,25 @@ logger -t "$NAME" -- "array_started event" 2&gt;/dev/null || true
 exit 0
 </INLINE>
 <SHA256>361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf</SHA256>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/started" Mode="0755">
+<INLINE>
+#!/bin/bash
+# rclone-jobs 'started' event - the general "system is up" hook. array_started can
+# fire BEFORE the disks are actually mounted, in which case install-engine/regen
+# deferred themselves; this is the guaranteed retry once /mnt/diskN are mounted.
+# Idempotent and cheap (both scripts no-op when already in sync). Must never fail:
+# always exit 0.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+logger -t "$NAME" -- "started event (array-up retry)" 2&gt;/dev/null || true
+[ -x "$D/scripts/install-engine.sh" ] &amp;&amp; "$D/scripts/install-engine.sh" &gt;/dev/null 2&gt;&amp;1
+[ -x "$D/scripts/regen-cron.sh" ]     &amp;&amp; "$D/scripts/regen-cron.sh" &gt;/dev/null 2&gt;&amp;1
+exit 0
+</INLINE>
+<SHA256>28a59bfb180f905827ea55e4314b981667f5e5be274bb42e6a2af2709604edb0</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/uninstalling" Mode="0755">

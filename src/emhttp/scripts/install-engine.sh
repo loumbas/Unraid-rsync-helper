@@ -13,12 +13,12 @@ log() { printf '%s\n' "$*"; logger -t "$NAME" -- "install-engine: $*" 2>/dev/nul
 # keep in sync with engine policy_ok()
 policy_ok() {
   case "$1" in
-    /|/mnt/user|/mnt/user/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
+    /|/mnt/user|/mnt/user/*|/boot|/boot/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
   esac
   local rp
   rp="$(realpath -m -- "$1" 2>/dev/null)" || return 1
   case "$rp" in
-    /|/mnt/user|/mnt/user/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
+    /|/mnt/user|/mnt/user/*|/boot|/boot/*|/etc|/etc/*|/usr|/usr/*|/var/log|/var/log/*) return 1 ;;
   esac
   return 0
 }
@@ -53,7 +53,7 @@ if [ -z "$SR" ]; then
   exit 0
 fi
 if ! policy_ok "$SR"; then
-  log "REFUSED STORAGE_ROOT '$SR' (must live outside /, /mnt/user, /etc, /usr, /var/log) - nothing done"
+  log "REFUSED STORAGE_ROOT '$SR' (must live outside /, /mnt/user, /boot, /etc, /usr, /var/log) - nothing done"
   exit 1
 fi
 if ! mkdir -p "$SR" "$SR/logs" "$SR/status" "$SR/backup" 2>/dev/null; then

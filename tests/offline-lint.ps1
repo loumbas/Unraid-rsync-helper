@@ -133,6 +133,37 @@ foreach ($rel in $phps) {
 }
 if ($phps.Count -gt 0 -and $script:Fails.Count -eq 0) { Add-Pass "PHP files present and PHP8-clean by heuristic ($($phps.Count))" }
 
+# ------------------------------- optional deep lint: shellcheck + php -l -----
+# Run the real analyzers when the dev box happens to have them (docs/advanced/
+# testing.md). There is no package manager here, so an absent tool is a logged
+# SKIP-pass, never a build failure.
+$shTargets = @($hygieneFiles | Where-Object { $_.EndsWith('.sh') -or $_.StartsWith('emhttp/event/') })
+if ($null -eq (Get-Command shellcheck -ErrorAction SilentlyContinue)) {
+    Add-Pass "shellcheck not installed - deep script lint skipped ($($shTargets.Count) scripts)"
+} else {
+    $scBad = 0
+    foreach ($rel in $shTargets) {
+        $p = Join-Path $srcRoot ($rel.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        $out = (& shellcheck --severity=warning --format=tty -- "$p" 2>&1 | Out-String)
+        if ($LASTEXITCODE -ne 0) { Add-Fail "shellcheck findings: src/$rel"; Write-Host $out; $scBad++ }
+    }
+    if ($scBad -eq 0) { Add-Pass "shellcheck clean, severity=warning ($($shTargets.Count) scripts)" }
+}
+if ($phps.Count -eq 0) {
+    # nothing to lint
+} elseif ($null -eq (Get-Command php -ErrorAction SilentlyContinue)) {
+    Add-Pass "php CLI not installed - php -l skipped ($($phps.Count) files)"
+} else {
+    $plBad = 0
+    foreach ($rel in $phps) {
+        $p = Join-Path $srcRoot ($rel.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        $out = (& php -l -- "$p" 2>&1 | Out-String)
+        if ($LASTEXITCODE -ne 0) { Add-Fail "php -l findings: src/$rel"; Write-Host $out; $plBad++ }
+    }
+    if ($plBad -eq 0) { Add-Pass "php -l clean ($($phps.Count) files)" }
+}
+
 # conf.example sanity: KEY=VALUE lines
 $confs = @($treeFiles | Where-Object { $_ -like 'jobs/*' })
 foreach ($rel in $confs) {

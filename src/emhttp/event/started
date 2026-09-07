@@ -1,0 +1,13 @@
+#!/bin/bash
+# rclone-jobs 'started' event - the general "system is up" hook. array_started can
+# fire BEFORE the disks are actually mounted, in which case install-engine/regen
+# deferred themselves; this is the guaranteed retry once /mnt/diskN are mounted.
+# Idempotent and cheap (both scripts no-op when already in sync). Must never fail:
+# always exit 0.
+set -u
+NAME="rclone-jobs"
+D="/usr/local/emhttp/plugins/$NAME"
+logger -t "$NAME" -- "started event (array-up retry)" 2>/dev/null || true
+[ -x "$D/scripts/install-engine.sh" ] && "$D/scripts/install-engine.sh" >/dev/null 2>&1
+[ -x "$D/scripts/regen-cron.sh" ]     && "$D/scripts/regen-cron.sh" >/dev/null 2>&1
+exit 0

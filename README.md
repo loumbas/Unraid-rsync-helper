@@ -35,7 +35,7 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 |---|---|
 | Master dry-run switch | ON by default; when ON, schedule = simulation, period |
 | Per-job gate | real run requires a fresh matching dry-run |
-| Share policy | plugin data lives in a hidden dot-folder (`/mnt/diskN/.rclone-jobs`), never under `/mnt/user`, `/etc`, `/usr`, `/var/log`, `/` |
+| Share policy | plugin data lives in a hidden dot-folder (`/mnt/diskN/.rclone-jobs`), never under `/mnt/user`, `/boot`, `/etc`, `/usr`, `/var/log`, `/` |
 | Mount guard | source must exist, destination must be an already-mounted non-tmpfs directory; never auto-creates destinations |
 | Storage overlap | a job with SRC/DST **inside** the storage folder is refused; a job whose SRC/DST **contains** it (hosting disk root, `/mnt/user`) runs with `/.rclone-jobs` auto-excluded (custom engine: warned, cannot exclude) |
 | Config injection | job names, schedules and paths are whitelist-validated; config values are never shell-evaluated |
@@ -96,7 +96,10 @@ each box-verified on Unraid 7.3.2:
 
 The `installed` / `updating` / `uninstalling` handlers in `event/` are plugin
 lifecycle hooks (fired by Unraid's plugin manager, not the 16 emhttp array
-events); they are quiet, idempotent and always `exit 0`.
+events); they are quiet, idempotent and always `exit 0`. `array_started` and
+`started` are genuine emhttp events: `array_started` can fire before the disks
+are mounted, so `started` is the guaranteed retry for the engine deploy + cron
+block once `/mnt/diskN` are really up.
 
 ## License
 
