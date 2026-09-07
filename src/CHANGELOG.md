@@ -1,3 +1,19 @@
+## 2026.09.07k
+Job export / import (fleet setup) on the Alerts & Safety tab:
+- Engine 'export-jobs': every job config (regular files, valid names only) plus meta.txt
+  (plugin version, export time, host) packed as a deterministic tar.gz and returned
+  base64-in-JSON; the UI builds a normal file download. Job names, paths, schedules and
+  script locations are inside - credentials never are.
+- Engine 'import-jobs <ask|overwrite|skip> <b64-file>': size cap ~1 MiB, member names
+  whitelisted BEFORE extraction (only meta.txt, jobs/ and jobs/<valid>.conf - tar-slip
+  impossible), each config re-validated by the real save-time validators in a subshell
+  (one bad file is rejected individually, the rest still import), atomic installs mode
+  0600; overwrite first keeps a .pre-import-<ts> backup; 'ask' (default) reports name
+  conflicts and changes nothing. The upload file is consumed by the engine.
+- The archive reaches the ajax endpoint as base64 inside the normal urlencoded body,
+  never multipart (the CSRF recovery cannot read a multipart body). Cron block is
+  regenerated automatically when something was added or replaced.
+
 ## 2026.09.07j
 Doctor verifies the deployed files against a shipped checksum manifest:
 - The build now GENERATES installed-checksums.txt (one 'sha256  deployed-path  mode' line

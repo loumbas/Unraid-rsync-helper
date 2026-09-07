@@ -866,6 +866,115 @@ cmd_tail_log() { # <job> -> JSON {ok,log,size,text}: redacted tail of the record
     '{ok:true, log:$log, size:$size, text:$text}'
 }
 
+# ------------------------------------------------------ export / import -----
+# Fleet setup: export the job set (conf files only - they hold NO secrets by
+# design) as a tar.gz delivered base64-through-JSON; import validates EVERY
+# member before anything touches jobs/. The archive never follows symlinks
+# and member names must match ^jobs/<valid-name>.conf$ (tar-slip guard).
+imp_err() { # <message> - one-line JSON error
+  local e="${1//\\/\\\\}"; e="${e//\"/\\\"}"; e="${e//$'\n'/ }"
+  printf '{"ok":false,"error":"%s"}\n' "$e"
+  return 0
+}
+
+cmd_export_jobs() { # -> JSON {ok,name,count,archive(b64)} - no STORAGE_ROOT needed
+  load_paths
+  local f n tmp b64 count=0
+  [ -d "$BOOT_DIR/jobs" ] || { imp_err "no jobs configured yet - nothing to export"; return 0; }
+  tmp="$(mktemp -d /tmp/rj-export.XXXXXX)" || { imp_err "mktemp failed"; return 0; }
+  mkdir -p "$tmp/stage/jobs"
+  for f in "$BOOT_DIR/jobs"/*.conf; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    n="$(basename "$f" .conf)"
+    valid_jobname "$n" || continue
+    cp "$f" "$tmp/stage/jobs/$n.conf" || { rm -rf "$tmp"; imp_err "copy failed for $n"; return 0; }
+    count=$((count + 1))
+  done
+  [ "$count" -gt 0 ] || { rm -rf "$tmp"; imp_err "no valid job configs to export"; return 0; }
+  printf 'plugin=rclone-jobs\nversion=%s\nexported=%s\nhost=%s\n' \
+    "$ENGINE_VERSION" "$(stamp_now)" "$(hostname 2>/dev/null || printf unknown)" > "$tmp/stage/meta.txt"
+  # -h (no dereference) is the default here: only the regular confs were staged
+  ( cd "$tmp/stage" && tar -czf "$tmp/export.tgz" --owner=0 --group=0 --numeric-owner meta.txt jobs ) \
+    || { rm -rf "$tmp"; imp_err "tar failed"; return 0; }
+  b64="$(base64 -w0 "$tmp/export.tgz" 2>/dev/null)" || b64="$(base64 "$tmp/export.tgz" | tr -d '\n')"
+  rm -rf "$tmp"
+  jq -nc --arg b64 "$b64" --arg name "rclone-jobs-jobs-$(date +%Y%m%d-%H%M%S).tgz" --argjson count "$count" \
+    '{ok:true, name:$name, count:$count, archive:$b64}'
+}
+
+cmd_import_jobs() { # <ask|overwrite|skip> <b64-file> -> JSON report; nothing is written before validation
+  local mode="${1:-ask}" src="${2:-}" m n f bad="" members mcount=0 tmp b64
+  local dest added=0 replaced=0 skipped=0 conflicts="" rejected="" first=true
+  case "$mode" in ask|overwrite|skip) ;; *) mode=ask ;; esac
+  [ -f "$src" ] || { imp_err "no uploaded archive"; return 0; }
+  [ "$(stat -c %s "$src" 2>/dev/null || echo 99999999)" -le 1500000 ] || { rm -f "$src"; imp_err "upload too large (max ~1 MiB)"; return 0; }
+  load_paths
+  mkdir -p "$BOOT_DIR/jobs" 2>/dev/null || { imp_err "cannot create $BOOT_DIR/jobs"; return 0; }
+  tmp="$(mktemp -d /tmp/rj-import.XXXXXX)" || { rm -f "$src"; imp_err "mktemp failed"; return 0; }
+  chmod 700 "$tmp"
+  base64 -d < "$src" > "$tmp/archive.tgz" 2>/dev/null || { rm -rf "$tmp"; imp_err "upload is not valid base64"; return 0; }
+  rm -f "$src"
+  [ -s "$tmp/archive.tgz" ] || { rm -rf "$tmp"; imp_err "empty archive"; return 0; }
+  members="$(tar -tzf "$tmp/archive.tgz" 2>/dev/null)" || { rm -rf "$tmp"; imp_err "cannot read tar.gz archive"; return 0; }
+  # name-only whitelist BEFORE extracting: meta.txt, the jobs/ dir entry, or a
+  # plain jobs/<valid>.conf. Nothing absolute, no '..', no symlinks-by-name.
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    mcount=$((mcount + 1))
+    [ "$mcount" -le 101 ] || { bad="more than 100 members"; break; }
+    case "$m" in meta.txt|jobs/) continue ;; esac
+    [[ "$m" =~ ^jobs/[A-Za-z0-9_-]{1,40}\.conf$ ]] || { bad="member '$m' is not a plain jobs/<name>.conf file"; break; }
+  done <<< "$members"
+  [ -z "$bad" ] || { rm -rf "$tmp"; imp_err "refused: $bad"; return 0; }
+  mkdir -p "$tmp/extract" "$tmp/validate/jobs"
+  tar -xzf "$tmp/archive.tgz" -C "$tmp/extract" --no-same-owner \
+    || { rm -rf "$tmp"; imp_err "extraction failed"; return 0; }
+  local eng; eng="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+  for f in "$tmp/extract/jobs"/*.conf; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] && [ ! -L "$f" ] || { rejected="$rejected ${f##*/}(not-regular)"; continue; }
+    n="$(basename "$f" .conf)"
+    valid_jobname "$n" || { rejected="$rejected $n(bad-name)"; continue; }
+    cp "$f" "$tmp/validate/jobs/$n.conf" || { rejected="$rejected $n(copy-failed)"; continue; }
+    # full structural validation with the REAL engine validators in a subshell
+    # (load_job+validate_job die 78 on anything wrong; storage checks stay runtime)
+    if ! RJ_BOOT_DIR="$tmp/validate" bash "$eng" validate-job "$n" >/dev/null 2>&1; then
+      rejected="$rejected $n(invalid-config)"
+      rm -f "$tmp/validate/jobs/$n.conf"
+      continue
+    fi
+    dest="$BOOT_DIR/jobs/$n.conf"
+    if [ -f "$dest" ]; then
+      case "$mode" in
+        ask)  [ "$first" = true ] || conflicts="$conflicts,"
+              first=false; conflicts="$conflicts$n"; continue ;;
+        skip) skipped=$((skipped + 1)); continue ;;
+      esac
+      cp "$dest" "$dest.pre-import-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+      replaced=$((replaced + 1))
+    else
+      added=$((added + 1))
+    fi
+    install -m 600 "$f" "$dest" 2>/dev/null || { cp "$f" "$dest" && chmod 600 "$dest"; }
+  done
+  rm -rf "$tmp"
+  rejected="${rejected# }"
+  jq -nc --argjson added "$added" --argjson replaced "$replaced" --argjson skipped "$skipped" \
+         --arg conflicts "$conflicts" --arg rejected "$rejected" --arg mode "$mode" \
+    '{ok:true, mode:$mode, added:$added, replaced:$replaced, skipped:$skipped,
+      conflicts:(if $conflicts=="" then [] else ($conflicts|split(",")) end),
+      rejected:(if $rejected=="" then [] else ($rejected|split(" ")) end)}'
+}
+
+cmd_validate_job() { # <job> - hidden helper for import: exits 78 on any config problem
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || die 78 "invalid job name"
+  load_paths
+  load_job
+  say "valid"
+}
+
 cmd_list() {
   local f n
   [ -d "$BOOT_DIR/jobs" ] || { say "(no jobs directory: $BOOT_DIR/jobs)"; return 0; }
@@ -1321,6 +1430,8 @@ usage:
   rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh tail-log <job>          redacted tail (64 KiB) of the job's last log as JSON
   rclone-jobs.sh list                    list job names
+  rclone-jobs.sh export-jobs             job set as tar.gz, base64 on stdout (JSON)
+  rclone-jobs.sh import-jobs <ask|overwrite|skip> <b64-file>   validated import
   rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
   rclone-jobs.sh shutdown-notice         'stopping' event: trace jobs cut off mid-run (fast, exit 0)
@@ -1343,6 +1454,9 @@ main() {
     status)   cmd_status ;;
     status-json) cmd_status_json ;;
     tail-log) [ $# -ge 1 ] || die 78 "usage: $0 tail-log <job>"; cmd_tail_log "$1" ;;
+    export-jobs) cmd_export_jobs ;;
+    import-jobs) cmd_import_jobs "$@" ;;
+    validate-job) [ $# -ge 1 ] || die 78 "usage: $0 validate-job <job>"; cmd_validate_job "$1" ;;
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;

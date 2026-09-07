@@ -228,6 +228,40 @@ case 'tail_log':
     if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad log response (rc ' . $erc . ')']);
     rj_out($bj);
 
+case 'export_jobs':
+    /* job set as tar.gz base64 (confs hold no secrets by design; the UI warns
+       that paths and custom-script locations are part of the archive) */
+    $eo = []; $erc = 0;
+    rj_engine('export-jobs', $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad export response (rc ' . $erc . ')']);
+    rj_out($bj);
+
+case 'import_jobs':
+    /* the archive travels as base64 inside this urlencoded body, NEVER as
+       multipart - the CSRF recovery above cannot read a multipart body. The
+       engine enforces the size cap, the member-name whitelist (tar-slip),
+       the full save-job validators and the ask/overwrite/skip conflict mode. */
+    $arch = rj_str($_POST['archive'] ?? '');
+    if ($arch === '') rj_out(['ok' => false, 'error' => 'no archive data']);
+    if (strlen($arch) > 1500000) rj_out(['ok' => false, 'error' => 'archive too large (max ~1 MiB)']);
+    $modeIn = rj_str($_POST['mode'] ?? 'ask');
+    $mode = in_array($modeIn, ['ask', 'overwrite', 'skip'], true) ? $modeIn : 'ask';
+    $tmp = @tempnam('/tmp', 'rj-import-');
+    if ($tmp === false) rj_out(['ok' => false, 'error' => 'cannot stage the upload']);
+    @chmod($tmp, 0600);
+    file_put_contents($tmp, $arch);
+    $eo = []; $erc = 0;
+    rj_engine('import-jobs ' . $mode . ' ' . escapeshellarg($tmp), $eo, $erc);
+    @unlink($tmp); /* the engine consumes it; belt and braces */
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad import response (rc ' . $erc . ')']);
+    if ($bj['ok'] && ((int)($bj['added'] ?? 0) + (int)($bj['replaced'] ?? 0)) > 0) {
+        $rg = []; rj_regen($rg);
+        $bj['regen'] = implode(' ', $rg);
+    }
+    rj_out($bj);
+
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);

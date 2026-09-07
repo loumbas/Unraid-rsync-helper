@@ -248,6 +248,18 @@ $rjdata = [
       <blockquote class='inline_help'><p>Job alerts use Unraid's own notification system - nothing is configured here. That page decides which agents receive each importance level: the WebUI bell always gets them; email, Telegram, Discord, Slack and Pushover are enabled and set up there (the Telegram agent asks for the bot token and chat id once, system-wide). This plugin stores no credentials and never contacts a notification provider itself.</p></blockquote>
       <dl><dt>Test:</dt><dd class="rj-inline"><select id="a_ntlevel"><option value="normal">normal</option><option value="warning">warning</option><option value="alert">alert</option></select> <input type="button" id="rj-nt-test" value="Send test notification" class="rj-btn"></dd></dl>
       <blockquote class='inline_help'><p>Sends one notification at the chosen level through the native notify script - check the bell and every agent you expect (Telegram only receives levels you ticked in Notification Settings).</p></blockquote>
+    <div class="title">
+      <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-exchange title'></i>Job portability (export / import)</span>
+    </div>
+    <p></p>
+      <dl><dt>Export:</dt><dd class="rj-inline"><input type="button" id="rj-export" value="Download job set (.tgz)" class="rj-btn"></dd></dl>
+      <blockquote class='inline_help'><p>Packs every job config plus a small meta.txt (plugin version, host, date) into one download for setting up another server. <em>Note:</em> the archive contains your job names, paths, schedules and custom-script locations - nothing secret (rclone credentials always stay in this server's rclone config), but treat the file accordingly.</p></blockquote>
+      <dl><dt>Import:</dt><dd class="rj-inline">
+        <select id="a_importmode"><option value="ask">ask - report conflicts, change nothing</option><option value="overwrite">overwrite same-named jobs</option><option value="skip">keep same-named jobs</option></select>
+        <input type="button" id="rj-import-btn" value="Choose archive..." class="rj-btn">
+        <input type="file" id="a_import_file" accept=".tgz,.gz,application/gzip" style="display:none">
+      </dd></dl>
+      <blockquote class='inline_help'><p>Every member of the archive is re-validated with the exact same rules as saving a job (name, engine, paths, schedule, storage policy at run time); anything invalid is rejected individually and never written. Existing jobs are only replaced in <em>overwrite</em> mode, and a replaced config is kept next to it as a <em>.pre-import-</em> backup first. Remote names must already exist in this server's rclone config or the imported job will refuse to run until they do.</p></blockquote>
     <dl>
       <dt>&nbsp;</dt>
       <dd><input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"></dd>

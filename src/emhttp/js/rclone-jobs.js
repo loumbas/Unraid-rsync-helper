@@ -585,6 +585,54 @@ $(function () {
     });
   });
 
+  /* job portability: export builds a Blob download client-side; import sends
+     the archive as base64 inside the urlencoded body (never multipart - the
+     ajax CSRF path cannot read one) and the engine re-validates everything */
+  $('#rj-export').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $b = $(this);
+    if ($b.prop('disabled')) return;
+    $b.prop('disabled', true).val('exporting...');
+    rjPost({ action: 'export_jobs' }, function (res) {
+      $b.prop('disabled', false).val('Download job set (.tgz)');
+      if (!res.ok) { rjPanel('rj-alerts-result', 'ERROR: ' + (res.error || '?'), true); return; }
+      try {
+        var bin = atob(res.archive), arr = new Uint8Array(bin.length), i;
+        for (i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        var url = URL.createObjectURL(new Blob([arr], { type: 'application/gzip' }));
+        var a = document.createElement('a');
+        a.href = url; a.download = res.name || 'rclone-jobs-jobs.tgz';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+        rjPanel('rj-alerts-result', 'Exported ' + res.count + ' job(s) -> ' + (res.name || 'archive') +
+                '\nThe file holds job names, paths, schedules and script locations (no credentials).', false);
+      } catch (e) { rjPanel('rj-alerts-result', 'ERROR: the browser could not build the download: ' + e, true); }
+    });
+  });
+  $('#rj-import-btn').off('.rclonejobs').on('click.rclonejobs', function () { $('#a_import_file').trigger('click'); });
+  $('#a_import_file').off('.rclonejobs').on('change.rclonejobs', function () {
+    var f = this.files && this.files[0], self = this;
+    self.value = ''; /* the File handle stays valid for the read */
+    if (!f) return;
+    if (f.size > 1048576) { rjPanel('rj-alerts-result', 'ERROR: archive is larger than 1 MiB - refusing.', true); return; }
+    var rd = new FileReader();
+    rd.onerror = function () { rjPanel('rj-alerts-result', 'ERROR: could not read the file', true); };
+    rd.onload = function () {
+      var b64 = String(rd.result).split(',').pop();
+      var $b = $('#rj-import-btn');
+      $b.prop('disabled', true).val('importing...');
+      rjPost({ action: 'import_jobs', archive: b64, mode: $('#a_importmode').val() }, function (res) {
+        $b.prop('disabled', false).val('Choose archive...');
+        if (!res.ok) { rjPanel('rj-alerts-result', 'ERROR: ' + (res.error || '?'), true); return; }
+        var msg = 'Import (' + res.mode + '): ' + res.added + ' added, ' + res.replaced + ' replaced, ' + res.skipped + ' kept.';
+        if (res.conflicts && res.conflicts.length) msg += '\nConflicts left untouched (ask mode): ' + res.conflicts.join(', ') + '\nPick overwrite/keep and re-import if you want them changed.';
+        if (res.rejected && res.rejected.length) msg += '\nRejected (never written): ' + res.rejected.join(', ');
+        rjPanel('rj-alerts-result', msg, !!(res.rejected && res.rejected.length));
+        if (res.added || res.replaced) setTimeout(function () { location.reload(); }, 1800);
+      });
+    };
+    rd.readAsDataURL(f);
+  });
+
   /* ---------------- path browser modal ---------------- */
   var rjB = { scope: 'local', path: '', parent: '', files: false, allowRclone: true, target: '', req: 0, built: false };
 

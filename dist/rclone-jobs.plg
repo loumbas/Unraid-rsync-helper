@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07j">
+<!ENTITY version   "2026.09.07k">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,22 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07k
+Job export / import (fleet setup) on the Alerts &amp; Safety tab:
+- Engine 'export-jobs': every job config (regular files, valid names only) plus meta.txt
+  (plugin version, export time, host) packed as a deterministic tar.gz and returned
+  base64-in-JSON; the UI builds a normal file download. Job names, paths, schedules and
+  script locations are inside - credentials never are.
+- Engine 'import-jobs &lt;ask|overwrite|skip&gt; &lt;b64-file&gt;': size cap ~1 MiB, member names
+  whitelisted BEFORE extraction (only meta.txt, jobs/ and jobs/&lt;valid&gt;.conf - tar-slip
+  impossible), each config re-validated by the real save-time validators in a subshell
+  (one bad file is rejected individually, the rest still import), atomic installs mode
+  0600; overwrite first keeps a .pre-import-&lt;ts&gt; backup; 'ask' (default) reports name
+  conflicts and changes nothing. The upload file is consumed by the engine.
+- The archive reaches the ajax endpoint as base64 inside the normal urlencoded body,
+  never multipart (the CSRF recovery cannot read a multipart body). Cron block is
+  regenerated automatically when something was added or replaced.
+
 ## 2026.09.07j
 Doctor verifies the deployed files against a shipped checksum manifest:
 - The build now GENERATES installed-checksums.txt (one 'sha256  deployed-path  mode' line
@@ -141,27 +157,6 @@ Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fi
   connected to a full-width underline bar (theme-independent, dark+light safe).
 - Quiet-window inputs stay on one row (fixed small width, spaced 'to'); the Test
   level dropdown no longer stretches across the whole column.
-
-## 2026.09.07a
-- Notifications now use ONLY the native Unraid system: every alert goes through the
-  webGui notify script, and delivery (WebUI bell, email, Telegram, Discord, Pushover)
-  is whatever the user enabled per importance level under Settings -&gt; Notification
-  Settings. The plugin stores no credentials and never contacts a notification
-  provider itself (the rclone transfers themselves are unchanged).
-- Removed the built-in Telegram sender: the bot-token/chat-id fields, the notify.env
-  secret file handling and 'doctor --telegram' are gone. Existing notify.env files
-  are no longer read and are left untouched - delete the leftover secret file by
-  hand when convenient: rm '/mnt/diskN/.rclone-jobs/notify.env'
-- Fix: notifications were silently DELETED instead of shown - every call passed -x
-  ("delete matching notification") to the notify script, so nothing ever appeared.
-- New per-job Notify setting: always (OK + problems) | failures only | off. Old
-  HEARTBEAT=no configs map to 'failures'; off also silences failures for that job
-  (syslog and the job log are still written). The quiet window keeps suppressing
-  only the OK notices.
-- Richer notices: run results carry a full message body (seconds, transferred,
-  error counts, log path) and a clickable link to the plugin page.
-- Testing: new 'notify-test [normal|warning|alert]' engine command, a "Send test
-  notification" button on the Alerts &amp; Safety tab, and 'doctor --notify' (opt-in).
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -200,7 +195,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07j - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07k - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -222,7 +217,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07j"
+ENGINE_VERSION="2026.09.07k"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1066,6 +1061,115 @@ cmd_tail_log() { # &lt;job&gt; -&gt; JSON {ok,log,size,text}: redacted tail of t
     '{ok:true, log:$log, size:$size, text:$text}'
 }
 
+# ------------------------------------------------------ export / import -----
+# Fleet setup: export the job set (conf files only - they hold NO secrets by
+# design) as a tar.gz delivered base64-through-JSON; import validates EVERY
+# member before anything touches jobs/. The archive never follows symlinks
+# and member names must match ^jobs/&lt;valid-name&gt;.conf$ (tar-slip guard).
+imp_err() { # &lt;message&gt; - one-line JSON error
+  local e="${1//\\/\\\\}"; e="${e//\"/\\\"}"; e="${e//$'\n'/ }"
+  printf '{"ok":false,"error":"%s"}\n' "$e"
+  return 0
+}
+
+cmd_export_jobs() { # -&gt; JSON {ok,name,count,archive(b64)} - no STORAGE_ROOT needed
+  load_paths
+  local f n tmp b64 count=0
+  [ -d "$BOOT_DIR/jobs" ] || { imp_err "no jobs configured yet - nothing to export"; return 0; }
+  tmp="$(mktemp -d /tmp/rj-export.XXXXXX)" || { imp_err "mktemp failed"; return 0; }
+  mkdir -p "$tmp/stage/jobs"
+  for f in "$BOOT_DIR/jobs"/*.conf; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] &amp;&amp; [ ! -L "$f" ] || continue
+    n="$(basename "$f" .conf)"
+    valid_jobname "$n" || continue
+    cp "$f" "$tmp/stage/jobs/$n.conf" || { rm -rf "$tmp"; imp_err "copy failed for $n"; return 0; }
+    count=$((count + 1))
+  done
+  [ "$count" -gt 0 ] || { rm -rf "$tmp"; imp_err "no valid job configs to export"; return 0; }
+  printf 'plugin=rclone-jobs\nversion=%s\nexported=%s\nhost=%s\n' \
+    "$ENGINE_VERSION" "$(stamp_now)" "$(hostname 2&gt;/dev/null || printf unknown)" &gt; "$tmp/stage/meta.txt"
+  # -h (no dereference) is the default here: only the regular confs were staged
+  ( cd "$tmp/stage" &amp;&amp; tar -czf "$tmp/export.tgz" --owner=0 --group=0 --numeric-owner meta.txt jobs ) \
+    || { rm -rf "$tmp"; imp_err "tar failed"; return 0; }
+  b64="$(base64 -w0 "$tmp/export.tgz" 2&gt;/dev/null)" || b64="$(base64 "$tmp/export.tgz" | tr -d '\n')"
+  rm -rf "$tmp"
+  jq -nc --arg b64 "$b64" --arg name "rclone-jobs-jobs-$(date +%Y%m%d-%H%M%S).tgz" --argjson count "$count" \
+    '{ok:true, name:$name, count:$count, archive:$b64}'
+}
+
+cmd_import_jobs() { # &lt;ask|overwrite|skip&gt; &lt;b64-file&gt; -&gt; JSON report; nothing is written before validation
+  local mode="${1:-ask}" src="${2:-}" m n f bad="" members mcount=0 tmp b64
+  local dest added=0 replaced=0 skipped=0 conflicts="" rejected="" first=true
+  case "$mode" in ask|overwrite|skip) ;; *) mode=ask ;; esac
+  [ -f "$src" ] || { imp_err "no uploaded archive"; return 0; }
+  [ "$(stat -c %s "$src" 2&gt;/dev/null || echo 99999999)" -le 1500000 ] || { rm -f "$src"; imp_err "upload too large (max ~1 MiB)"; return 0; }
+  load_paths
+  mkdir -p "$BOOT_DIR/jobs" 2&gt;/dev/null || { imp_err "cannot create $BOOT_DIR/jobs"; return 0; }
+  tmp="$(mktemp -d /tmp/rj-import.XXXXXX)" || { rm -f "$src"; imp_err "mktemp failed"; return 0; }
+  chmod 700 "$tmp"
+  base64 -d &lt; "$src" &gt; "$tmp/archive.tgz" 2&gt;/dev/null || { rm -rf "$tmp"; imp_err "upload is not valid base64"; return 0; }
+  rm -f "$src"
+  [ -s "$tmp/archive.tgz" ] || { rm -rf "$tmp"; imp_err "empty archive"; return 0; }
+  members="$(tar -tzf "$tmp/archive.tgz" 2&gt;/dev/null)" || { rm -rf "$tmp"; imp_err "cannot read tar.gz archive"; return 0; }
+  # name-only whitelist BEFORE extracting: meta.txt, the jobs/ dir entry, or a
+  # plain jobs/&lt;valid&gt;.conf. Nothing absolute, no '..', no symlinks-by-name.
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    mcount=$((mcount + 1))
+    [ "$mcount" -le 101 ] || { bad="more than 100 members"; break; }
+    case "$m" in meta.txt|jobs/) continue ;; esac
+    [[ "$m" =~ ^jobs/[A-Za-z0-9_-]{1,40}\.conf$ ]] || { bad="member '$m' is not a plain jobs/&lt;name&gt;.conf file"; break; }
+  done &lt;&lt;&lt; "$members"
+  [ -z "$bad" ] || { rm -rf "$tmp"; imp_err "refused: $bad"; return 0; }
+  mkdir -p "$tmp/extract" "$tmp/validate/jobs"
+  tar -xzf "$tmp/archive.tgz" -C "$tmp/extract" --no-same-owner \
+    || { rm -rf "$tmp"; imp_err "extraction failed"; return 0; }
+  local eng; eng="$(readlink -f "$0" 2&gt;/dev/null || printf '%s' "$0")"
+  for f in "$tmp/extract/jobs"/*.conf; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] &amp;&amp; [ ! -L "$f" ] || { rejected="$rejected ${f##*/}(not-regular)"; continue; }
+    n="$(basename "$f" .conf)"
+    valid_jobname "$n" || { rejected="$rejected $n(bad-name)"; continue; }
+    cp "$f" "$tmp/validate/jobs/$n.conf" || { rejected="$rejected $n(copy-failed)"; continue; }
+    # full structural validation with the REAL engine validators in a subshell
+    # (load_job+validate_job die 78 on anything wrong; storage checks stay runtime)
+    if ! RJ_BOOT_DIR="$tmp/validate" bash "$eng" validate-job "$n" &gt;/dev/null 2&gt;&amp;1; then
+      rejected="$rejected $n(invalid-config)"
+      rm -f "$tmp/validate/jobs/$n.conf"
+      continue
+    fi
+    dest="$BOOT_DIR/jobs/$n.conf"
+    if [ -f "$dest" ]; then
+      case "$mode" in
+        ask)  [ "$first" = true ] || conflicts="$conflicts,"
+              first=false; conflicts="$conflicts$n"; continue ;;
+        skip) skipped=$((skipped + 1)); continue ;;
+      esac
+      cp "$dest" "$dest.pre-import-$(date +%Y%m%d-%H%M%S)" 2&gt;/dev/null || true
+      replaced=$((replaced + 1))
+    else
+      added=$((added + 1))
+    fi
+    install -m 600 "$f" "$dest" 2&gt;/dev/null || { cp "$f" "$dest" &amp;&amp; chmod 600 "$dest"; }
+  done
+  rm -rf "$tmp"
+  rejected="${rejected# }"
+  jq -nc --argjson added "$added" --argjson replaced "$replaced" --argjson skipped "$skipped" \
+         --arg conflicts "$conflicts" --arg rejected "$rejected" --arg mode "$mode" \
+    '{ok:true, mode:$mode, added:$added, replaced:$replaced, skipped:$skipped,
+      conflicts:(if $conflicts=="" then [] else ($conflicts|split(",")) end),
+      rejected:(if $rejected=="" then [] else ($rejected|split(" ")) end)}'
+}
+
+cmd_validate_job() { # &lt;job&gt; - hidden helper for import: exits 78 on any config problem
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || die 78 "invalid job name"
+  load_paths
+  load_job
+  say "valid"
+}
+
 cmd_list() {
   local f n
   [ -d "$BOOT_DIR/jobs" ] || { say "(no jobs directory: $BOOT_DIR/jobs)"; return 0; }
@@ -1521,6 +1625,8 @@ usage:
   rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh tail-log &lt;job&gt;          redacted tail (64 KiB) of the job's last log as JSON
   rclone-jobs.sh list                    list job names
+  rclone-jobs.sh export-jobs             job set as tar.gz, base64 on stdout (JSON)
+  rclone-jobs.sh import-jobs &lt;ask|overwrite|skip&gt; &lt;b64-file&gt;   validated import
   rclone-jobs.sh browse &lt;local|rclone&gt; &lt;path&gt; [files]   read-only listing as JSON
   rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
   rclone-jobs.sh shutdown-notice         'stopping' event: trace jobs cut off mid-run (fast, exit 0)
@@ -1543,6 +1649,9 @@ main() {
     status)   cmd_status ;;
     status-json) cmd_status_json ;;
     tail-log) [ $# -ge 1 ] || die 78 "usage: $0 tail-log &lt;job&gt;"; cmd_tail_log "$1" ;;
+    export-jobs) cmd_export_jobs ;;
+    import-jobs) cmd_import_jobs "$@" ;;
+    validate-job) [ $# -ge 1 ] || die 78 "usage: $0 validate-job &lt;job&gt;"; cmd_validate_job "$1" ;;
     list)     cmd_list ;;
     browse)   cmd_browse "$@" ;;
     watchdog) cmd_watchdog ;;
@@ -1555,7 +1664,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>de0d6e09540f369bf2b2863b85b5b1ee16728040381f9703c9e9eb8a5803bd43</SHA256>
+<SHA256>a70029bb1b95364477016cf7e8d7ca549164e8ee68815ccfe3e4d592e98d7471</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1732,7 +1841,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07j - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07k - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1781,7 +1890,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07j',
+    'version'    =&gt; '2026.09.07k',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1824,7 +1933,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07j"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07k"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1977,6 +2086,18 @@ $rjdata = [
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;Job alerts use Unraid's own notification system - nothing is configured here. That page decides which agents receive each importance level: the WebUI bell always gets them; email, Telegram, Discord, Slack and Pushover are enabled and set up there (the Telegram agent asks for the bot token and chat id once, system-wide). This plugin stores no credentials and never contacts a notification provider itself.&lt;/p&gt;&lt;/blockquote&gt;
       &lt;dl&gt;&lt;dt&gt;Test:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;select id="a_ntlevel"&gt;&lt;option value="normal"&gt;normal&lt;/option&gt;&lt;option value="warning"&gt;warning&lt;/option&gt;&lt;option value="alert"&gt;alert&lt;/option&gt;&lt;/select&gt; &lt;input type="button" id="rj-nt-test" value="Send test notification" class="rj-btn"&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;Sends one notification at the chosen level through the native notify script - check the bell and every agent you expect (Telegram only receives levels you ticked in Notification Settings).&lt;/p&gt;&lt;/blockquote&gt;
+    &lt;div class="title"&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-exchange title'&gt;&lt;/i&gt;Job portability (export / import)&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p&gt;&lt;/p&gt;
+      &lt;dl&gt;&lt;dt&gt;Export:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="button" id="rj-export" value="Download job set (.tgz)" class="rj-btn"&gt;&lt;/dd&gt;&lt;/dl&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Packs every job config plus a small meta.txt (plugin version, host, date) into one download for setting up another server. &lt;em&gt;Note:&lt;/em&gt; the archive contains your job names, paths, schedules and custom-script locations - nothing secret (rclone credentials always stay in this server's rclone config), but treat the file accordingly.&lt;/p&gt;&lt;/blockquote&gt;
+      &lt;dl&gt;&lt;dt&gt;Import:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;
+        &lt;select id="a_importmode"&gt;&lt;option value="ask"&gt;ask - report conflicts, change nothing&lt;/option&gt;&lt;option value="overwrite"&gt;overwrite same-named jobs&lt;/option&gt;&lt;option value="skip"&gt;keep same-named jobs&lt;/option&gt;&lt;/select&gt;
+        &lt;input type="button" id="rj-import-btn" value="Choose archive..." class="rj-btn"&gt;
+        &lt;input type="file" id="a_import_file" accept=".tgz,.gz,application/gzip" style="display:none"&gt;
+      &lt;/dd&gt;&lt;/dl&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Every member of the archive is re-validated with the exact same rules as saving a job (name, engine, paths, schedule, storage policy at run time); anything invalid is rejected individually and never written. Existing jobs are only replaced in &lt;em&gt;overwrite&lt;/em&gt; mode, and a replaced config is kept next to it as a &lt;em&gt;.pre-import-&lt;/em&gt; backup first. Remote names must already exist in this server's rclone config or the imported job will refuse to run until they do.&lt;/p&gt;&lt;/blockquote&gt;
     &lt;dl&gt;
       &lt;dt&gt;&amp;nbsp;&lt;/dt&gt;
       &lt;dd&gt;&lt;input type="button" id="rj-save-alerts" value="Save settings" class="rj-btn"&gt;&lt;/dd&gt;
@@ -1995,15 +2116,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07j &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07k &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>5ac51bd9d0d7d798a65938aba5e78646c021a62880763190b11c8e80da91679b</SHA256>
+<SHA256>5b55f53226e40273e5c68b825115600621490fc0c01387f23cb76107111b8fa2</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07j - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07k - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2232,6 +2353,40 @@ case 'tail_log':
     if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' =&gt; false, 'error' =&gt; 'bad log response (rc ' . $erc . ')']);
     rj_out($bj);
 
+case 'export_jobs':
+    /* job set as tar.gz base64 (confs hold no secrets by design; the UI warns
+       that paths and custom-script locations are part of the archive) */
+    $eo = []; $erc = 0;
+    rj_engine('export-jobs', $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' =&gt; false, 'error' =&gt; 'bad export response (rc ' . $erc . ')']);
+    rj_out($bj);
+
+case 'import_jobs':
+    /* the archive travels as base64 inside this urlencoded body, NEVER as
+       multipart - the CSRF recovery above cannot read a multipart body. The
+       engine enforces the size cap, the member-name whitelist (tar-slip),
+       the full save-job validators and the ask/overwrite/skip conflict mode. */
+    $arch = rj_str($_POST['archive'] ?? '');
+    if ($arch === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'no archive data']);
+    if (strlen($arch) &gt; 1500000) rj_out(['ok' =&gt; false, 'error' =&gt; 'archive too large (max ~1 MiB)']);
+    $modeIn = rj_str($_POST['mode'] ?? 'ask');
+    $mode = in_array($modeIn, ['ask', 'overwrite', 'skip'], true) ? $modeIn : 'ask';
+    $tmp = @tempnam('/tmp', 'rj-import-');
+    if ($tmp === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'cannot stage the upload']);
+    @chmod($tmp, 0600);
+    file_put_contents($tmp, $arch);
+    $eo = []; $erc = 0;
+    rj_engine('import-jobs ' . $mode . ' ' . escapeshellarg($tmp), $eo, $erc);
+    @unlink($tmp); /* the engine consumes it; belt and braces */
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' =&gt; false, 'error' =&gt; 'bad import response (rc ' . $erc . ')']);
+    if ($bj['ok'] &amp;&amp; ((int)($bj['added'] ?? 0) + (int)($bj['replaced'] ?? 0)) &gt; 0) {
+        $rg = []; rj_regen($rg);
+        $bj['regen'] = implode(' ', $rg);
+    }
+    rj_out($bj);
+
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
@@ -2286,12 +2441,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>7be3f5f650c73281ec86711135af1c7e6b4c8dcbb3d2bddce9fcf8dabe3335f9</SHA256>
+<SHA256>159ffd9ce7fc1e53480533ec18d079e68ec51f0d7be6803893d5fc516fba2922</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07j - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07k - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2878,6 +3033,54 @@ $(function () {
     });
   });
 
+  /* job portability: export builds a Blob download client-side; import sends
+     the archive as base64 inside the urlencoded body (never multipart - the
+     ajax CSRF path cannot read one) and the engine re-validates everything */
+  $('#rj-export').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $b = $(this);
+    if ($b.prop('disabled')) return;
+    $b.prop('disabled', true).val('exporting...');
+    rjPost({ action: 'export_jobs' }, function (res) {
+      $b.prop('disabled', false).val('Download job set (.tgz)');
+      if (!res.ok) { rjPanel('rj-alerts-result', 'ERROR: ' + (res.error || '?'), true); return; }
+      try {
+        var bin = atob(res.archive), arr = new Uint8Array(bin.length), i;
+        for (i = 0; i &lt; bin.length; i++) arr[i] = bin.charCodeAt(i);
+        var url = URL.createObjectURL(new Blob([arr], { type: 'application/gzip' }));
+        var a = document.createElement('a');
+        a.href = url; a.download = res.name || 'rclone-jobs-jobs.tgz';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+        rjPanel('rj-alerts-result', 'Exported ' + res.count + ' job(s) -&gt; ' + (res.name || 'archive') +
+                '\nThe file holds job names, paths, schedules and script locations (no credentials).', false);
+      } catch (e) { rjPanel('rj-alerts-result', 'ERROR: the browser could not build the download: ' + e, true); }
+    });
+  });
+  $('#rj-import-btn').off('.rclonejobs').on('click.rclonejobs', function () { $('#a_import_file').trigger('click'); });
+  $('#a_import_file').off('.rclonejobs').on('change.rclonejobs', function () {
+    var f = this.files &amp;&amp; this.files[0], self = this;
+    self.value = ''; /* the File handle stays valid for the read */
+    if (!f) return;
+    if (f.size &gt; 1048576) { rjPanel('rj-alerts-result', 'ERROR: archive is larger than 1 MiB - refusing.', true); return; }
+    var rd = new FileReader();
+    rd.onerror = function () { rjPanel('rj-alerts-result', 'ERROR: could not read the file', true); };
+    rd.onload = function () {
+      var b64 = String(rd.result).split(',').pop();
+      var $b = $('#rj-import-btn');
+      $b.prop('disabled', true).val('importing...');
+      rjPost({ action: 'import_jobs', archive: b64, mode: $('#a_importmode').val() }, function (res) {
+        $b.prop('disabled', false).val('Choose archive...');
+        if (!res.ok) { rjPanel('rj-alerts-result', 'ERROR: ' + (res.error || '?'), true); return; }
+        var msg = 'Import (' + res.mode + '): ' + res.added + ' added, ' + res.replaced + ' replaced, ' + res.skipped + ' kept.';
+        if (res.conflicts &amp;&amp; res.conflicts.length) msg += '\nConflicts left untouched (ask mode): ' + res.conflicts.join(', ') + '\nPick overwrite/keep and re-import if you want them changed.';
+        if (res.rejected &amp;&amp; res.rejected.length) msg += '\nRejected (never written): ' + res.rejected.join(', ');
+        rjPanel('rj-alerts-result', msg, !!(res.rejected &amp;&amp; res.rejected.length));
+        if (res.added || res.replaced) setTimeout(function () { location.reload(); }, 1800);
+      });
+    };
+    rd.readAsDataURL(f);
+  });
+
   /* ---------------- path browser modal ---------------- */
   var rjB = { scope: 'local', path: '', parent: '', files: false, allowRclone: true, target: '', req: 0, built: false };
 
@@ -3065,13 +3268,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>bf07ed6a42add12858d4fc8ce1ff393ba69951ebc1f2350a875f93829f8dc1bd</SHA256>
+<SHA256>c5074923abb029501e964bddb12165ecb8b3f1f23b6b29993ac836d14704ef9c</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07j - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07k - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -3224,13 +3427,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>1de522fb598026803e7b271f488b412543f0001cc85e9f65e070a69a3eede67a</SHA256>
+<SHA256>2b7f785826c5f39bf82293823def42d427e774f879c03e1b277949bafc93cdf9</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07j - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07k - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -3309,13 +3512,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>829a66dd3babaf5f29c1839d8c877406765d293c350744365eda3a7c05c1a7a1</SHA256>
+<SHA256>b1353226acc4c70b51f74984cca2e83a0c119b6e32e0edc2000339539f8223cf</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07j - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07k - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -3368,7 +3571,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>5ca701bd9a79046ea52dfbf793b0624b514e4603d3cda691a29d4917913920b5</SHA256>
+<SHA256>bb0e09018e3c0d3063467c27113d7a9d969cae9c566bb375ea10453e68922535</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -3489,16 +3692,16 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.07j - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.07k - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-de0d6e09540f369bf2b2863b85b5b1ee16728040381f9703c9e9eb8a5803bd43  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+a70029bb1b95364477016cf7e8d7ca549164e8ee68815ccfe3e4d592e98d7471  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-5ac51bd9d0d7d798a65938aba5e78646c021a62880763190b11c8e80da91679b  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-7be3f5f650c73281ec86711135af1c7e6b4c8dcbb3d2bddce9fcf8dabe3335f9  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-bf07ed6a42add12858d4fc8ce1ff393ba69951ebc1f2350a875f93829f8dc1bd  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-1de522fb598026803e7b271f488b412543f0001cc85e9f65e070a69a3eede67a  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-829a66dd3babaf5f29c1839d8c877406765d293c350744365eda3a7c05c1a7a1  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-5ca701bd9a79046ea52dfbf793b0624b514e4603d3cda691a29d4917913920b5  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+5b55f53226e40273e5c68b825115600621490fc0c01387f23cb76107111b8fa2  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+159ffd9ce7fc1e53480533ec18d079e68ec51f0d7be6803893d5fc516fba2922  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+c5074923abb029501e964bddb12165ecb8b3f1f23b6b29993ac836d14704ef9c  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+2b7f785826c5f39bf82293823def42d427e774f879c03e1b277949bafc93cdf9  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+b1353226acc4c70b51f74984cca2e83a0c119b6e32e0edc2000339539f8223cf  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+bb0e09018e3c0d3063467c27113d7a9d969cae9c566bb375ea10453e68922535  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -3506,7 +3709,7 @@ bf07ed6a42add12858d4fc8ce1ff393ba69951ebc1f2350a875f93829f8dc1bd  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>c647f3b9146193794df83567425a180da079173f28c4a5a43f6ae94a68ab028d</SHA256>
+<SHA256>96382d1218c44b3845145a34b37057f15debc69314f8027d22ce7714eb2dadb7</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

@@ -8,8 +8,8 @@ byte-identical output, every new shipped file added to `src/MANIFEST`, `pwsh -No
 weakens the safety model (dry-run gate, `--max-delete`, mount guard, storage policy).
 i18n scaffolding (`_()` + catalogs) is out of scope by owner decision — not listed.
 
-Priority order (value per effort): ~~2/1/3/5/6~~ shipped (07f/07g/07h/07i/07j) →
-**4**, **7** (features).
+Priority order (value per effort): ~~2/1/3/5/6/4~~ shipped (07f/07g/07h/07i/07j/07k) →
+**7** (features).
 
 ---
 
@@ -138,9 +138,18 @@ out like other actions.
 
 ---
 
-## 4. Job export / import (fleet setup)
+## 4. Job export / import (fleet setup) — SHIPPED 2026.09.07k
 
-**Motivation.** Re-creating 15 jobs per server doesn't scale; a portable job-set
+**Shipped notes.** Engine `export-jobs` (staged copy, deterministic tar.gz, base64 in
+JSON) + `import-jobs <ask|overwrite|skip> <b64-file>` (the upload file is CONSUMED by
+the engine; PHP also unlinks it). Member whitelist `jobs/` | `meta.txt` |
+`jobs/<valid>.conf` enforced by name before extraction; per-file validation runs the
+REAL validators via `validate-job` in a subshell (invalid members rejected individually,
+valid ones still import); overwrite keeps a `.pre-import-<ts>` backup. Import rides the
+urlencoded body as base64, exactly as the CSRF note below requires. Verified on-box
+shape (WSL): ask/skip/overwrite, tar-slip refusal, >1 MiB refusal, byte-equal round trip.
+
+**Motivation (pre-ship).** Re-creating 15 jobs per server doesn't scale; a portable job-set
 archive is the cheap version of "fleet management".
 
 **Draft plan.**
