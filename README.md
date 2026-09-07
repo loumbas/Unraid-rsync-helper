@@ -62,9 +62,10 @@ Job data lives in a hidden dot-folder directly on an array disk
 (`/mnt/diskN/.rclone-jobs`). It is not a share; note shfs does surface the path
 (`/mnt/user/.rclone-jobs`) to `ls -a`/`find` — cosmetic only, and any job whose
 SRC/DST is the hosting disk root or `/mnt/user` auto-excludes the folder (see
-Safety model), so even this plugin's own whole-disk jobs never touch it. To upgrade: **remove the plugin, then install the new .plg**
-(installing over an existing install may refresh the saved .plg but not the
-deployed files; config and all job data survive a remove).
+Safety model), so even this plugin's own whole-disk jobs never touch it. To upgrade: Plugins →
+**Check for Updates → Update** (every embedded file carries a `<SHA256>`, so changed files are
+redeployed, not skipped; config and all job data survive untouched). Remove-then-install remains
+the fallback if an update ever leaves stale files behind.
 
 ## Files
 

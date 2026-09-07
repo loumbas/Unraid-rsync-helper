@@ -27,13 +27,17 @@ Requirements: Unraid 7.x, the `rclone` plugin installed (any version), array sta
 
 ## Upgrading
 
-**Remove first, then install the newer `.plg`** (same filename):
-`plugin remove rclone-jobs.plg && plugin install /tmp/rclone-jobs.plg`. On Unraid
-7.3.2 an over-install updates the saved .plg but may not overwrite the deployed
-files (verified on LMBS-SRV); remove+install always does, fires the `updating`
-event, refreshes the engine copy and re-validates the cron block. Config and job
-data survive a remove untouched. Version numbers are dates (`YYYY.MM.DD`, optional
-lowercase letter for same-day releases, e.g. `2026.09.04a`).
+**Online update (recommended):** Plugins → Check for Updates → **Update** (shell
+equivalent: `plugin check rclone-jobs.plg && plugin update rclone-jobs.plg`). Every
+embedded file carries a `<SHA256>` of its deployed bytes and the update pre-clean
+wipes the old RAM-resident copy, so changed files are actually redeployed and files
+deleted between releases cannot linger (since 2026.09.07; the first online update
+from an older build is a full redeploy). Config and job data survive untouched.
+
+Fallback (e.g. an update looked ineffective): remove first, then install the newer
+`.plg`: `plugin remove rclone-jobs.plg && plugin install /tmp/rclone-jobs.plg`.
+Version numbers are dates (`YYYY.MM.DD`, optional lowercase letter for same-day
+releases, e.g. `2026.09.04a`).
 
 ## Uninstalling
 

@@ -35,6 +35,10 @@ norm_file() { # $1=src -> stdout: UTF-8 no BOM, LF-only, final newline
   awk 'BEGIN { RS = "\r\n|\r|\n" } { printf "%s\n", $0 }' < "${f}"
 }
 xml_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+# Stamp {{VERSION}} BEFORE hashing/escaping: what lands on disk is the stamped content,
+# so the embedded <SHA256> must be the hash of the stamped bytes. This makes online
+# update / over-install redeploy changed files instead of skipping existing destinations.
+stamped_file() { norm_file "$1" | awk -v ver="$VERSION" '{ gsub(/\{\{VERSION\}\}/, ver); print }'; }
 
 # internal lint: no CR/BOM in any packaged source + plg.in
 while IFS= read -r mline || [ -n "$mline" ]; do
@@ -63,10 +67,10 @@ while IFS= read -r mline || [ -n "$mline" ]; do
   [ $first -eq 1 ] || printf '\n' >> "$TMP/files"
   first=0
   printf '  <FILE Name="%s" Mode="%s">\n<INLINE>\n' "$target" "$mode" >> "$TMP/files"
-  norm_file "$SRC/$src" | xml_escape >> "$TMP/files"
-  printf '</INLINE>\n  </FILE>\n' >> "$TMP/files"
-  bytes=$(norm_file "$SRC/$src" | wc -c | tr -d ' ')
-  sha=$(norm_file "$SRC/$src" | sha256sum | cut -d' ' -f1)
+  stamped_file "$SRC/$src" | xml_escape >> "$TMP/files"
+  sha=$(stamped_file "$SRC/$src" | sha256sum | cut -d' ' -f1)
+  printf '</INLINE>\n<SHA256>%s</SHA256>\n  </FILE>\n' "$sha" >> "$TMP/files"
+  bytes=$(stamped_file "$SRC/$src" | wc -c | tr -d ' ')
   printf '%s %s %s %s %s\n' "$src" "$target" "$mode" "$bytes" "$sha" >> "$TMP/rows"
 done < "$SRC/MANIFEST"
 

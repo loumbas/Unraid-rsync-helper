@@ -30,9 +30,10 @@ no CI — verification is the offline lint + manual on-box testing.
 ## Versioning / release
 
 - Version is a date in `src/VERSION` (`YYYY.MM.DD`, optional lowercase same-day suffix
-  like `2026.09.04a`), validated at build. `{{VERSION}}`
-  placeholders in engine/page sources are stamped LAST by the build (after FILES/CHANGES);
-  keep that substitution order in both build scripts.
+  like `2026.09.04a`), validated at build. `{{VERSION}}` in each packaged source is
+  stamped BEFORE its `<SHA256>` is computed (deployed bytes = stamped bytes); the
+  template-level stamp still runs LAST (after FILES/CHANGES). Keep this order in BOTH
+  build scripts — they must stay byte-identical.
 - Release flow: bump `src/VERSION`, add a top `## YYYY.MM.DD` section to `src/CHANGELOG.md`
   (only that first section is embedded in the .plg), rebuild, commit src + dist together.
 - `pluginURL` (entities in `src/rclone-jobs.plg.in`) points at the raw `main`-branch
@@ -54,8 +55,14 @@ no CI — verification is the offline lint + manual on-box testing.
   script URLs must be absolute. Page lives at Settings via `Menu="Utilities"`.
 - Storage policy (engine-enforced): plugin data only in a hidden dot-folder on an array
   disk (`/mnt/diskN/.rclone-jobs`); `/mnt/user`, `/etc`, `/usr`, `/var/log`, `/` rejected.
-- Upgrades on this box require **remove-then-install** (over-install refreshes the saved
-  .plg but not deployed files) — do not "fix" this in code; it is documented in INSTALL.md.
+- Generated FILE blocks must keep their `<SHA256>` (hashed from the **version-stamped**
+  bytes, {{VERSION}} substituted before hashing): the plugin manager skips an existing
+  destination unless a supplied checksum fails, so dropping the checksums silently breaks
+  online update / over-install (stale files linger — the pre-2026.09.07 symptom on LMBS-SRV).
+  The `Method="update"` pre-clean (wipe emhttp copy) stays: checksums cannot remove files
+  deleted between releases. If on-box `sha256sum` of a deployed file ever differs from the
+  embedded hash (INLINE leading/trailing-newline trimming), fix by adjusting what the build
+  hashes — never by removing the checksums.
 
 ## Scope notes
 

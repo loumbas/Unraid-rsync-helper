@@ -1,3 +1,14 @@
+## 2026.09.07
+- Fix: online update / over-install now actually replaces changed files. Every embedded
+  file carries a <SHA256> of its deployed bytes; the plugin manager skips an existing
+  destination unless a checksum fails, so without them an update refreshed the stored
+  .plg but left the old files in place. Checksums are computed after the version stamp,
+  so unchanged files still skip at boot and changed ones are redeployed on update.
+- Verbosity: the plugin install/update and remove windows now show what is happening -
+  previous version -> new version, emhttp copy being cleared, boot-setup progress,
+  deployed-file count, and exactly what removal keeps (config + storage data) with the
+  full-cleanup command.
+
 ## 2026.09.04l
 - Fix: clicking a tab header popped Unraid's 'External link' dialog. Tab headers no longer
   carry href="#..." (Unraid's a[href] interceptor treats the bare hash as a navigation);

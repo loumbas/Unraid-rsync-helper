@@ -1,7 +1,8 @@
 # build.ps1 - assemble dist/rclone-jobs.plg from src/ (Windows PowerShell 5.1+, no modules).
 # - Normalizes every packaged file: strip BOM, CRLF/CR -> LF, ensure final newline.
 # - Stamps version from src/VERSION, injects src/CHANGELOG.md top section, embeds
-#   every src/MANIFEST file as an XML-escaped <FILE><INLINE> entry.
+#   every src/MANIFEST file as an XML-escaped <FILE><INLINE> entry with a <SHA256>
+#   checksum of the deployed (version-stamped) bytes.
 # - Runs tests/offline-lint.ps1 BEFORE (source) and AFTER (dist) and fails on findings.
 # - Prints a manifest: file, target, mode, bytes, sha256.
 # The output must be byte-identical to build.sh (WSL/Git-Bash equivalent).
@@ -90,6 +91,11 @@ foreach ($e in $entries) {
     $srcPath = Join-Path $srcRoot ($e.Src.Replace('/', [IO.Path]::DirectorySeparatorChar))
     if (-not (Test-Path -LiteralPath $srcPath)) { throw "manifest src missing: $srcPath" }
     $norm = Read-NormText $srcPath
+    # Stamp {{VERSION}} BEFORE hashing: what lands on disk is the stamped content, so the
+    # embedded <SHA256> (used by the plugin manager to decide reuse-vs-replace) must be
+    # the hash of the stamped bytes. This makes online update / over-install redeploy
+    # changed files instead of silently skipping existing destinations.
+    $norm = $norm.Replace('{{VERSION}}', $version)
     $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($norm)
     $sha = Get-Sha256Bytes $bytes
     [void]$manifestRows.Add([pscustomobject]@{ Src = $e.Src; Target = $e.Target; Mode = $e.Mode; Bytes = $bytes.Length; Sha256 = $sha })
@@ -98,6 +104,7 @@ foreach ($e in $entries) {
                  '<INLINE>' + "`n" +
                  $escaped +
                  '</INLINE>' + "`n" +
+                 '<SHA256>' + $sha + '</SHA256>' + "`n" +
                  '  </FILE>' + "`n"
     [void]$fileBlockParts.Add($entryText)
 }

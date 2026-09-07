@@ -30,24 +30,41 @@
        and storage data are untouched. -->
   <FILE Run="/bin/bash" Method="update">
     <INLINE>
+echo "----------------------------------------------------"
+echo " rclone-jobs: update starting"
+OLDV="$(grep -E 'ENTITY[[:space:]]+version' /var/log/plugins/&name;.plg 2>/dev/null | head -1 | cut -d'"' -f2)"
+echo " previous version: ${OLDV:-unknown} -> new: &version;"
+echo " clearing previous emhttp copy: &pluginDir;"
 rm -rf "&pluginDir;"
-logger -t rclone-jobs "update: stale emhttp copy cleared"
+logger -t rclone-jobs "update: stale emhttp copy cleared (was ${OLDV:-unknown})"
+echo " cleared. Files are re-deployed by the blocks below."
 true
     </INLINE>
   </FILE>
-  <!-- FILE entries are generated at build time from src/MANIFEST. -->
+  <!-- FILE entries are generated at build time from src/MANIFEST, each with a
+       <SHA256> of the deployed (version-stamped) bytes: the plugin manager skips an
+       existing destination file unless a supplied checksum fails, so the checksums are
+       what make over-install/update actually REPLACE changed files. -->
 {{FILES}}
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
   <FILE Run="/bin/bash" Method="install">
     <INLINE>
+echo "----------------------------------------------------"
+if [ -e /var/log/plugins/&name;.plg ]; then RJ_MODE="update/repair"; else RJ_MODE="fresh install"; fi
+echo " rclone-jobs v&version; - $RJ_MODE"
+echo " emhttp copy: &pluginDir;"
 S="&pluginDir;/scripts"
 if [ -x "$S/boot-setup.sh" ]; then
+  echo " running boot-setup (config skeleton, engine copy, cron block)..."
   "$S/boot-setup.sh"
 else
   mkdir -p "&bootDir;/jobs"
 fi
-logger -t rclone-jobs "install script finished (v&version;)"
+echo " deployed: $(find "&pluginDir;" -type f 2>/dev/null | wc -l) files, config in &bootDir;"
+echo " open: Settings -> Utilities -> rclone-jobs (details: syslog tag 'rclone-jobs')"
+echo "----------------------------------------------------"
+logger -t rclone-jobs "install script finished (v&version;, $RJ_MODE)"
 true
     </INLINE>
   </FILE>
@@ -56,18 +73,28 @@ true
        backups, notify.env) - delete those by hand if you want them gone. -->
   <FILE Run="/bin/bash" Method="remove">
     <INLINE>
+echo "----------------------------------------------------"
+echo " rclone-jobs v&version; - removing"
 pkill -f 'rclone-jobs\.sh run ' 2>/dev/null
 true
 CT="/var/spool/cron/crontabs/root"
 if grep -qF '# rclone-jobs BEGIN' "$CT" 2>/dev/null; then
+  echo " splicing managed schedule block out of $CT and restarting cron"
   sed -i '/^# rclone-jobs BEGIN/,/^# rclone-jobs END/d' "$CT"
   if [ -x /etc/rc.d/rc.crond ]; then
     /etc/rc.d/rc.crond restart >/dev/null 2>&amp;1
   fi
+else
+  echo " no managed cron block present (nothing to splice)"
 fi
 rm -f /etc/cron.d/&name;
+echo " deleting code: &pluginDir;"
 rm -rf "&pluginDir;"
+echo " KEPT on purpose: &bootDir; (your configs) and all storage data"
+echo "   (logs, status, backups, notify.env). Full cleanup by hand:"
+echo "   rm -rf &bootDir; /mnt/diskN/.rclone-jobs"
 logger -t rclone-jobs "&name; removed: code and schedule gone; &bootDir; and storage data kept on purpose"
+echo "----------------------------------------------------"
 true
     </INLINE>
   </FILE>
