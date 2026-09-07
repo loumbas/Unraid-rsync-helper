@@ -70,6 +70,11 @@ $rjdata = [
     '#tab_rj_alerts #a_qstart,#tab_rj_alerts #a_qend{width:64px}',
     '#tab_rj_alerts #a_ntlevel{width:150px;max-width:100%}',
     '#tab_rj_jobs input[type=number]{width:64px}',
+    '#tab_rj_jobs #f_sched_hour,#tab_rj_jobs #f_sched_min,#tab_rj_jobs #f_sched_hmin,#tab_rj_jobs #f_sched_dom{width:64px}',
+    '#tab_rj_jobs #f_s_at{margin:0 2px 0 6px}',
+    '#tab_rj_jobs .rj-wd label{margin-right:8px;white-space:nowrap}',
+    '#rj-sched-summary{margin:4px 0 2px;font-size:11px;color:#9aa7b2}',
+    '#rj-sched-summary.rj-warn{color:#e6867e}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
     'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid #46505a}',
     'ul#rj-tabs>li{list-style:none!important;display:block!important;float:none!important;width:auto!important;margin:0 3px -1px 0;padding:0;background:none;border:none}',
@@ -125,7 +130,7 @@ $rjdata = [
         <tr data-job="<?= htmlspecialchars($name) ?>">
           <td><b><?= htmlspecialchars($name) ?></b><br><span class="gray"><?= htmlspecialchars($c['DESC'] ?? '') ?></span></td>
           <td><?= $en ?></td>
-          <td><?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?></td>
+          <td class="rj-sched"><?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?></td>
           <td><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></td>
           <!-- max-width must sit on a div: <td> ignores it in auto table layout -->
           <td><div style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= htmlspecialchars(($c['SRC'] ?? '').' -> '.($c['DST'] ?? '')) ?>">
@@ -159,8 +164,24 @@ $rjdata = [
         <blockquote class='inline_help'><p>Free-text label shown under the job name in the jobs table.</p></blockquote>
         <dl><dt>Enabled:</dt><dd><select id="f_enabled"><option value="yes">yes</option><option value="no">no</option></select></dd></dl>
         <blockquote class='inline_help'><p>A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.</p></blockquote>
-        <dl><dt>Schedule (cron):</dt><dd><input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"></dd></dl>
-        <blockquote class='inline_help'><p>Five fields: <em>minute hour day-of-month month day-of-week</em>. Only numbers, <em>*</em> and the characters <em>,</em> <em>-</em> <em>/</em> are accepted, e.g. <em>30 3 * * *</em> = every day at 03:30, <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
+        <dl><dt>Schedule:</dt><dd class="rj-inline">
+          <select id="f_sched_freq">
+            <option value="minutely">Every</option>
+            <option value="hourly">Hourly at minute</option>
+            <option value="daily" selected>Daily at</option>
+            <option value="weekly">Weekly on</option>
+            <option value="monthly">Monthly on day</option>
+            <option value="custom">Custom (cron)</option>
+          </select>
+          <span id="f_s_minutely" style="display:none"><select id="f_sched_nmin"></select> minutes</span>
+          <span id="f_s_dom" style="display:none"><select id="f_sched_dom"></select></span>
+          <span id="f_s_weekday" class="rj-wd" style="display:none"></span>
+          <span id="f_s_clock" style="display:none"><span id="f_s_at" style="display:none">at</span> <select id="f_sched_hour"></select>:<select id="f_sched_min"></select></span>
+          <span id="f_s_hourly" style="display:none"><select id="f_sched_hmin"></select></span>
+        </dd></dl>
+        <dl id="dl_f_schedule" style="display:none"><dt>Cron expression:</dt><dd><input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"></dd></dl>
+        <p id="rj-sched-summary"></p>
+        <blockquote class='inline_help'><p>Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. <em>Custom (cron)</em> accepts the classic five fields <em>minute hour day-of-month month day-of-week</em> (numbers, <em>*</em> and <em>,</em> <em>-</em> <em>/</em> only), e.g. <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
         <dl><dt>Engine:</dt><dd><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></dd></dl>
         <blockquote class='inline_help'><p><em>rclone</em> uses the rclone plugin's own remotes (same config, never modified). <em>rsync</em> is for local/remote paths with mount-guard protection. <em>custom script</em> runs your own executable instead - the transfer settings below do not apply to it.</p></blockquote>
         <div class="rj-eng">

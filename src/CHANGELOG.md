@@ -1,3 +1,17 @@
+## 2026.09.07c
+- No cron knowledge needed anymore: the job form's Schedule field is now a visual
+  builder - every N minutes | hourly | daily | weekly (weekday checkboxes) |
+  monthly (day-of-month) | Custom (cron) - with a live summary showing the
+  generated expression, the next 3 run times and gotcha notes (EITHER-matching
+  when a custom expression restricts both day-of-month and day-of-week; months
+  without day 29-31 skip). Existing expressions are reverse-mapped into the
+  builder on Edit; anything exotic stays editable under Custom.
+- The jobs table Schedule column shows human text (e.g. "Every day at 03:30");
+  the raw cron expression is on hover.
+- Storage format unchanged: SCHEDULE remains a classic 5-field cron line, the
+  engine and crontab generation are untouched. The ajax validator additionally
+  range-checks each field (0-59, 0-23, 1-31, 1-12, 0-7) as defense-in-depth.
+
 ## 2026.09.07b
 - Tabs now look like tabs. The page CSS is injected from a small inline script at
   parse time: an inline <style> block inside .page content did not survive rendering

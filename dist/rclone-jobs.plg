@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07b">
+<!ENTITY version   "2026.09.07c">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,20 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07c
+- No cron knowledge needed anymore: the job form's Schedule field is now a visual
+  builder - every N minutes | hourly | daily | weekly (weekday checkboxes) |
+  monthly (day-of-month) | Custom (cron) - with a live summary showing the
+  generated expression, the next 3 run times and gotcha notes (EITHER-matching
+  when a custom expression restricts both day-of-month and day-of-week; months
+  without day 29-31 skip). Existing expressions are reverse-mapped into the
+  builder on Edit; anything exotic stays editable under Custom.
+- The jobs table Schedule column shows human text (e.g. "Every day at 03:30");
+  the raw cron expression is on hover.
+- Storage format unchanged: SCHEDULE remains a classic 5-field cron line, the
+  engine and crontab generation are untouched. The ajax validator additionally
+  range-checks each field (0-59, 0-23, 1-31, 1-12, 0-7) as defense-in-depth.
+
 ## 2026.09.07b
 - Tabs now look like tabs. The page CSS is injected from a small inline script at
   parse time: an inline &lt;style&gt; block inside .page content did not survive rendering
@@ -95,14 +109,6 @@
   replace all fieldsets/legends (Add job, Safety, Telegram notifications, Doctor);
   button rows are now dl rows aligned with the fields; wide inputs use the webgui
   'variable' class; jobs table gains click-to-sort headers (native tablesorter).
-
-## 2026.09.04f
-- Settings forms rebuilt on the native Unraid pattern (definition-list rows plus
-  inline-help blockquotes toggled by the sidebar Help button): no more table overflow,
-  explanation text is never cropped.
-- Help text added for every field on both tabs: cron syntax, engines, mode,
-  source/destination rules, delete limits, backup dir, master switch, quiet window,
-  Telegram token/chat id storage.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -141,7 +147,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07b - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07c - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -163,7 +169,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07b"
+ENGINE_VERSION="2026.09.07c"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1191,7 +1197,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>884be07026c9f60432e9fed172680858597dc82b39cce96347bde7b1f9faaa93</SHA256>
+<SHA256>90b52fc2b2e4aec2e5c65c29630aa38f1a922f985896b7748e77eaafdb4ab4bb</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1368,7 +1374,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07b - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07c - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1417,7 +1423,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07b',
+    'version'    =&gt; '2026.09.07c',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1435,6 +1441,11 @@ $rjdata = [
     '#tab_rj_alerts #a_qstart,#tab_rj_alerts #a_qend{width:64px}',
     '#tab_rj_alerts #a_ntlevel{width:150px;max-width:100%}',
     '#tab_rj_jobs input[type=number]{width:64px}',
+    '#tab_rj_jobs #f_sched_hour,#tab_rj_jobs #f_sched_min,#tab_rj_jobs #f_sched_hmin,#tab_rj_jobs #f_sched_dom{width:64px}',
+    '#tab_rj_jobs #f_s_at{margin:0 2px 0 6px}',
+    '#tab_rj_jobs .rj-wd label{margin-right:8px;white-space:nowrap}',
+    '#rj-sched-summary{margin:4px 0 2px;font-size:11px;color:#9aa7b2}',
+    '#rj-sched-summary.rj-warn{color:#e6867e}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
     'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid #46505a}',
     'ul#rj-tabs&gt;li{list-style:none!important;display:block!important;float:none!important;width:auto!important;margin:0 3px -1px 0;padding:0;background:none;border:none}',
@@ -1452,7 +1463,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07b"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07c"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1490,7 +1501,7 @@ $rjdata = [
         &lt;tr data-job="&lt;?= htmlspecialchars($name) ?&gt;"&gt;
           &lt;td&gt;&lt;b&gt;&lt;?= htmlspecialchars($name) ?&gt;&lt;/b&gt;&lt;br&gt;&lt;span class="gray"&gt;&lt;?= htmlspecialchars($c['DESC'] ?? '') ?&gt;&lt;/span&gt;&lt;/td&gt;
           &lt;td&gt;&lt;?= $en ?&gt;&lt;/td&gt;
-          &lt;td&gt;&lt;?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?&gt;&lt;/td&gt;
+          &lt;td class="rj-sched"&gt;&lt;?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?&gt;&lt;/td&gt;
           &lt;td&gt;&lt;?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?&gt;&lt;/td&gt;
           &lt;!-- max-width must sit on a div: &lt;td&gt; ignores it in auto table layout --&gt;
           &lt;td&gt;&lt;div style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="&lt;?= htmlspecialchars(($c['SRC'] ?? '').' -&gt; '.($c['DST'] ?? '')) ?&gt;"&gt;
@@ -1524,8 +1535,24 @@ $rjdata = [
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;Free-text label shown under the job name in the jobs table.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;dl&gt;&lt;dt&gt;Enabled:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_enabled"&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Schedule (cron):&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Five fields: &lt;em&gt;minute hour day-of-month month day-of-week&lt;/em&gt;. Only numbers, &lt;em&gt;*&lt;/em&gt; and the characters &lt;em&gt;,&lt;/em&gt; &lt;em&gt;-&lt;/em&gt; &lt;em&gt;/&lt;/em&gt; are accepted, e.g. &lt;em&gt;30 3 * * *&lt;/em&gt; = every day at 03:30, &lt;em&gt;0 5 * * 6&lt;/em&gt; = Saturday 05:00.&lt;/p&gt;&lt;/blockquote&gt;
+        &lt;dl&gt;&lt;dt&gt;Schedule:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;
+          &lt;select id="f_sched_freq"&gt;
+            &lt;option value="minutely"&gt;Every&lt;/option&gt;
+            &lt;option value="hourly"&gt;Hourly at minute&lt;/option&gt;
+            &lt;option value="daily" selected&gt;Daily at&lt;/option&gt;
+            &lt;option value="weekly"&gt;Weekly on&lt;/option&gt;
+            &lt;option value="monthly"&gt;Monthly on day&lt;/option&gt;
+            &lt;option value="custom"&gt;Custom (cron)&lt;/option&gt;
+          &lt;/select&gt;
+          &lt;span id="f_s_minutely" style="display:none"&gt;&lt;select id="f_sched_nmin"&gt;&lt;/select&gt; minutes&lt;/span&gt;
+          &lt;span id="f_s_dom" style="display:none"&gt;&lt;select id="f_sched_dom"&gt;&lt;/select&gt;&lt;/span&gt;
+          &lt;span id="f_s_weekday" class="rj-wd" style="display:none"&gt;&lt;/span&gt;
+          &lt;span id="f_s_clock" style="display:none"&gt;&lt;span id="f_s_at" style="display:none"&gt;at&lt;/span&gt; &lt;select id="f_sched_hour"&gt;&lt;/select&gt;:&lt;select id="f_sched_min"&gt;&lt;/select&gt;&lt;/span&gt;
+          &lt;span id="f_s_hourly" style="display:none"&gt;&lt;select id="f_sched_hmin"&gt;&lt;/select&gt;&lt;/span&gt;
+        &lt;/dd&gt;&lt;/dl&gt;
+        &lt;dl id="dl_f_schedule" style="display:none"&gt;&lt;dt&gt;Cron expression:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"&gt;&lt;/dd&gt;&lt;/dl&gt;
+        &lt;p id="rj-sched-summary"&gt;&lt;/p&gt;
+        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. &lt;em&gt;Custom (cron)&lt;/em&gt; accepts the classic five fields &lt;em&gt;minute hour day-of-month month day-of-week&lt;/em&gt; (numbers, &lt;em&gt;*&lt;/em&gt; and &lt;em&gt;,&lt;/em&gt; &lt;em&gt;-&lt;/em&gt; &lt;em&gt;/&lt;/em&gt; only), e.g. &lt;em&gt;0 5 * * 6&lt;/em&gt; = Saturday 05:00.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;dl&gt;&lt;dt&gt;Engine:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_engine"&gt;&lt;option value="rclone"&gt;rclone&lt;/option&gt;&lt;option value="rsync"&gt;rsync&lt;/option&gt;&lt;option value="custom"&gt;custom script&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
         &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;rclone&lt;/em&gt; uses the rclone plugin's own remotes (same config, never modified). &lt;em&gt;rsync&lt;/em&gt; is for local/remote paths with mount-guard protection. &lt;em&gt;custom script&lt;/em&gt; runs your own executable instead - the transfer settings below do not apply to it.&lt;/p&gt;&lt;/blockquote&gt;
         &lt;div class="rj-eng"&gt;
@@ -1600,15 +1627,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07b &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07c &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>3d937f5449073eaadc6ecc6727edb698404dc0083c8554e083749bae90d0e45b</SHA256>
+<SHA256>c2d9f9c32953c88ddb028d17d57c806954ed06156899cd6ecb5f1392eaf12fd5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07b - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07c - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -1647,11 +1674,37 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 function rj_out($arr) { echo json_encode($arr); exit; }
 function rj_name_ok($n)  { return is_string($n) &amp;&amp; preg_match('/^[A-Za-z0-9_-]{1,40}$/', $n); }
 function rj_badfield($v) { return preg_match('/[`$;|&amp;&lt;&gt;*?"\'\\\\\r\n]/', $v) === 1; }
+function rj_sched_part($x, $lo, $hi) {
+    /* one cron field: lists of '*', values, ranges and steps, each within range */
+    if ($x === '*') return true;
+    foreach (explode(',', $x) as $part) {
+        $step = 1;
+        if (strpos($part, '/') !== false) {
+            $sp = explode('/', $part, 2);
+            if (!preg_match('/^\d{1,2}$/', $sp[1])) return false;
+            $step = (int)$sp[1]; $part = $sp[0];
+            if ($step &lt; 1 || $step &gt; $hi) return false;
+        }
+        if ($part === '*') continue;
+        $vals = explode('-', $part);
+        if (count($vals) === 1) $vals[] = ($step &gt; 1 ? $hi : $vals[0]);
+        if (count($vals) !== 2) return false;
+        foreach ($vals as $v) if (!preg_match('/^\d{1,2}$/', $v)) return false;
+        if ((int)$vals[0] &lt; $lo || (int)$vals[1] &gt; $hi || (int)$vals[0] &gt; (int)$vals[1]) return false;
+    }
+    return true;
+}
 function rj_sched_ok($s) {
+    /* charset rule of the engine (valid_schedule) plus per-field ranges:
+       min 0-59, hour 0-23, dom 1-31, mon 1-12, dow 0-7 (7 = Sunday alias) */
     if (!is_string($s) || $s === '') return false;
     $f = preg_split('/\s+/', trim($s));
     if (count($f) !== 5) return false;
-    foreach ($f as $x) if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
+    $lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+    foreach ($f as $i =&gt; $x) {
+        if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
+        if (!rj_sched_part($x, $lim[$i][0], $lim[$i][1])) return false;
+    }
     return true;
 }
 function rj_env_upsert($file, $pairs, $mode = null) {
@@ -1709,7 +1762,7 @@ case 'save_job':
         if (strpos($script, '/') !== 0) rj_out(['ok' =&gt; false, 'error' =&gt; 'Script must be an absolute path']);
         $mode = ''; $src = ''; $dst = ''; $schedOrig = $sched;
     } else {
-        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'schedule must be 5 cron fields (numbers, * , - / only)']);
+        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
         if ($src === '' || $dst === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC and DST are required']);
         if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC/DST contain forbidden characters']);
         if ($engine === 'rclone' &amp;&amp; !in_array($mode, ['sync', 'copy', 'check'], true)) rj_out(['ok' =&gt; false, 'error' =&gt; 'rclone mode must be sync|copy|check']);
@@ -1820,12 +1873,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>62e56af4c0158194beb78d37a787bd059d9b9cf39f1456abc671ee128faf88d7</SHA256>
+<SHA256>0859d357299b63a8571e6f240dddb90ff0d303338a5e30bde47054c9daddb1a3</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07b - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07c - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -1850,6 +1903,104 @@ function rjData() {
   if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
   if (d.master === undefined) d.master = 'yes';
   return d;
+}
+
+/* ---------------- schedule builder helpers (SCHEDULE stays 5-field cron) --- */
+var RJ_DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+var RJ_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+var RJ_NMIN = [1, 2, 3, 5, 10, 15, 20, 30];
+
+function rjPad2(n) { return (n &lt; 10 ? '0' : '') + n; }
+
+function rjFieldSet(spec, lo, hi) {
+  /* '3', '1-5', '1,3,10' and step specs -&gt; {v:true} map; null when malformed
+     or out of range. Vixie semantics: no wrap-around ranges; 'N/step' means N..hi/step. */
+  var map = {}, parts = String(spec).split(',');
+  if (!parts.length) return null;
+  for (var i = 0; i &lt; parts.length; i++) {
+    var p = parts[i], step = 1, base = p;
+    if (p.indexOf('/') &gt;= 0) {
+      var sp = p.split('/');
+      if (sp.length !== 2 || !/^\d{1,2}$/.test(sp[1])) return null;
+      step = parseInt(sp[1], 10); base = sp[0];
+      if (step &lt; 1 || step &gt; hi) return null;
+    }
+    var a, b;
+    if (base === '*') { a = lo; b = hi; }
+    else if (base.indexOf('-') &gt;= 0) {
+      var rp = base.split('-');
+      if (rp.length !== 2 || !/^\d{1,2}$/.test(rp[0]) || !/^\d{1,2}$/.test(rp[1])) return null;
+      a = parseInt(rp[0], 10); b = parseInt(rp[1], 10);
+    } else {
+      if (!/^\d{1,2}$/.test(base)) return null;
+      a = b = parseInt(base, 10);
+      if (step &gt; 1) b = hi;
+    }
+    if (a &lt; lo || b &gt; hi || a &gt; b) return null;
+    for (var v = a; v &lt;= b; v += step) map[v] = true;
+  }
+  return map;
+}
+
+function rjNextRuns(cron, n) {
+  /* next n fire times in local tz; day match follows Vixie's OR rule when both
+     day-of-month and day-of-week are restricted. Coarse jumps keep it instant. */
+  var f = String(cron || '').trim().split(/\s+/);
+  if (f.length !== 5) return [];
+  var sMin = rjFieldSet(f[0], 0, 59), sHr = rjFieldSet(f[1], 0, 23),
+      sDom = rjFieldSet(f[2], 1, 31), sMon = rjFieldSet(f[3], 1, 12), sDow = rjFieldSet(f[4], 0, 6);
+  if (!sMin || !sHr || !sDom || !sMon || !sDow) return [];
+  var domStar = f[2] === '*', dowStar = f[4] === '*';
+  var d = new Date(); d.setSeconds(0, 0); d.setMinutes(d.getMinutes() + 1);
+  var out = [], guard = 0;
+  while (out.length &lt; n &amp;&amp; guard++ &lt; 3000) {
+    if (!sMon[d.getMonth() + 1]) { d = new Date(d.getFullYear(), d.getMonth() + 1, 1); continue; }
+    var domOk = !!sDom[d.getDate()], dowOk = !!sDow[d.getDay()];
+    var dayOk = (!domStar &amp;&amp; !dowStar) ? (domOk || dowOk) : (domStar &amp;&amp; dowStar) ? true : (domStar ? dowOk : domOk);
+    if (!dayOk) { d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1); continue; }
+    if (!sHr[d.getHours()]) { d = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1); continue; }
+    if (!sMin[d.getMinutes()]) { d.setMinutes(d.getMinutes() + 1); continue; }
+    out.push(new Date(d));
+    d.setMinutes(d.getMinutes() + 1);
+  }
+  return out;
+}
+
+function rjFmtRun(d) {
+  return RJ_DOWS[d.getDay()] + ' ' + rjPad2(d.getDate()) + ' ' + RJ_MONTHS[d.getMonth()] + ' ' + rjPad2(d.getHours()) + ':' + rjPad2(d.getMinutes());
+}
+
+function rjParseCron(cron) {
+  /* reverse-map to a builder preset; null = keep as Custom */
+  var f = String(cron || '').trim().split(/\s+/);
+  if (f.length !== 5) return null;
+  var iv = function (x, lo, hi) { return /^\d{1,2}$/.test(x) &amp;&amp; +x &gt;= lo &amp;&amp; +x &lt;= hi; };
+  if (f[3] !== '*') return null;
+  if (f[1] === '*' &amp;&amp; f[2] === '*' &amp;&amp; f[4] === '*' &amp;&amp; /^\*\/\d{1,2}$/.test(f[0]) &amp;&amp; RJ_NMIN.indexOf(+f[0].slice(2)) &gt;= 0) {
+    return { freq: 'minutely', nmin: +f[0].slice(2) };
+  }
+  if (iv(f[0], 0, 59) &amp;&amp; f[1] === '*' &amp;&amp; f[2] === '*' &amp;&amp; f[4] === '*') return { freq: 'hourly', hmin: +f[0] };
+  if (iv(f[0], 0, 59) &amp;&amp; iv(f[1], 0, 23) &amp;&amp; f[2] === '*' &amp;&amp; f[4] === '*') return { freq: 'daily', hour: +f[1], min: +f[0] };
+  if (iv(f[0], 0, 59) &amp;&amp; iv(f[1], 0, 23) &amp;&amp; f[2] === '*' &amp;&amp; /^\d(?:,\d)*$/.test(f[4])) {
+    var ds = f[4].split(',').map(Number);
+    if (ds.every(function (x) { return x &gt;= 0 &amp;&amp; x &lt;= 6; }) &amp;&amp;
+        ds.length === ds.filter(function (x, i) { return ds.indexOf(x) === i; }).length) {
+      return { freq: 'weekly', hour: +f[1], min: +f[0], dow: ds };
+    }
+  }
+  if (iv(f[0], 0, 59) &amp;&amp; iv(f[1], 0, 23) &amp;&amp; iv(f[2], 1, 31) &amp;&amp; f[4] === '*') return { freq: 'monthly', hour: +f[1], min: +f[0], dom: +f[2] };
+  return null;
+}
+
+function rjHumanize(cron) {
+  var p = rjParseCron(cron);
+  if (!p) return '';
+  var t = function () { return rjPad2(p.hour) + ':' + rjPad2(p.min); };
+  if (p.freq === 'minutely') return p.nmin === 1 ? 'Every minute' : 'Every ' + p.nmin + ' minutes';
+  if (p.freq === 'hourly') return 'Every hour at :' + rjPad2(p.hmin);
+  if (p.freq === 'daily') return 'Every day at ' + t();
+  if (p.freq === 'weekly') return 'Every ' + p.dow.map(function (d) { return RJ_DOWS[d]; }).join(', ') + ' at ' + t();
+  return 'Monthly on day ' + p.dom + ' at ' + t();
 }
 
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
@@ -1905,6 +2056,100 @@ $(function () {
   $('#f_engine').off('.rclonejobs').on('change.rclonejobs', engRows);
   engRows();
 
+  /* ---------------- schedule builder ---------------- */
+  (function rjSchedInit() {
+    var i, $w = $('#f_s_weekday');
+    for (i = 0; i &lt; 24; i++) $('#f_sched_hour').append($('&lt;option&gt;&lt;/option&gt;').val(i).text(rjPad2(i)));
+    for (i = 0; i &lt; 60; i++) {
+      $('#f_sched_min').append($('&lt;option&gt;&lt;/option&gt;').val(i).text(rjPad2(i)));
+      $('#f_sched_hmin').append($('&lt;option&gt;&lt;/option&gt;').val(i).text(rjPad2(i)));
+    }
+    for (i = 1; i &lt;= 31; i++) $('#f_sched_dom').append($('&lt;option&gt;&lt;/option&gt;').val(i).text(i));
+    RJ_NMIN.forEach(function (n) { $('#f_sched_nmin').append($('&lt;option&gt;&lt;/option&gt;').val(n).text(n)); });
+    RJ_DOWS.forEach(function (nm, d) {
+      $w.append($('&lt;label&gt;&lt;/label&gt;').append($('&lt;input type="checkbox" class="rj-wd-cb"&gt;').val(d)).append(' ' + nm));
+    });
+    $('#f_sched_hour').val(3); $('#f_sched_min').val(30); /* sensible new-job default */
+  })();
+
+  function schedRows() {
+    var f = $('#f_sched_freq').val();
+    $('#f_s_minutely').toggle(f === 'minutely');
+    $('#f_s_hourly').toggle(f === 'hourly');
+    $('#f_s_dom').toggle(f === 'monthly');
+    $('#f_s_weekday').toggle(f === 'weekly');
+    $('#f_s_clock').toggle(f === 'daily' || f === 'weekly' || f === 'monthly');
+    $('#f_s_at').toggle(f === 'weekly' || f === 'monthly');
+    $('#dl_f_schedule').toggle(f === 'custom');
+    schedSummary();
+  }
+
+  function rjCheckedDows() {
+    var a = [];
+    $('.rj-wd-cb:checked').each(function () { a.push(+$(this).val()); });
+    return a;
+  }
+
+  function rjBuildCron() {
+    var f = $('#f_sched_freq').val();
+    if (f === 'minutely') return '*/' + $('#f_sched_nmin').val() + ' * * * *';
+    if (f === 'hourly') return $('#f_sched_hmin').val() + ' * * * *';
+    if (f === 'daily') return $('#f_sched_min').val() + ' ' + $('#f_sched_hour').val() + ' * * *';
+    if (f === 'weekly') {
+      var d = rjCheckedDows();
+      if (!d.length) return '';
+      return $('#f_sched_min').val() + ' ' + $('#f_sched_hour').val() + ' * * ' + d.join(',');
+    }
+    if (f === 'monthly') return $('#f_sched_min').val() + ' ' + $('#f_sched_hour').val() + ' ' + $('#f_sched_dom').val() + ' * *';
+    return String($('#f_schedule').val() || '').trim().replace(/\s+/g, ' ');
+  }
+
+  function schedSummary() {
+    var f = $('#f_sched_freq').val();
+    if (f === 'custom' &amp;&amp; !$('#f_schedule').val().trim()) { $('#rj-sched-summary').removeClass('rj-warn').text('Enter a 5-field cron expression, e.g. 30 3 * * *'); return; }
+    var cron = rjBuildCron();
+    if (!cron) { $('#rj-sched-summary').addClass('rj-warn').text('Pick at least one weekday.'); return; }
+    var fields = cron.split(/\s+/);
+    if (f === 'custom') {
+      var lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]], bad = fields.length !== 5;
+      if (!bad) for (var i = 0; i &lt; 5; i++) if (!rjFieldSet(fields[i], lim[i][0], lim[i][1])) { bad = true; break; }
+      if (bad) { $('#rj-sched-summary').addClass('rj-warn').text('Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-6).'); return; }
+    }
+    var msgs = [rjHumanize(cron) || 'Custom cron', 'cron: ' + cron];
+    var runs = rjNextRuns(cron, 3);
+    if (runs.length) msgs.push('next: ' + runs.map(rjFmtRun).join(' · '));
+    if (fields[2] !== '*' &amp;&amp; fields[4] !== '*') msgs.push('note: with both day-of-month and day-of-week set, cron fires when EITHER matches.');
+    if (f === 'monthly' &amp;&amp; +fields[2] &gt; 28) msgs.push('note: months without day ' + fields[2] + ' are skipped.');
+    $('#rj-sched-summary').removeClass('rj-warn').text(msgs.join('  |  '));
+  }
+
+  function rjFormSetSchedule(cron) {
+    var p = cron ? rjParseCron(cron) : null;
+    if (!cron) { $('#f_sched_freq').val('daily'); $('#f_sched_hour').val(3); $('#f_sched_min').val(30); }
+    else if (p) {
+      $('#f_sched_freq').val(p.freq);
+      if (p.freq === 'minutely') $('#f_sched_nmin').val(p.nmin);
+      if (p.freq === 'hourly') $('#f_sched_hmin').val(p.hmin);
+      if (p.freq === 'weekly') { $('.rj-wd-cb').prop('checked', false); p.dow.forEach(function (d) { $('.rj-wd-cb').filter('[value="' + d + '"]').prop('checked', true); }); }
+      if (p.freq !== 'minutely' &amp;&amp; p.freq !== 'hourly') { $('#f_sched_hour').val(p.hour); $('#f_sched_min').val(p.min); }
+      if (p.freq === 'monthly') $('#f_sched_dom').val(p.dom);
+    } else { $('#f_sched_freq').val('custom'); $('#f_schedule').val(cron); }
+    schedRows();
+  }
+
+  $('#f_sched_freq').off('.rjsched').on('change.rjsched', schedRows);
+  $('#f_sched_hour, #f_sched_min, #f_sched_hmin, #f_sched_dom, #f_sched_nmin').off('.rjsched').on('change.rjsched', schedSummary);
+  $('#f_schedule, .rj-wd-cb').off('.rjsched').on('input.rjsched change.rjsched', schedSummary);
+  schedRows();
+
+  /* humanize the jobs-table Schedule column (raw cron stays in the tooltip) */
+  $('#tab_rj_jobs tbody tr[data-job]').each(function () {
+    var j = D.jobs[$(this).data('job')];
+    if (!j || !j.conf || !j.conf.SCHEDULE) return;
+    var h = rjHumanize(j.conf.SCHEDULE);
+    if (h) $(this).find('td.rj-sched').text(h).attr('title', j.conf.SCHEDULE);
+  });
+
   /* storage-overlap hint: client-side mirror of the engine's overlap_check */
   function rjNorm(p) { return p.length &gt; 1 ? p.replace(/\/+$/, '') : p; }
   function rjOverlap(p) {
@@ -1940,7 +2185,7 @@ $(function () {
     $('#f_name').val(j ? j.name : '').prop('disabled', !!j);
     $('#f_desc').val(j &amp;&amp; j.conf.DESC ? j.conf.DESC : '');
     $('#f_enabled').val(j &amp;&amp; j.conf.ENABLED === 'no' ? 'no' : 'yes');
-    $('#f_schedule').val(j &amp;&amp; j.conf.SCHEDULE ? j.conf.SCHEDULE : '');
+    rjFormSetSchedule(j &amp;&amp; j.conf.SCHEDULE ? j.conf.SCHEDULE : '');
     $('#f_engine').val(j &amp;&amp; j.conf.ENGINE ? j.conf.ENGINE : 'rclone');
     $('#f_mode').val(j &amp;&amp; j.conf.MODE ? j.conf.MODE : 'sync');
     $('#f_src').val(j &amp;&amp; j.conf.SRC ? j.conf.SRC : '');
@@ -2023,9 +2268,11 @@ $(function () {
     ev.preventDefault();
     var job = $('#f_orig').val() || $('#f_name').val().trim();
     if (!job) return;
+    var cron = rjBuildCron();
+    if (!cron) { schedSummary(); return; }
     var data = {
       action: 'save_job', job: job,
-      desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: $('#f_schedule').val(),
+      desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: cron,
       engine: $('#f_engine').val(), mode: $('#f_mode').val(),
       src: $('#f_src').val().trim(), dst: $('#f_dst').val().trim(), script: $('#f_script').val().trim(),
       dryrun: $('#f_dryrun').val(), notify: $('#f_notify').val(),
@@ -2226,13 +2473,13 @@ $(function () {
   });
 });
 </INLINE>
-<SHA256>8d5166fbb23471aa7939ae654fdd268d0eb41525d5eec7f070e5e7fc3a270139</SHA256>
+<SHA256>a904ec2928d8dfc001f7afe4a43a52f629c18bf940c38e986fc5c43f53f37c05</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07b - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07c - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -2385,13 +2632,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>e48c0c574a38bae636083bcb62ac4952c4b5f5d0ece0d454aab5d20fc66e973b</SHA256>
+<SHA256>ea9bfd821826fdeebfa709e4b364cc89aac00d80b7e7e0727fe8b6917a16032c</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07b - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07c - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -2470,13 +2717,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>3c9063dc43ed1fd642bd75114409bffa8c8498d2cf8a636d10c37ab3936855f9</SHA256>
+<SHA256>71462595c6728a8fb803b7554d8e82f305884463abc7c279f50f483c28877432</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07b - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07c - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -2525,7 +2772,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>2f69ef820b7d9e211f15f745d23838dc8574e3440b730de9039853dd866576e1</SHA256>
+<SHA256>31016abdd25d0451768d5cd37eef5db8897d427fa727ec4a352fc969dde5a222</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">

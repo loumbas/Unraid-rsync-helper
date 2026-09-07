@@ -38,11 +38,37 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 function rj_out($arr) { echo json_encode($arr); exit; }
 function rj_name_ok($n)  { return is_string($n) && preg_match('/^[A-Za-z0-9_-]{1,40}$/', $n); }
 function rj_badfield($v) { return preg_match('/[`$;|&<>*?"\'\\\\\r\n]/', $v) === 1; }
+function rj_sched_part($x, $lo, $hi) {
+    /* one cron field: lists of '*', values, ranges and steps, each within range */
+    if ($x === '*') return true;
+    foreach (explode(',', $x) as $part) {
+        $step = 1;
+        if (strpos($part, '/') !== false) {
+            $sp = explode('/', $part, 2);
+            if (!preg_match('/^\d{1,2}$/', $sp[1])) return false;
+            $step = (int)$sp[1]; $part = $sp[0];
+            if ($step < 1 || $step > $hi) return false;
+        }
+        if ($part === '*') continue;
+        $vals = explode('-', $part);
+        if (count($vals) === 1) $vals[] = ($step > 1 ? $hi : $vals[0]);
+        if (count($vals) !== 2) return false;
+        foreach ($vals as $v) if (!preg_match('/^\d{1,2}$/', $v)) return false;
+        if ((int)$vals[0] < $lo || (int)$vals[1] > $hi || (int)$vals[0] > (int)$vals[1]) return false;
+    }
+    return true;
+}
 function rj_sched_ok($s) {
+    /* charset rule of the engine (valid_schedule) plus per-field ranges:
+       min 0-59, hour 0-23, dom 1-31, mon 1-12, dow 0-7 (7 = Sunday alias) */
     if (!is_string($s) || $s === '') return false;
     $f = preg_split('/\s+/', trim($s));
     if (count($f) !== 5) return false;
-    foreach ($f as $x) if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
+    $lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+    foreach ($f as $i => $x) {
+        if (!preg_match('#^[0-9*,-/]+$#', $x)) return false;
+        if (!rj_sched_part($x, $lim[$i][0], $lim[$i][1])) return false;
+    }
     return true;
 }
 function rj_env_upsert($file, $pairs, $mode = null) {
@@ -100,7 +126,7 @@ case 'save_job':
         if (strpos($script, '/') !== 0) rj_out(['ok' => false, 'error' => 'Script must be an absolute path']);
         $mode = ''; $src = ''; $dst = ''; $schedOrig = $sched;
     } else {
-        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' => false, 'error' => 'schedule must be 5 cron fields (numbers, * , - / only)']);
+        if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' => false, 'error' => 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
         if ($src === '' || $dst === '') rj_out(['ok' => false, 'error' => 'SRC and DST are required']);
         if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' => false, 'error' => 'SRC/DST contain forbidden characters']);
         if ($engine === 'rclone' && !in_array($mode, ['sync', 'copy', 'check'], true)) rj_out(['ok' => false, 'error' => 'rclone mode must be sync|copy|check']);
