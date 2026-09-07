@@ -1,3 +1,16 @@
+## 2026.09.07j
+Doctor verifies the deployed files against a shipped checksum manifest:
+- The build now GENERATES installed-checksums.txt (one 'sha256  deployed-path  mode' line
+  per packaged file - version-stamped bytes, MANIFEST order, the file excluded from its
+  own list) and embeds it like every other file. Two-pass because a file cannot hash
+  itself; it must stay the LAST MANIFEST entry (enforced by both builders). A committed
+  placeholder satisfies the manifest<->tree lint - its repo content is never what ships.
+- Doctor new section: every listed file must exist with the release sha256 (FAIL
+  otherwise - catches the stale/half-deployed symptom an online update can leave) and
+  the release mode (WARN on drift). Missing manifest (older install) is an INFO that
+  points at a reinstall; a still-deployed build PLACEHOLDER is a WARN.
+- build.ps1 and build.sh produce the manifest byte-identically (verified).
+
 ## 2026.09.07i
 'stopping' event: a loud trace when jobs are cut off by an array stop:
 - New emhttp event 'stopping' (10 s timeout cap, always exits 0 - a shutdown is never

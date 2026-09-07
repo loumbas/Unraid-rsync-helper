@@ -1040,7 +1040,7 @@ d_line() { # <PASS|WARN|FAIL|INFO> <text> - buffered once, printed once in the f
 
 cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
-  local njobs nact jen jsched
+  local njobs nact jen jsched csf csha cpath cmode cscount csbad csmiss csmod cswant csgot
   for a in "$@"; do [ "$a" = "--notify" ] && opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
@@ -1050,6 +1050,33 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
     if [ "$pv" = "$ENGINE_VERSION" ]; then d_line PASS "plugin package version matches engine ($pv)"
     else d_line WARN "plg version '$pv' differs from engine '$ENGINE_VERSION' (reinstall the plugin)" ; fi
   else d_line WARN "cannot read plugin version from /boot/config/plugins/$NAME.plg (plugin not installed?)"; fi
+  # deploy verification: every packaged file (except this manifest itself) must match
+  # the sha256 + mode the release was built with - catches the half-deployed/stale-file
+  # symptom an online update can leave behind
+  csf="$EMHTTP_DIR/installed-checksums.txt"
+  if [ -f "$csf" ]; then
+    if head -n 2 "$csf" | grep -q 'PLACEHOLDER'; then
+      d_line WARN "installed-checksums.txt is still the build PLACEHOLDER - the plugin on disk was not built by the current pipeline; reinstall the .plg"
+    else
+      cscount=0; csbad=0; csmiss=0; csmod=0
+      while read -r csha cpath cmode || [ -n "${csha:-}" ]; do   # default IFS splits the columns
+        case "$csha" in ''|'#'*) continue ;; esac
+        cscount=$((cscount + 1))
+        if [ ! -f "$cpath" ]; then d_line FAIL "deployed file missing: $cpath"; csmiss=$((csmiss + 1)); continue; fi
+        if [ "$(sha256sum "$cpath" 2>/dev/null | cut -d' ' -f1)" != "$csha" ]; then
+          d_line FAIL "deployed file differs from the release (stale/partial deploy): $cpath"; csbad=$((csbad + 1))
+        else
+          cswant=$((8#${cmode:-0000})); csgot=$((8#$(stat -c '%a' "$cpath" 2>/dev/null || echo 0000)))
+          if [ "$csgot" -ne "$cswant" ]; then
+            d_line WARN "mode drift on $cpath (release wants $cmode, box has $(printf '%04o' "$csgot"))"; csmod=$((csmod + 1))
+          fi
+        fi
+      done < "$csf"
+      if [ "$cscount" -eq 0 ]; then d_line WARN "installed-checksums.txt present but contained no entries"
+      elif [ $((csbad + csmiss)) -eq 0 ]; then d_line PASS "deployed files match the release checksums ($cscount files)$([ "$csmod" -eq 0 ] && printf ', modes exact' || printf ', %s mode drift see WARN' "$csmod")"
+      else d_line FAIL "$((csbad + csmiss)) deployed file(s) differ from the release - reinstall the plugin (.plg) to force a full redeploy"; fi
+    fi
+  else d_line INFO "no installed-checksums.txt in $EMHTTP_DIR - deploy verification unavailable (plugin older than $ENGINE_VERSION; a reinstall enables it)"; fi
   if [ -x "$RCLONE_BIN" ]; then d_line PASS "rclone wrapper: $RCLONE_BIN"
   else d_line FAIL "rclone wrapper $RCLONE_BIN missing - reinstall the rclone plugin"; fi
   ro="$(command -v rcloneorig 2>/dev/null)"

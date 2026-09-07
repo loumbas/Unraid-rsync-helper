@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07i">
+<!ENTITY version   "2026.09.07j">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,19 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.07j
+Doctor verifies the deployed files against a shipped checksum manifest:
+- The build now GENERATES installed-checksums.txt (one 'sha256  deployed-path  mode' line
+  per packaged file - version-stamped bytes, MANIFEST order, the file excluded from its
+  own list) and embeds it like every other file. Two-pass because a file cannot hash
+  itself; it must stay the LAST MANIFEST entry (enforced by both builders). A committed
+  placeholder satisfies the manifest&lt;-&gt;tree lint - its repo content is never what ships.
+- Doctor new section: every listed file must exist with the release sha256 (FAIL
+  otherwise - catches the stale/half-deployed symptom an online update can leave) and
+  the release mode (WARN on drift). Missing manifest (older install) is an INFO that
+  points at a reinstall; a still-deployed build PLACEHOLDER is a WARN.
+- build.ps1 and build.sh produce the manifest byte-identically (verified).
+
 ## 2026.09.07i
 'stopping' event: a loud trace when jobs are cut off by an array stop:
 - New emhttp event 'stopping' (10 s timeout cap, always exits 0 - a shutdown is never
@@ -149,17 +162,6 @@ Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fi
   error counts, log path) and a clickable link to the plugin page.
 - Testing: new 'notify-test [normal|warning|alert]' engine command, a "Send test
   notification" button on the Alerts &amp; Safety tab, and 'doctor --notify' (opt-in).
-
-## 2026.09.07
-- Fix: online update / over-install now actually replaces changed files. Every embedded
-  file carries a &lt;SHA256&gt; of its deployed bytes; the plugin manager skips an existing
-  destination unless a checksum fails, so without them an update refreshed the stored
-  .plg but left the old files in place. Checksums are computed after the version stamp,
-  so unchanged files still skip at boot and changed ones are redeployed on update.
-- Verbosity: the plugin install/update and remove windows now show what is happening -
-  previous version -&gt; new version, emhttp copy being cleared, boot-setup progress,
-  deployed-file count, and exactly what removal keeps (config + storage data) with the
-  full-cleanup command.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -198,7 +200,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07i - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.07j - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -220,7 +222,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07i"
+ENGINE_VERSION="2026.09.07j"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1238,7 +1240,7 @@ d_line() { # &lt;PASS|WARN|FAIL|INFO&gt; &lt;text&gt; - buffered once, printed o
 
 cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
   local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
-  local njobs nact jen jsched
+  local njobs nact jen jsched csf csha cpath cmode cscount csbad csmiss csmod cswant csgot
   for a in "$@"; do [ "$a" = "--notify" ] &amp;&amp; opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
   say "== rclone-jobs doctor v$ENGINE_VERSION - $(stamp_now) =="
@@ -1248,6 +1250,33 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
     if [ "$pv" = "$ENGINE_VERSION" ]; then d_line PASS "plugin package version matches engine ($pv)"
     else d_line WARN "plg version '$pv' differs from engine '$ENGINE_VERSION' (reinstall the plugin)" ; fi
   else d_line WARN "cannot read plugin version from /boot/config/plugins/$NAME.plg (plugin not installed?)"; fi
+  # deploy verification: every packaged file (except this manifest itself) must match
+  # the sha256 + mode the release was built with - catches the half-deployed/stale-file
+  # symptom an online update can leave behind
+  csf="$EMHTTP_DIR/installed-checksums.txt"
+  if [ -f "$csf" ]; then
+    if head -n 2 "$csf" | grep -q 'PLACEHOLDER'; then
+      d_line WARN "installed-checksums.txt is still the build PLACEHOLDER - the plugin on disk was not built by the current pipeline; reinstall the .plg"
+    else
+      cscount=0; csbad=0; csmiss=0; csmod=0
+      while read -r csha cpath cmode || [ -n "${csha:-}" ]; do   # default IFS splits the columns
+        case "$csha" in ''|'#'*) continue ;; esac
+        cscount=$((cscount + 1))
+        if [ ! -f "$cpath" ]; then d_line FAIL "deployed file missing: $cpath"; csmiss=$((csmiss + 1)); continue; fi
+        if [ "$(sha256sum "$cpath" 2&gt;/dev/null | cut -d' ' -f1)" != "$csha" ]; then
+          d_line FAIL "deployed file differs from the release (stale/partial deploy): $cpath"; csbad=$((csbad + 1))
+        else
+          cswant=$((8#${cmode:-0000})); csgot=$((8#$(stat -c '%a' "$cpath" 2&gt;/dev/null || echo 0000)))
+          if [ "$csgot" -ne "$cswant" ]; then
+            d_line WARN "mode drift on $cpath (release wants $cmode, box has $(printf '%04o' "$csgot"))"; csmod=$((csmod + 1))
+          fi
+        fi
+      done &lt; "$csf"
+      if [ "$cscount" -eq 0 ]; then d_line WARN "installed-checksums.txt present but contained no entries"
+      elif [ $((csbad + csmiss)) -eq 0 ]; then d_line PASS "deployed files match the release checksums ($cscount files)$([ "$csmod" -eq 0 ] &amp;&amp; printf ', modes exact' || printf ', %s mode drift see WARN' "$csmod")"
+      else d_line FAIL "$((csbad + csmiss)) deployed file(s) differ from the release - reinstall the plugin (.plg) to force a full redeploy"; fi
+    fi
+  else d_line INFO "no installed-checksums.txt in $EMHTTP_DIR - deploy verification unavailable (plugin older than $ENGINE_VERSION; a reinstall enables it)"; fi
   if [ -x "$RCLONE_BIN" ]; then d_line PASS "rclone wrapper: $RCLONE_BIN"
   else d_line FAIL "rclone wrapper $RCLONE_BIN missing - reinstall the rclone plugin"; fi
   ro="$(command -v rcloneorig 2&gt;/dev/null)"
@@ -1526,7 +1555,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>6b76ea3104415ede9f270061642fb42a340d61c73ed8d3bebe6a88b60406b32e</SHA256>
+<SHA256>de0d6e09540f369bf2b2863b85b5b1ee16728040381f9703c9e9eb8a5803bd43</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1703,7 +1732,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07i - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.07j - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1752,7 +1781,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07i',
+    'version'    =&gt; '2026.09.07j',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -1795,7 +1824,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07i"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07j"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -1966,15 +1995,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07i &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07j &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>076cf4d72fa9ebfa6cd5dadce89810ccc4449d72b6ee72e33fb918076fa1b853</SHA256>
+<SHA256>5ac51bd9d0d7d798a65938aba5e78646c021a62880763190b11c8e80da91679b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07i - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.07j - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2257,12 +2286,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>117f279db2595ce9543b8575dfaaf73f48c6f8ae82a13fbce0fa5c074a8f59a7</SHA256>
+<SHA256>7be3f5f650c73281ec86711135af1c7e6b4c8dcbb3d2bddce9fcf8dabe3335f9</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07i - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.07j - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -3036,13 +3065,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>2df7ec2230b08389c9bb77b2f1d34556d05989aa1c8afed7a55976f60f7f3ea6</SHA256>
+<SHA256>bf07ed6a42add12858d4fc8ce1ff393ba69951ebc1f2350a875f93829f8dc1bd</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07i - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.07j - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -3195,13 +3224,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>122a4f485328e2fcfb4ccbae66eb5cc64a78701bc2892aebda154d1e6beb0d55</SHA256>
+<SHA256>1de522fb598026803e7b271f488b412543f0001cc85e9f65e070a69a3eede67a</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07i - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.07j - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -3280,13 +3309,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>4f2da884df60d9d56bdfce690d8c62676e88d0f46cc48054fa72588349d1cb83</SHA256>
+<SHA256>829a66dd3babaf5f29c1839d8c877406765d293c350744365eda3a7c05c1a7a1</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07i - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.07j - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -3339,7 +3368,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>106c7243073d3fba1bf435322371e65d4fffb9a34ea5d8c5c65329f56fe17a35</SHA256>
+<SHA256>5ca701bd9a79046ea52dfbf793b0624b514e4603d3cda691a29d4917913920b5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -3456,6 +3485,28 @@ fi
 exit 0
 </INLINE>
 <SHA256>d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b</SHA256>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
+<INLINE>
+# rclone-jobs installed checksums v2026.09.07j - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
+de0d6e09540f369bf2b2863b85b5b1ee16728040381f9703c9e9eb8a5803bd43  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
+5ac51bd9d0d7d798a65938aba5e78646c021a62880763190b11c8e80da91679b  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+7be3f5f650c73281ec86711135af1c7e6b4c8dcbb3d2bddce9fcf8dabe3335f9  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+bf07ed6a42add12858d4fc8ce1ff393ba69951ebc1f2350a875f93829f8dc1bd  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+1de522fb598026803e7b271f488b412543f0001cc85e9f65e070a69a3eede67a  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+829a66dd3babaf5f29c1839d8c877406765d293c350744365eda3a7c05c1a7a1  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+5ca701bd9a79046ea52dfbf793b0624b514e4603d3cda691a29d4917913920b5  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
+4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
+361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
+28a59bfb180f905827ea55e4314b981667f5e5be274bb42e6a2af2709604edb0  /usr/local/emhttp/plugins/rclone-jobs/event/started  0755
+3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
+d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
+</INLINE>
+<SHA256>c647f3b9146193794df83567425a180da079173f28c4a5a43f6ae94a68ab028d</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

@@ -8,8 +8,8 @@ byte-identical output, every new shipped file added to `src/MANIFEST`, `pwsh -No
 weakens the safety model (dry-run gate, `--max-delete`, mount guard, storage policy).
 i18n scaffolding (`_()` + catalogs) is out of scope by owner decision — not listed.
 
-Priority order (value per effort): ~~2/1/3/5~~ shipped (07f/07g/07h/07i) → **6**
-(robustness) → **4**, **7** (features).
+Priority order (value per effort): ~~2/1/3/5/6~~ shipped (07f/07g/07h/07i/07j) →
+**4**, **7** (features).
 
 ---
 
@@ -27,7 +27,7 @@ draft below:** publish is `POST http://localhost/pub/<channel>` (per
 today — status only changes on a manual page reload — so this item must ADD the 60 s
 fallback itself. There is also no `stop` subcommand; drop it from the call-site list.
 
-**Motivation.** Every UI action ends in `location.reload()`, and the Jobs tab never
+**Motivation (pre-ship).** Every UI action ends in `location.reload()`, and the Jobs tab never
 refreshes on its own — a cron-started run shows as "RUN" only after a manual reload. Unraid 7 ships
 nchan: publish to `http://localhost/sub/<channel>` (PUT/POST), subscribe from the page
 with `new EventSource('/sub/<channel>')` (same-origin, session-cookie auth). Reference:
@@ -70,7 +70,7 @@ one release, `save_job` no longer previews inline, UI polls 1 s (120 cap) with a
 button, post-save preview survives the reload via a `sessionStorage` flag. Remaining
 optional: nothing.
 
-**Motivation.** `preview` and `browse` run rclone synchronously inside the ajax PHP
+**Motivation (pre-ship).** `preview` and `browse` run rclone synchronously inside the ajax PHP
 request. On a huge remote (or slow backend) the web request hangs until timeout,
 blocking an emhttp worker and showing nothing useful. This is the known long-task
 pattern: detach + poll.
@@ -215,7 +215,12 @@ present, one bell notice, shutdown time unaffected; no event output when idle.
 
 ---
 
-## 6. Doctor: verify deployed files against a shipped checksum manifest
+## 6. Doctor: verify deployed files against a shipped checksum manifest — SHIPPED 2026.09.07j
+
+**Shipped notes.** Exactly the two-pass approach recorded below. Doctor FAILs on
+missing/hash-mismatched deployed files, WARNs on mode drift, INFOs when the manifest is
+absent (pre-07j install). Verified: both builders emit the generated manifest
+byte-identically; corrupt-file/mode-drift cases behave as designed.
 
 **Motivation.** The pre-2026.09.07 "stale files linger" symptom showed an online update
 can half-deploy. Doctor checks behavior today but never compares the deployed
