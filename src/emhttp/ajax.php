@@ -262,6 +262,18 @@ case 'import_jobs':
     }
     rj_out($bj);
 
+case 'history':
+    /* last N live runs of one job (ts, rc, secs, transferred, bytes) for the
+       Jobs-tab trend panel; n is range-checked here and again in the engine */
+    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
+    $hn = rj_num($_POST['n'] ?? 20);
+    if ($hn < 1 || $hn > 200) $hn = 20;
+    $eo = []; $erc = 0;
+    rj_engine('history ' . escapeshellarg($name) . ' ' . $hn, $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad history response (rc ' . $erc . ')']);
+    rj_out($bj);
+
 case 'run_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);

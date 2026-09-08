@@ -240,6 +240,43 @@ function rjLiveStart() {
   };
 }
 
+/* ---------------- run history + size trend (plain CSS bars) -------------- */
+function rjEsc(s) { var d = document.createElement('div'); d.textContent = String(s === null || s === undefined ? '' : s); return d.innerHTML; }
+
+function rjHistBytes(b) {
+  if (b === null || b === undefined) return 'n/a';
+  var u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'], i = 0, v = b;
+  while (v >= 1024 && i < 4) { v /= 1024; i++; }
+  return (i === 0 || v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + u[i];
+}
+
+function rjShowHistory(job) {
+  rjPost({ action: 'history', job: job, n: 20 }, function (res) {
+    var $p = $('#rj-history').empty();
+    if (!res.ok) { $p.append($('<pre style="color:#e6867e"></pre>').text('ERROR: ' + (res.error || '?'))).show(); return; }
+    var e = res.entries || [], max = 1;
+    e.forEach(function (x) { if (x.bytes && x.bytes > max) max = x.bytes; });
+    var $tb = $('<tbody></tbody>');
+    if (!e.length) $tb.append('<tr><td colspan="6" style="text-align:center;padding:10px">No live runs recorded yet - history counts real runs, not dry-runs.</td></tr>');
+    e.slice().reverse().forEach(function (x) { /* newest first */
+      var ok = (x.rc === 0 || x.rc === 24);
+      var res2 = x.rc === 0 ? 'OK' : (x.rc === 24 ? 'OK (24)' : (x.rc === 143 ? 'interrupted' : 'rc ' + x.rc));
+      var w = x.bytes ? Math.max(2, Math.round(100 * x.bytes / max)) : 0;
+      $tb.append('<tr><td style="white-space:nowrap">' + rjEsc(x.iso) + '</td>'
+        + '<td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + '">' + rjEsc(res2) + '</td>'
+        + '<td>' + (x.secs === null || x.secs === undefined ? '-' : x.secs + 's') + '</td>'
+        + '<td>' + (x.errors || 0) + '</td>'
+        + '<td>' + rjEsc(x.transferred || rjHistBytes(x.bytes)) + '</td>'
+        + '<td style="width:200px"><div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"></div></td></tr>');
+    });
+    $p.append(
+      $('<div class="gray" style="font-size:11px;margin:2px 0 4px">Last ' + e.length + ' live run(s) of "' + rjEsc(job) + '" (newest first; bars relative to the largest recorded run)</div>'),
+      $('<table class="view-table" style="width:auto;min-width:620px"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb)
+    ).show();
+    $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+}
+
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
 function rjConfirm(title, text, btn, danger, cb) {
   if (typeof swal === 'function') {
@@ -528,6 +565,7 @@ $(function () {
       });
       return;
     }
+    if (act === 'hist') { rjShowHistory(job); return; }
     if (act === 'ack') { rjAckDialog(job); }
   });
 

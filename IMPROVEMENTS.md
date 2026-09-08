@@ -8,8 +8,8 @@ byte-identical output, every new shipped file added to `src/MANIFEST`, `pwsh -No
 weakens the safety model (dry-run gate, `--max-delete`, mount guard, storage policy).
 i18n scaffolding (`_()` + catalogs) is out of scope by owner decision — not listed.
 
-Priority order (value per effort): ~~2/1/3/5/6/4~~ shipped (07f/07g/07h/07i/07j/07k) →
-**7** (features).
+All seven items shipped: 2→07f, 1→07g, 3→07h, 5→07i, 6→07j, 4→07k, 7→07l.
+The drafts above stay as design history; anything future goes below them.
 
 ---
 
@@ -262,9 +262,18 @@ path. Reinstall via .plg: back to PASS.
 
 ---
 
-## 7. Run history + transferred-size trend
+## 7. Run history + transferred-size trend — SHIPPED 2026.09.07l
 
-**Motivation.** Status shows only the last run; operators want "did Wednesday's run
+**Shipped notes.** Engine `hist_add` at every LIVE run end (success, failure and the
+143-interrupt trap path; dry-runs excluded), line fields `{ts,iso,rc,secs,errors,
+transferred,bytes|null,log}` with a permissive `hist_bytes` parser (KiB/MiB/GiB/TiB,
+null on anything odd, never fails a run). Watchdog: 90-day cutoff + 400-line cap per
+file, corrupt files still truncated. `history <job> [n≤200]` reads with `-R fromjson?`
+so half-written lines are skipped individually. Page: per-row History button renders a
+newest-first 20-run table + plain-CSS size bars (relative to the largest run) into
+`#rj-history`.
+
+**Motivation (pre-ship).** Status shows only the last run; operators want "did Wednesday's run
 slow down?" and per-job success rates.
 
 **Draft plan.**

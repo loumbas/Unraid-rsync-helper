@@ -151,6 +151,7 @@ $rjdata = [
             <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>'>
             <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>'><?php endif; ?>
             <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='tail of the last log (redacted)'>
+            <input type='button' value='History' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='last 20 live runs + size trend'>
             <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>'>
             <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>'>
           </td>
@@ -161,6 +162,7 @@ $rjdata = [
     <div id="rj-result" style="display:none;margin-top:10px"><pre id="rj-result-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview-ctl" style="display:none;margin-top:6px"><input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"></div>
+    <div id="rj-history" style="display:none;margin-top:12px"></div>
 
     <div class="title" style="margin-top:14px">
       <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-wrench title'></i><span id="rj-form-title">Add job</span></span>

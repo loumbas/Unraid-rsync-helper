@@ -668,7 +668,7 @@ cmd_run() { # <job> [--dry-run]
   # signal-aware exec: 'wait' returns immediately (>128) when TERM/INT arrive,
   # so the trap can mark the status before the box goes down. rclone children
   # are left to the shutdown's own kill pass (no force-killing from here).
-  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null; sse_publish "$JOB_NAME" false 143; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" >> "$logfile" 2>/dev/null; trap - TERM INT; exit 143' TERM INT
+  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" >> "$logfile" 2>/dev/null; trap - TERM INT; exit 143' TERM INT
   local jpid
   if [ -t 1 ]; then
     # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
@@ -703,6 +703,7 @@ cmd_run() { # <job> [--dry-run]
   else
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash" "$logfile"
     sse_publish "$JOB_NAME" false "$rc"
+    hist_add "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" "$logfile"
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
       # recovered: clear stale problem notices from the bell + fresh watchdog dedup
       notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
@@ -975,6 +976,62 @@ cmd_validate_job() { # <job> - hidden helper for import: exits 78 on any config 
   say "valid"
 }
 
+# ------------------------------------------------------------- run history --
+# One json line per LIVE run in $STORAGE_ROOT/history/<job>.jsonl: the "did
+# Wednesday's run slow down?" trend. Parsing the transferred amount into bytes
+# is deliberately permissive - a null must never fail a run.
+hist_bytes() { # <human size like '1.2 GiB'> -> integer bytes on stdout, rc1 on parse fail
+  local s="$1" v u m
+  v="$(printf '%s' "$s" | awk 'NR==1{print $1}')"
+  u="$(printf '%s' "$s" | awk 'NR==1{print toupper($2)}')"
+  case "$v" in ''|*[!0-9.]*) return 1 ;; esac
+  case "$u" in
+    ''|B|BYTE|BYTES) m=1 ;;
+    K|KB|KIB)        m=1024 ;;
+    M|MB|MIB)        m=1048576 ;;
+    G|GB|GIB)        m=1073741824 ;;
+    T|TB|TIB)        m=1099511627776 ;;
+    *) return 1 ;;
+  esac
+  awk -v v="$v" -v m="$m" 'BEGIN{printf "%.0f", v*m}'
+}
+
+hist_add() { # <job> <rc> <secs> <errors> <transferred> <logfile> - best effort, never fatal
+  local hb=""
+  command -v jq >/dev/null 2>&1 || return 0
+  hb="$(hist_bytes "${5:-}" 2>/dev/null)" || hb=""
+  local dir="$STORAGE_ROOT/history"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  jq -nc --argjson ts "$(unix_now)" --arg iso "$(stamp_now)" --argjson rc "${2:-0}" \
+         --argjson secs "${3:-0}" --argjson errors "${4:-0}" --arg transferred "${5:-}" \
+         --arg bytes "$hb" --arg log "${6:-}" \
+    '{ts:$ts, iso:$iso, rc:$rc, secs:$secs, errors:$errors, transferred:$transferred,
+      bytes:(if $bytes=="" then null else ($bytes|tonumber) end), log:$log}' >> "$dir/$JOB_NAME.jsonl" 2>/dev/null || true
+  return 0
+}
+
+cmd_history() { # <job> [n] -> {ok, job, entries:[...last n...]} (broken lines dropped)
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || { printf '{"ok":false,"error":"invalid job name"}\n'; return 0; }
+  local n="${2:-20}" hf
+  [[ "$n" =~ ^[0-9]{1,3}$ ]] || n=20
+  [ "$n" -gt 200 ] && n=200
+  load_paths
+  storage_guard
+  hf="$STORAGE_ROOT/history/$JOB_NAME.jsonl"
+  if [ ! -f "$hf" ]; then
+    printf '{"ok":true,"job":"%s","entries":[]}\n' "$JOB_NAME"; return 0
+  fi
+  # -R + fromjson? skips corrupt lines one by one (a half-written line from a
+  # hard kill must not make the whole history unreadable)
+  if jq -c -R 'fromjson? | select(type=="object")' "$hf" 2>/dev/null | tail -n "$n" | jq -sc '.' > "$hf.ui.$$" 2>/dev/null; then
+    jq -c --arg j "$JOB_NAME" '{ok:true, job:$j, entries:(. // [])}' < "$hf.ui.$$"
+  else
+    printf '{"ok":false,"error":"history file unreadable"}\n'
+  fi
+  rm -f "$hf.ui.$$"
+}
+
 cmd_list() {
   local f n
   [ -d "$BOOT_DIR/jobs" ] || { say "(no jobs directory: $BOOT_DIR/jobs)"; return 0; }
@@ -1092,6 +1149,21 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
       rm -f "$ttf" "${ttf%.rc}.out" "${ttf%.rc}.pid"
     fi
   done
+  # history trim: 90-day cutoff + 400-line cap; a corrupt file still gets cut to
+  # its newest 400 lines (self-heal) instead of growing forever
+  local hdir="$STORAGE_ROOT/history" hf htmp
+  if [ -d "$hdir" ]; then
+    for hf in "$hdir"/*.jsonl; do
+      [ -e "$hf" ] || continue
+      htmp="$hf.trim.$$"
+      if jq -c --argjson cut "$(( now - 7776000 ))" 'select((.ts // 0) >= $cut)' "$hf" > "$htmp" 2>/dev/null; then
+        tail -n 400 "$htmp" > "$htmp.2" 2>/dev/null && mv -f "$htmp.2" "$hf" || rm -f "$htmp.2"
+      else
+        tail -n 400 "$hf" > "$htmp.2" 2>/dev/null && mv -f "$htmp.2" "$hf" || rm -f "$htmp.2"
+      fi
+      rm -f "$htmp"
+    done
+  fi
   find "$LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'doctor-*.txt' \) -mtime +14 -delete 2>/dev/null
   return 0
 }
@@ -1429,6 +1501,7 @@ usage:
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh tail-log <job>          redacted tail (64 KiB) of the job's last log as JSON
+  rclone-jobs.sh history <job> [n]       last n live runs as JSON (ts, rc, secs, bytes)
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh export-jobs             job set as tar.gz, base64 on stdout (JSON)
   rclone-jobs.sh import-jobs <ask|overwrite|skip> <b64-file>   validated import
@@ -1454,6 +1527,7 @@ main() {
     status)   cmd_status ;;
     status-json) cmd_status_json ;;
     tail-log) [ $# -ge 1 ] || die 78 "usage: $0 tail-log <job>"; cmd_tail_log "$1" ;;
+    history)  cmd_history "$@" ;;
     export-jobs) cmd_export_jobs ;;
     import-jobs) cmd_import_jobs "$@" ;;
     validate-job) [ $# -ge 1 ] || die 78 "usage: $0 validate-job <job>"; cmd_validate_job "$1" ;;

@@ -1,3 +1,17 @@
+## 2026.09.07l
+Run history + transferred-size trend:
+- Engine: every LIVE run end appends one json line {ts,iso,rc,secs,errors,transferred,
+  bytes|null,log} to $STORAGE_ROOT/history/<job>.jsonl (interrupted runs record rc=143
+  too; dry-runs are excluded). The human-size -> bytes parser is deliberately permissive:
+  anything unparseable records null and can never fail a run.
+- Watchdog: history files are trimmed to a 90-day cutoff and 400 lines; a corrupt file
+  still gets truncated to its newest 400 lines instead of growing forever.
+- Engine 'history <job> [n<=200]' + ajax 'history' action: reads line-by-line
+  (fromjson?) so a half-written line from a hard kill is skipped, not fatal.
+- WebUI: per-row History button opens a newest-first table of the last 20 runs
+  (result colored, errors, transferred) with plain-CSS bars relative to the largest
+  run - no chart library on an Unraid box.
+
 ## 2026.09.07k
 Job export / import (fleet setup) on the Alerts & Safety tab:
 - Engine 'export-jobs': every job config (regular files, valid names only) plus meta.txt
