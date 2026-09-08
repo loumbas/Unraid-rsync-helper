@@ -217,30 +217,48 @@ function rjLiveInd(mode) {
   else $i.text('\u25CB live: connecting...').css('color', '#9aa7b2');
 }
 
+/* compact + full dry-run summaries - must match the server-rendered cells in the .page */
+function rjDryShort(d) {
+  var ts = String(d.stamp || '?');
+  var s = ts.length >= 16 ? ts.substring(5, 10) + ' ' + ts.substring(11, 16) : ts;
+  return s + ' +' + (d.copies || 0) + ' -' + (d.deletes || 0) + ' !' + (d.fails || 0);
+}
+function rjDryFull(d) {
+  return (d.stamp || '?') + ' copy+' + (d.copies || 0) + ' del-' + (d.deletes || 0) + ' fail:' + (d.fails || 0);
+}
+
 function rjApplyStatus(jobs) {
   $('#tab_rj_jobs tbody tr[data-job]').each(function () {
-    var name = String($(this).data('job')), j = jobs[name];
+    var name = String($(this).data('job')), j = jobs[name], $tr = $(this);
     if (!j) return;
-    var $td = $(this).find('td');
-    if ($td.length < 9) return;
     var rcTxt = (j.rc === null || j.rc === undefined) ? '-' : String(j.rc);
-    $td.eq(5).text(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : ''));
-    $td.eq(6).text(j.last_ok_run || 'never');
-    var d = j.dry;
+    var running = !!j.running;
+    var ok = /^(0|24)$/.test(rcTxt) && !running;
+    $tr.find('.rj-rc')
+      .text(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : ''))
+      .toggleClass('ok', ok).toggleClass('bad', !ok && !running && rcTxt !== '-' && rcTxt !== 'RUN');
+    $tr.find('.rj-lastok').text('last OK: ' + (j.last_ok_run || 'never'));
+    var d = j.dry, needAck = false;
     if (d) {
       /* same rule as the engine's gate_check and the server-rendered badge */
-      var needAck = (d.deletes || 0) > (d.warnDelete || 0) && !d.ack;
-      $td.eq(7).text(d.stamp + ' copy+' + d.copies + ' del-' + d.deletes + ' fail:' + d.fails + (needAck ? ' [NEEDS ACK]' : ''));
-      var $ack = $(this).find("[data-act='ack']");
-      if (needAck && $ack.length === 0) {
-        $(this).find("[data-act='run']").after(" <input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "'>");
-      } else if (!needAck && $ack.length) {
-        $ack.remove();
-      }
+      needAck = (d.deletes || 0) > (d.warnDelete || 0) && !d.ack;
+      $tr.find('.rj-dry').attr('title', rjDryFull(d))
+        .html(rjEsc(rjDryShort(d)) + (needAck ? " <span class=\"rj-needsack\">needs ack</span>" : ''));
     } else {
-      $td.eq(7).text('-');
-      $(this).find("[data-act='ack']").remove();
+      $tr.find('.rj-dry').text('-').removeAttr('title');
     }
+    var $ack = $tr.find("[data-act='ack']");
+    if (needAck && $ack.length === 0) {
+      $tr.find("[data-act='run']").after(" <input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'>");
+    } else if (!needAck && $ack.length) {
+      $ack.remove();
+    }
+    /* refresh the row cue: running > needs-ack > ok / failed (rj-off is config-side, untouched) */
+    $tr.removeClass('rj-st-ok rj-st-bad rj-st-ack rj-st-run');
+    if (running) $tr.addClass('rj-st-run');
+    else if (needAck) $tr.addClass('rj-st-ack');
+    else if (ok) $tr.addClass('rj-st-ok');
+    else if (rcTxt !== '-' && rcTxt !== 'RUN') $tr.addClass('rj-st-bad');
   });
 }
 
@@ -483,12 +501,16 @@ $(function () {
   $('#f_schedule, .rj-wd-cb').off('.rjsched').on('input.rjsched change.rjsched', schedSummary);
   schedRows();
 
-  /* humanize the jobs-table Schedule column (raw cron stays in the tooltip) */
+  /* humanize the jobs-table Schedule column (raw cron stays in the tooltip),
+     with a small gray "next:" line computed from the same cron builder */
   $('#tab_rj_jobs tbody tr[data-job]').each(function () {
     var j = D.jobs[$(this).data('job')];
     if (!j || !j.conf || !j.conf.SCHEDULE) return;
-    var h = rjHumanize(j.conf.SCHEDULE);
-    if (h) $(this).find('td.rj-sched').text(h).attr('title', j.conf.SCHEDULE);
+    var cron = String(j.conf.SCHEDULE);
+    var runs = rjNextRuns(cron, 1);
+    var html = rjEsc(rjHumanize(cron) || cron);
+    if (runs.length) html += '<br><span class="rj-next">next: ' + rjEsc(rjFmtRun(runs[0])) + '</span>';
+    $(this).find('td.rj-sched').html(html).attr('title', cron);
   });
 
   /* storage-overlap hint: client-side mirror of the engine's overlap_check */
@@ -520,6 +542,21 @@ $(function () {
   $('#f_src, #f_dst').off('.rjov').on('input.rjov change.rjov', rjOvHint);
   $('#f_engine').off('.rjov').on('change.rjov', rjOvHint);
 
+  /* the job form starts collapsed so the Jobs table is the landing view;
+     the title bar toggles it, Edit/Add opens it, Cancel closes it, and a box
+     with no jobs yet opens it right away (first-use guidance) */
+  function rjSetFormOpen(open) {
+    $('#rj-form-wrap').toggle(!!open);
+    $('#rj-form-chev').attr('class', 'fa ' + (open ? 'fa-chevron-up' : 'fa-chevron-down'));
+    $('#rj-form-toggle').attr('aria-expanded', open ? 'true' : 'false');
+  }
+  $('#rj-form-toggle').off('.rjform').on('click.rjform', function () {
+    rjSetFormOpen(!$('#rj-form-wrap').is(':visible'));
+  }).on('keydown.rjform', function (ev) {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); rjSetFormOpen(!$('#rj-form-wrap').is(':visible')); }
+  });
+  if (!Object.keys(D.jobs).length) rjSetFormOpen(true);
+
   function showForm(title, j) {
     $('#rj-form-title').text(title);
     $('#f_orig').val(j ? j.name : '');
@@ -543,11 +580,13 @@ $(function () {
     $('#f_backupdir').val(j && j.conf.BACKUPDIR ? j.conf.BACKUPDIR : '');
     engRows();
     rjOvHint();
+    rjSetFormOpen(true);
     $('#rj-form-title')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   $('#rj-form-cancel').off('.rclonejobs').on('click.rclonejobs', function () {
     showForm('Add job', null);
+    rjSetFormOpen(false);
     $('#rj-result').hide();
   });
 

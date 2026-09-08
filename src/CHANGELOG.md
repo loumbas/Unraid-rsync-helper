@@ -1,3 +1,27 @@
+## 2026.09.08c
+WebUI declutter (Jobs tab):
+- WebUI: the Add/Edit job form is collapsed by default - the title bar toggles it
+  (chevron + click/Enter), Edit and Add open it, Cancel closes it, and a box with
+  no jobs yet opens it right away. Result/preview/history panels stay outside the
+  collapsible so save and preview messages remain visible.
+- WebUI: form fields grouped under Basics / Transfer / Limits & notifications
+  sub-headings.
+- WebUI: jobs table slimmed 9 -> 7 columns - Engine becomes a gray chip under the
+  job name, Last run and Last OK share one cell (colored rc + gray last-OK line),
+  Enabled becomes an on/off badge, and the dry-run summary is compacted
+  ("MM-DD HH:MM +N -N !N", full text in the tooltip; needs-ack is a red badge).
+- WebUI: per-row state cue - colored left border (green last OK / red failed /
+  orange needs-ack / blue pulsing while running), disabled rows dimmed.
+- WebUI: status strip above the table: master dry-run pill (orange ON / green
+  OFF), job counts, and the SSE live indicator (safety state now visible without
+  opening the Alerts tab).
+- WebUI: small gray "next:" line under each humanized schedule in the table.
+- WebUI: Source/Destination/Script/Backup-dir inputs and their Browse button now
+  sit side-by-side instead of the button stretching full width.
+- WebUI: live refresh patches cells by class (no positional td indices) and
+  refreshes row cues; typed confirmation, run confirmations and CSRF flow
+  unchanged.
+
 ## 2026.09.08b
 Job log opens in its own live window:
 - WebUI: the per-row Log button now opens a dedicated popup window instead of
