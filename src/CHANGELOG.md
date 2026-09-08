@@ -1,3 +1,13 @@
+## 2026.09.08d
+Form alignment regression fix (Jobs tab):
+- WebUI: Source/Destination/Script/Backup-dir inputs were completely detached from
+  their labels and Browse buttons in both the Add and Edit job forms (2026.09.08c
+  regression). The .rj-pathrow rule re-declared display (inline-flex) on the <dd>
+  itself, taking those rows out of the Dynamix dl/float layout every other row
+  uses. Replaced with the same white-space:nowrap pattern the multi-control rows
+  (Transfers/Checkers etc.) already use - inputs align with the Name/Description
+  fields again and the Browse button stays inline beside its field.
+
 ## 2026.09.08c
 WebUI declutter (Jobs tab):
 - WebUI: the Add/Edit job form is collapsed by default - the title bar toggles it

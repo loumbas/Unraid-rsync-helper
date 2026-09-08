@@ -109,9 +109,10 @@ $rjdata = [
     '#tab_rj_jobs .rj-lastok,#tab_rj_jobs .rj-next{color:#8b98a3;font-size:10px;font-weight:normal}',
     '#tab_rj_jobs .rj-needsack{color:#e6867e;font-weight:bold;margin-left:4px;text-transform:uppercase;font-size:10px}',
     '#tab_rj_jobs td.rj-acts .rj-btn{padding:2px 8px;font-size:11px;margin:1px 3px 1px 0;width:auto}',
-    '.rj-pathrow{display:inline-flex!important;align-items:center;gap:6px;max-width:100%}',
-    '.rj-pathrow input[type=text]{flex:0 1 420px;min-width:160px}',
-    '.rj-pathrow .rj-btn{flex:none;width:auto}',
+    /* same nowrap pattern as dd.rj-inline (multi-control rows that render fine):
+       the dd must stay inside the Dynamix dl/float layout - declaring display
+       on the dd itself took it out of that context and misaligned the inputs */
+    '.rj-pathrow{white-space:nowrap;max-width:100%}',
     '#rj-form-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--text,#e8eef3);text-decoration:none;font-weight:bold}',
     '#rj-form-toggle i{color:var(--gray-text,#93a0ab)}',
     '.rj-fsec{margin:16px 0 2px;padding-top:10px;border-top:1px solid var(--border,#3a444d);font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:var(--gray-text,#8b98a3)}'
