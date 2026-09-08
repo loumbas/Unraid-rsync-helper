@@ -420,14 +420,9 @@ function rjShowHistory(job) {
           + '<td>' + rjHistBytes(b.bytes) + '</td>'
           + '<td style="width:160px"><div style="height:8px;background:#2e97c2;border-radius:3px;width:' + w + '%"></div></td></tr>');
       });
-<<<<<<< HEAD
       var $dtbWrap = $('<div class="rj-daily-scroll"></div>');
       $dtbWrap.append($('<table class="view-table" style="width:100%;margin:0"><thead><tr><th>Day</th><th>Runs</th><th>Failed</th><th>Avg run</th><th>Max run</th><th>Errors</th><th>Transferred</th><th>Trend</th></tr></thead></table>').append($dtb));
       $wrap.append($('<div class="gray" style="font-size:11px;margin:12px 0 4px;font-weight:600">Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)</div>'), $dtbWrap);
-=======
-      $wrap.append($('<div class="gray" style="font-size:11px;margin:12px 0 4px;font-weight:600">Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)</div>'),
-        $('<table class="view-table" style="width:100%;margin-bottom:12px"><thead><tr><th>Day</th><th>Runs</th><th>Failed</th><th>Avg run</th><th>Max run</th><th>Errors</th><th>Transferred</th><th>Trend</th></tr></thead></table>').append($dtb));
->>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     }
     /* raw per-run detail (newest first) with a failures-only filter */
     var $tb = $('<tbody></tbody>');
@@ -460,14 +455,9 @@ function rjShowHistory(job) {
     renderRaw();
     var $ff = $('<label style="font-size:11px;cursor:pointer;margin-left:10px"><input type="checkbox"> failures only</label>');
     $ff.find('input').on('change', function () { failsOnly = this.checked; renderRaw(); });
-<<<<<<< HEAD
     var $rawWrap = $('<div class="rj-hist-scroll"></div>');
     $rawWrap.append($('<table class="view-table" style="width:100%;margin:0"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb));
     $wrap.append($('<div class="gray" style="font-size:11px;margin:10px 0 4px;font-weight:600;display:flex;align-items:center">Raw per-run detail (newest first)</div>').append($ff), $rawWrap);
-=======
-    $wrap.append($('<div class="gray" style="font-size:11px;margin:10px 0 4px;font-weight:600;display:flex;align-items:center">Raw per-run detail (newest first)</div>').append($ff),
-      $('<table class="view-table" style="width:100%"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb));
->>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     $p.append($wrap).show();
     $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });

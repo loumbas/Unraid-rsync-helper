@@ -1,22 +1,22 @@
-## 2026.09.08g
+## 2026.09.08h
 Modern WebUI redesign & UX enhancements:
  - KPI metric cards: replaced the plain text status strip with 4 compact summary
    cards (Total & Enabled Jobs, Master Dry-Run Safety status with color-coded
    pill, Daemon SSE connection status with pulsing live dot, and Quick Action
    to add jobs directly from the header).
  - Jobs table styling:
-    * Source -> Destination paths now visually distinguish cloud remotes
-      (cloud icon) from local shares/disks (folder icon) with a styled
-      directional connector.
+    * Source to Destination paths visually distinguish cloud remotes (cloud
+      icon) from local shares/disks (folder icon) with a styled directional flow.
     * Last Run status rendered as a rounded semantic pill (OK, Failed, Running)
       with subtle background tinting.
     * Last Dry-Run output split into distinct mini diff chips (+copies,
       -deletes, !fails) for immediate clarity.
     * Table action buttons organized into a clean button group using Unraid's
-      native FontAwesome icon set (Dry, Run/Stop, Ack, Log, Hist, Edit, Del).
+      native FontAwesome icon set (Dry, Run/Stop, Ack, Log, Hist, Edit, Del)
+      with zero hover animation and native theme border overrides.
  - History drawer: refactored the run history view into a dedicated card panel
-   with 24h summary metric cards, rounded CSS sparkline bars with tooltips,
-   and clean daily rollup tables.
+   with 24h summary metric cards, rounded CSS sparkline bars, and scrollable
+   containers with sticky headers for raw runs and daily rollups.
  - 100% backward compatible: pure HTML/CSS/JS presentation layer improvements
    using Unraid 7 theme variables, with zero external dependencies.
 
