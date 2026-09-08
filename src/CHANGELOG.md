@@ -1,3 +1,13 @@
+## 2026.09.08a
+Dialog opacity fix, take 2 (the 2026.09.08 fix was a no-op on the test box):
+- WebUI: rjSolidBg() now resolves --background through a throwaway probe element so
+  the browser itself normalizes the value to rgb()/rgba(). The previous string
+  parser only understood rgb()/rgba(); the theme's actual value (transparent or a
+  non-rgb form) passed through untouched, so the modal stayed translucent.
+- WebUI: a probe result that is missing or fully transparent falls back to the
+  classic panel color chosen from the real page luminance (#f4f4f4 light pages,
+  #23292e dark) - rjSolidBg() can never return a transparent color now.
+
 ## 2026.09.08
 WebUI dialog legibility:
 - WebUI: path-browser and deletion-Ack dialogs now paint a fully opaque panel

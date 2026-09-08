@@ -25,21 +25,38 @@ function rjData() {
   return d;
 }
 
-/* opaque panel background for the self-built dialogs: webGui theme variables
-   (--background) may carry alpha, which lets page content bleed through the
-   modal and makes the browse tree unreadable. Flatten to a solid rgb: over
-   white when the theme colour is light, over black when dark. */
-function rjSolidBg() {
-  var st = getComputedStyle(document.body);
-  var v = (st.getPropertyValue('--background') || st.getPropertyValue('--background-color') || '').trim();
-  var m = v.match(/rgba?\(([^)]+)\)/);
-  if (!m) return v || '#23292e';
+/* solid panel background for the self-built dialogs. The webGui --background
+   variable is unreliable: it can carry alpha (page bleeds through the modal)
+   or be 'transparent'/unset. A probe element makes the browser resolve and
+   normalize var() to rgb()/rgba(); alpha is then flattened to a solid color
+   (over white for light themes, black for dark). Never returns a transparent
+   value. */
+function rjRgb(s) {
+  var m = /rgba?\(([^)]+)\)/.exec(String(s));
+  if (!m) return null;
   var p = m[1].split(/[\s,\/]+/).filter(function (x) { return x !== ''; }).map(parseFloat);
-  if (p.length < 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) return '#23292e';
+  if (p.length < 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) return null;
   var a = p.length > 3 && !isNaN(p[3]) ? p[3] : 1;
-  if (a >= 1) return 'rgb(' + p.slice(0, 3).map(Math.round).join(',') + ')';
-  var base = (p[0] + p[1] + p[2]) > 384 ? 255 : 0;
-  return 'rgb(' + p.slice(0, 3).map(function (x) { return Math.round(x * a + base * (1 - a)); }).join(',') + ')';
+  return [p[0], p[1], p[2], a < 0 ? 0 : a > 1 ? 1 : a];
+}
+
+function rjSolidBg() {
+  var probe = document.createElement('span');
+  probe.style.cssText = 'display:none;position:fixed;right:0';
+  probe.style.setProperty('background-color', 'var(--background,#23292e)');
+  document.body.appendChild(probe);
+  var c = rjRgb(getComputedStyle(probe).backgroundColor);
+  document.body.removeChild(probe);
+  if (!c || c[3] === 0) {
+    /* variable absent/transparent -> pick the classic panel color by the
+       actual page luminance so light themes stay readable */
+    var b = rjRgb(getComputedStyle(document.body).backgroundColor);
+    if (!b || b[3] === 0) b = rjRgb(getComputedStyle(document.documentElement).backgroundColor);
+    return (b && b[3] > 0 && (b[0] + b[1] + b[2]) > 384) ? '#f4f4f4' : '#23292e';
+  }
+  if (c[3] >= 1) return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')';
+  var base = (c[0] + c[1] + c[2]) > 384 ? 255 : 0, w = 1 - c[3];
+  return 'rgb(' + Math.round(c[0] * c[3] + base * w) + ',' + Math.round(c[1] * c[3] + base * w) + ',' + Math.round(c[2] * c[3] + base * w) + ')';
 }
 
 /* ---------------- schedule builder helpers (SCHEDULE stays 5-field cron) --- */
