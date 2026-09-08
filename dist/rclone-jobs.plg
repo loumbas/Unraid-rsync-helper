@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.08e">
+<!ENTITY version   "2026.09.08f">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,35 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.08f
+Live job cancellation (Stop) + detached runs + phantom-status repair:
+ - Engine 'stop &lt;job&gt;': stops a live run from the WebUI (red Stop button on a
+   running row, with confirmation) or the CLI. Graceful path: stop marker +
+   SIGTERM; the run's own trap records rc=143 (status, SSE, history, keep the
+   log), then SIGKILL escalation if the engine ignores TERM. A pid is only
+   ever signaled when it is alive AND holds the job lock AND its cmdline
+   references rclone-jobs + that exact job - a recycled pid can never be
+   killed. Stop on an idle job is a clean no-op; syslog + a bell notice
+   record the operator stop.
+ - Non-tty runs (cron, WebUI) now detach into their own session via setsid
+   (same pattern as the preview tasks): the engine is the group leader, so
+   the group TERM reaches rclone/rsync/custom-script children too, and a
+   crond restart can no longer take a running transfer's session down.
+   Scheduled runs log a structured DONE syslog line (rc, secs) since cron's
+   output pipe is gone; tty runs stay fully synchronous (Ctrl+C unchanged),
+   'preview' stays synchronous.
+ - Watchdog: repairs phantom statuses (running:true with the flock free -
+   the engine died without its trap: hard kill/OOM) by marking rc=143 and
+   SSE-publishing, so a dead job can never pulse RUN in the UI forever;
+   sweeps leftover &lt;job&gt;.run.pid files of vanished pids and stale stop
+   markers (&gt;10 min); the stuck-run alert behavior is unchanged.
+ - Interrupted dry-runs are no longer recorded into the run history (the
+   old signal trap could log a 143 line for a DRYRUN).
+ - ajax: new stop_job action (POST + CSRF + name validation; all
+   verification stays engine-side). Jobs rows render Run+Stop server-side
+   (hidden pair) so a mid-run page load shows Stop immediately; the live
+   refresh toggles the pair. No MANIFEST change (no new files).
+
 ## 2026.09.08e
 Tiered retention for high-frequency jobs (history rollups + bounded logs + scheduled watchdog):
  - History is now tiered instead of one raw line per run forever: raw lines for
@@ -148,19 +177,6 @@ Doctor verifies the deployed files against a shipped checksum manifest:
   the release mode (WARN on drift). Missing manifest (older install) is an INFO that
   points at a reinstall; a still-deployed build PLACEHOLDER is a WARN.
 - build.ps1 and build.sh produce the manifest byte-identically (verified).
-
-## 2026.09.07i
-'stopping' event: a loud trace when jobs are cut off by an array stop:
-- New emhttp event 'stopping' (10 s timeout cap, always exits 0 - a shutdown is never
-  delayed): the engine's 'shutdown-notice' counts jobs whose status says running AND
-  whose run lock is actually held (a stale status from an old hard kill never notifies),
-  writes one syslog line and one bell notice (once-marker in /tmp).
-- cmd_run is now signal-aware: the transfer runs in the background and 'wait' lets a
-  TERM/INT trap mark the status rc=143 immediately, append 'interrupted by signal' to
-  the job log and publish the state over SSE before the engine exits 143. rclone
-  children are left to the shutdown's own kill pass (no force-killing from the engine).
-- The tty branch keeps the real engine exit code via a pipefail-wrapped subshell
-  (a bare backgrounded pipeline would report tee's status instead).
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -199,7 +215,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.08e - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.08f - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -221,7 +237,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.08e"
+ENGINE_VERSION="2026.09.08f"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -458,6 +474,8 @@ job: $JOB_NAME"
 # ------------------------------------------------------------------- status --
 status_file() { printf '%s/%s.json\n' "$STATUS_DIR" "$1"; }
 dryrun_file() { printf '%s/%s-dryrun.json\n' "$STATUS_DIR" "$1"; }
+run_pid_file()  { printf '%s/%s.run.pid\n' "$STATUS_DIR" "$1"; }
+run_stop_mark() { printf '%s/%s.stop\n' "$STATUS_DIR" "$1"; }
 conf_hash()   { sha256sum "$1" 2&gt;/dev/null | cut -c1-16; }
 
 status_set_running() { # &lt;job&gt; &lt;confhash&gt; &lt;logfile&gt;
@@ -851,12 +869,28 @@ render_preview() { # &lt;logfile&gt; &lt;engine&gt; &lt;rc&gt; &lt;empty-dest ye
 }
 
 # -------------------------------------------------------------- subcommands --
-cmd_run() { # &lt;job&gt; [--dry-run]
+cmd_run() { # &lt;job&gt; [--dry-run] [--sync] [--owned]
   JOB_NAME="${1:-}"
-  local want_dry=no
+  local want_dry=no owned=no syncmode=no a
+  for a in "$@"; do
+    case "$a" in --owned) owned=yes ;; --sync) syncmode=yes ;; esac
+  done
   [ "${2:-}" = "--dry-run" ] &amp;&amp; want_dry=yes
   valid_jobname "$JOB_NAME" || die 78 "invalid job name '$JOB_NAME' (allowed: letters, digits, underscore, hyphen; max 40)"
   load_paths
+  # non-tty runs (cron, WebUI nohup) detach into their OWN session (same
+  # pattern as preview-start): the engine becomes the group leader, so 'stop'
+  # can signal the whole tree - rclone/rsync/custom-script children included -
+  # without ever touching the cron or php-fpm group. All authority stays with
+  # the owned child: it re-validates, locks, and records its own pid.
+  if [ "$owned" = no ] &amp;&amp; [ "$syncmode" = no ] &amp;&amp; [ ! -t 1 ]; then
+    [ -f "$BOOT_DIR/jobs/$JOB_NAME.conf" ] || die 78 "job '$JOB_NAME' not found ($BOOT_DIR/jobs/$JOB_NAME.conf)"
+    local spawner="nohup"
+    command -v setsid &gt;/dev/null 2&gt;&amp;1 &amp;&amp; spawner="setsid"
+    $spawner bash "$0" run "$@" --owned &gt; /dev/null 2&gt;&amp;1 &lt; /dev/null &amp;
+    say "rclone-jobs: $JOB_NAME dispatched in the background - logs under $STORAGE_ROOT/logs, status: $0 status $JOB_NAME, stop: $0 stop $JOB_NAME"
+    return 0
+  fi
   storage_guard
   load_job
   local dry=no master_forced=no
@@ -880,7 +914,11 @@ cmd_run() { # &lt;job&gt; [--dry-run]
     notify_job warning "rclone-jobs overlap: $JOB_NAME" "a run was skipped because the previous run is still active"
     exit 0
   fi
-  local chash sj ts logfile t0 t1 rc
+  local chash sj ts logfile t0 t1 rc stopmark runpid
+  # clear any stale stop marker before anything runs: the marker must only
+  # ever belong to THIS run
+  stopmark="$(run_stop_mark "$JOB_NAME")"; runpid="$(run_pid_file "$JOB_NAME")"
+  rm -f "$stopmark" "$runpid" 2&gt;/dev/null
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -888,6 +926,7 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   # log path recorded in the status BEFORE the run: the WebUI Log button finds
   # the file of a live run too, not only of finished ones
   status_set_running "$JOB_NAME" "$chash" "$logfile"
+  printf '%s\n' "$$" &gt; "$runpid" 2&gt;/dev/null
   sse_publish "$JOB_NAME" true null
   build_command "$dry"
   {
@@ -900,22 +939,38 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   say "rclone-jobs: $JOB_NAME starting ($([ "$dry" = yes ] &amp;&amp; echo dry-run || echo live)) log=$logfile"
   t0="$(unix_now)"
   # signal-aware exec: 'wait' returns immediately (&gt;128) when TERM/INT arrive,
-  # so the trap can mark the status before the box goes down. rclone children
-  # are left to the shutdown's own kill pass (no force-killing from here).
-  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2&gt;/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; mkdir -p "$LOG_DIR/keep" 2&gt;/dev/null; touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2&gt;/dev/null; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" &gt;&gt; "$logfile" 2&gt;/dev/null; trap - TERM INT; exit 143' TERM INT
+  # so the trap can mark the status before the box goes down. Shutdown keeps
+  # its old behavior (children left to the shutdown's own kill pass); when the
+  # stop marker exists this is an operator Stop: the run's own process group
+  # (setsid session) is terminated so the transfer children actually end.
+  trap 'if [ -f "$stopmark" ]; then
+    [ -n "${jpid:-}" ] &amp;&amp; kill -TERM "$jpid" 2&gt;/dev/null   # fallback runs (nohup, no own group); cmd_stop already group-signaled a setsid run - signaling our own group from here would interrupt this very trap
+    why="stopped by operator"; else why="interrupted by signal"; fi
+    rm -f "$stopmark" "$runpid" 2&gt;/dev/null
+    status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2&gt;/dev/null
+    sse_publish "$JOB_NAME" false 143
+    [ "$dry" = no ] &amp;&amp; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"
+    mkdir -p "$LOG_DIR/keep" 2&gt;/dev/null
+    touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2&gt;/dev/null
+    printf "rclone-jobs: %s %s at %s (status marked rc=143)\n" "$JOB_NAME" "$why" "$(stamp_now)" &gt;&gt; "$logfile" 2&gt;/dev/null
+    trap - TERM INT
+    exit 143' TERM INT
   local jpid
   if [ -t 1 ]; then
     # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
     # inherited 'set -o pipefail' makes its status the engine's rc, not tee's
-    ( ( umask "$J_UMASK"; "${CMD[@]}" ) 2&gt;&amp;1 | tee -a "$logfile" ) &amp;
+    ( ( umask "$J_UMASK"; exec "${CMD[@]}" ) 2&gt;&amp;1 | tee -a "$logfile" ) &amp;
     jpid=$!
     wait "$jpid"; rc=$?
   else
-    ( umask "$J_UMASK"; "${CMD[@]}" ) &gt;&gt; "$logfile" 2&gt;&amp;1 &amp;
+    # exec: jpid IS the transfer process (no intermediate subshell), so a
+    # non-session-leader fallback stop can signal it precisely
+    ( umask "$J_UMASK"; exec "${CMD[@]}" ) &gt;&gt; "$logfile" 2&gt;&amp;1 &amp;
     jpid=$!
     wait "$jpid"; rc=$?
   fi
   trap - TERM INT
+  rm -f "$runpid" "$stopmark" 2&gt;/dev/null
   t1="$(unix_now)"
   local secs=$(( t1 - t0 ))
   parse_counters "$logfile"
@@ -967,6 +1022,9 @@ log: $logfile"
     fi
   fi
   say "rclone-jobs: $JOB_NAME finished rc=$rc (${secs}s) - $CLS_HEAD"
+  # detached (owned) runs have stdout on /dev/null: keep the cron-pipe-era
+  # syslog summary alive for scheduled runs
+  [ "$owned" = yes ] &amp;&amp; syslog_line "DONE job=$JOB_NAME rc=$rc secs=${secs} - $CLS_HEAD"
   [ "$rc" -eq 24 ] &amp;&amp; rc=0
   exit "$rc"
 }
@@ -981,6 +1039,74 @@ cmd_ack() { # acknowledge a deletion-heavy dry-run (UI confirms by typing the jo
   jq '. + {ack:true}' "$f" &gt; "$f.tmp" 2&gt;/dev/null &amp;&amp; mv -f "$f.tmp" "$f" \
     || die 78 "could not update $f"
   say "acknowledged the deletion preview for $JOB_NAME (stays valid until the next dry-run re-arms it)"
+}
+
+cmd_stop() { # &lt;job&gt; -&gt; exactly one JSON line. Graceful: marker + group TERM; the
+  # run's own trap records rc=143 (status, SSE, history, log keep-marker). A pid
+  # is only ever signaled when it is alive, HOLDS the job lock, AND its cmdline
+  # references rclone-jobs + this exact job - a recycled pid is never killed.
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || task_json_err "invalid job name '$JOB_NAME'"
+  load_paths
+  storage_guard
+  local pf sm sj lk pid i alive pgid cl
+  pf="$(run_pid_file "$JOB_NAME")"; sm="$(run_stop_mark "$JOB_NAME")"
+  sj="$(status_file "$JOB_NAME")"; lk="$LOCKDIR/$NAME-$JOB_NAME.lock"
+  pid=""
+  [ -f "$pf" ] &amp;&amp; pid="$(cat "$pf" 2&gt;/dev/null | tr -dc '0-9')"
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2&gt;/dev/null; then
+    rm -f "$pf" "$sm" 2&gt;/dev/null
+    task_json_err "no live run of $JOB_NAME"
+  fi
+  if ! { [ -f "$lk" ] &amp;&amp; ! flock -n "$lk" true 2&gt;/dev/null; }; then
+    rm -f "$pf" 2&gt;/dev/null
+    task_json_err "no live run of $JOB_NAME (job lock not held - stale pid cleared)"
+  fi
+  cl="$(tr '\0' ' ' &lt; "/proc/$pid/cmdline" 2&gt;/dev/null)"
+  case "$cl" in *rclone-jobs.sh*) ;; *)
+    rm -f "$pf" 2&gt;/dev/null
+    task_json_err "recorded pid $pid is not an rclone-jobs run (stale pid cleared)" ;;
+  esac
+  case " $cl " in *" $JOB_NAME "*) ;; *)
+    rm -f "$pf" 2&gt;/dev/null
+    task_json_err "recorded pid $pid does not belong to job $JOB_NAME (stale pid cleared)" ;;
+  esac
+  touch "$sm" 2&gt;/dev/null
+  pgid="$(ps -o pgid= -p "$pid" 2&gt;/dev/null | tr -dc '0-9')"
+  if [ "$pgid" = "$pid" ]; then kill -TERM -- -"$pid" 2&gt;/dev/null || true; else kill -TERM "$pid" 2&gt;/dev/null || true; fi
+  # the trap can spend ~2 s in sse_publish before exiting: poll ~4 s
+  i=0; alive=yes
+  while [ "$i" -lt 40 ]; do
+    kill -0 "$pid" 2&gt;/dev/null || { alive=no; break; }
+    sleep 0.1; i=$((i + 1))
+  done
+  if [ "$alive" = no ] || { [ -f "$sj" ] &amp;&amp; [ "$(jq -r '.running // true' "$sj" 2&gt;/dev/null)" = "false" ]; }; then
+    rm -f "$pf" "$sm" 2&gt;/dev/null
+    syslog_line "STOP job=$JOB_NAME stopped by operator (run marked rc=143)"
+    notify_job normal "rclone-jobs: $JOB_NAME stopped" "the live run was stopped by the operator (rc=143)" \
+      "job: $JOB_NAME
+next: the next scheduled run proceeds normally - a partial sync simply resumes"
+    printf '{"ok":true,"job":"%s","stopped":true,"hard":false}\n' "$JOB_NAME"
+    return 0
+  fi
+  # the engine ignored TERM (hung): escalate to KILL and finish the bookkeeping
+  # the dead trap never did (status, SSE, history, keep-marker for the log)
+  if [ "$pgid" = "$pid" ]; then kill -KILL -- -"$pid" 2&gt;/dev/null || true; else kill -KILL "$pid" 2&gt;/dev/null || true; fi
+  sleep 1
+  local chash lg
+  chash="$(jq -r '.confhash // ""' "$sj" 2&gt;/dev/null)"; lg="$(jq -r '.log // ""' "$sj" 2&gt;/dev/null)"
+  status_finish "$JOB_NAME" 143 0 0 "" false "$chash" "$lg" 2&gt;/dev/null
+  sse_publish "$JOB_NAME" false 143
+  hist_add "$JOB_NAME" 143 0 0 "" "$lg"
+  if [ -n "$lg" ]; then
+    mkdir -p "$LOG_DIR/keep" 2&gt;/dev/null
+    touch "$LOG_DIR/keep/$(basename "$lg").keep" 2&gt;/dev/null
+  fi
+  rm -f "$pf" "$sm" 2&gt;/dev/null
+  syslog_line "STOP job=$JOB_NAME hard-killed by operator (engine ignored TERM)"
+  notify_job warning "rclone-jobs: $JOB_NAME stopped" "the live run ignored TERM and was force-killed (rc=143)" \
+    "job: $JOB_NAME - check the job log; the next scheduled run proceeds normally"
+  printf '{"ok":true,"job":"%s","stopped":true,"hard":true}\n' "$JOB_NAME"
 }
 
 # ------------------------------------------------------- async preview tasks --
@@ -1456,7 +1582,7 @@ cmd_status_json() { # every job's run + dry-run state as ONE json object (live U
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
   load_paths
   storage_guard
-  local now f n nn sj last_ok running dedup lk ttf
+  local now f n nn sj last_ok running dedup lk ttf pf2 ppid2 smk pch plg
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -1464,14 +1590,23 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
     valid_jobname "$n" || continue
     sj="$(status_file "$n")"
     [ -f "$sj" ] || continue
-    nn="$(job_notify_setting "$n")"
-    [ "$nn" = off ] &amp;&amp; continue
     dedup="$STATUS_DIR/.wd-$n"
     running="$(jq -r '.running // false' "$sj" 2&gt;/dev/null)"
     if [ "$running" = "true" ]; then
       lk="$LOCKDIR/$NAME-$n.lock"
-      if [ -f "$lk" ] &amp;&amp; ! flock -n "$lk" true 2&gt;/dev/null; then
-        if [ $(( now - $(stat -c %Y "$sj" 2&gt;/dev/null || echo "$now") )) -gt 21600 ]; then
+      if ! { [ -f "$lk" ] &amp;&amp; ! flock -n "$lk" true 2&gt;/dev/null; } &amp;&amp; [ $(( now - $(stat -c %Y "$sj" 2&gt;/dev/null || echo "$now") )) -gt 60 ]; then
+        # phantom run: status claims running but the flock is free - the lock
+        # is taken BEFORE the status flips, so this can only mean the engine
+        # died without its trap (hard kill, OOM). State truth, not a notice:
+        # repaired even for NOTIFY=off so the UI never pulses RUN forever.
+        pch="$(jq -r '.confhash // ""' "$sj" 2&gt;/dev/null)"; plg="$(jq -r '.log // ""' "$sj" 2&gt;/dev/null)"
+        status_finish "$n" 143 0 0 "" false "$pch" "$plg" 2&gt;/dev/null
+        sse_publish "$n" false 143
+        rm -f "$STATUS_DIR/$n.run.pid" "$STATUS_DIR/$n.stop" 2&gt;/dev/null
+        syslog_line "WATCHDOG: $n claimed running but the lock was free - marked interrupted (rc=143)"
+      elif [ $(( now - $(stat -c %Y "$sj" 2&gt;/dev/null || echo "$now") )) -gt 21600 ]; then
+        nn="$(job_notify_setting "$n")"
+        if [ "$nn" != off ]; then
           if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
             touch "$dedup"
             syslog_line "WATCHDOG: $n looks stuck (running &gt;6h with lock held)"
@@ -1481,6 +1616,8 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
       fi
       continue
     fi
+    nn="$(job_notify_setting "$n")"
+    [ "$nn" = off ] &amp;&amp; continue
     last_ok="$(jq -r '.last_ok // 0' "$sj" 2&gt;/dev/null)"
     if [ "${last_ok:-0}" -gt 0 ] &amp;&amp; [ $(( now - last_ok )) -gt 93600 ]; then
       if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
@@ -1497,6 +1634,17 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
     if [ $(( now - $(stat -c %Y "$ttf" 2&gt;/dev/null || echo "$now") )) -gt 3600 ]; then
       rm -f "$ttf" "${ttf%.rc}.out" "${ttf%.rc}.pid"
     fi
+  done
+  # run leftovers: pid files of vanished pids, and stop markers older than
+  # 10 minutes (a live run clears its own pair at start and in its trap)
+  for pf2 in "$STATUS_DIR"/*.run.pid; do
+    [ -e "$pf2" ] || continue
+    ppid2="$(cat "$pf2" 2&gt;/dev/null | tr -dc '0-9')"
+    if [ -z "$ppid2" ] || ! kill -0 "$ppid2" 2&gt;/dev/null; then rm -f "$pf2"; fi
+  done
+  for smk in "$STATUS_DIR"/*.stop; do
+    [ -e "$smk" ] || continue
+    if [ $(( now - $(stat -c %Y "$smk" 2&gt;/dev/null || echo "$now") )) -gt 600 ]; then rm -f "$smk"; fi
   done
   # history: fold raw runs into hourly/daily rollups (same compaction the runs
   # piggyback, so a job that stopped running still gets its file tiered)
@@ -1871,8 +2019,10 @@ usage() {
   cat &lt;&lt;EOF
 rclone-jobs v$ENGINE_VERSION - scheduled transfers with a dry-run gate (Unraid)
 usage:
-  rclone-jobs.sh run &lt;job&gt; [--dry-run]   run a job (dry-run honors per-job + master switch)
-  rclone-jobs.sh preview &lt;job&gt;           alias of: run &lt;job&gt; --dry-run
+  rclone-jobs.sh run &lt;job&gt; [--dry-run]   run a job (dry-run honors per-job + master switch);
+                                         non-tty runs detach - use 'stop' to cancel
+  rclone-jobs.sh preview &lt;job&gt;           alias of: run &lt;job&gt; --dry-run (stays synchronous)
+  rclone-jobs.sh stop &lt;job&gt;              stop a live run (rc=143; escalates to KILL)
   rclone-jobs.sh preview-start &lt;job&gt;     detached preview (WebUI); poll with task-status
   rclone-jobs.sh task-status &lt;job&gt;       preview task: running | done output (consumed)
   rclone-jobs.sh task-cancel &lt;job&gt;       terminate a running preview task
@@ -1899,7 +2049,8 @@ main() {
   [ $# -gt 0 ] &amp;&amp; shift
   case "$sub" in
     run)      [ $# -ge 1 ] || die 78 "usage: $0 run &lt;job&gt; [--dry-run]"; cmd_run "$@" ;;
-    preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview &lt;job&gt;"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run ;;
+    preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview &lt;job&gt;"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run --sync ;;
+    stop)     [ $# -ge 1 ] || die 78 "usage: $0 stop &lt;job&gt;"; cmd_stop "$1" ;;
     preview-start) [ $# -ge 1 ] || die 78 "usage: $0 preview-start &lt;job&gt;"; cmd_preview_start "$1" ;;
     task-status)   [ $# -ge 1 ] || die 78 "usage: $0 task-status &lt;job&gt;"; cmd_task_status "$1" ;;
     task-cancel)   [ $# -ge 1 ] || die 78 "usage: $0 task-cancel &lt;job&gt;"; cmd_task_cancel "$1" ;;
@@ -1923,7 +2074,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>bcba647444f9129a7c4398b2eca1ee863c020a6b48f10f60dd755f8f15f590b8</SHA256>
+<SHA256>b355f4848ae06bd9fe983271874b5148f84557fbaf04b7fcbc69761f5c9c9612</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2100,7 +2251,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.08e - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.08f - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2167,7 +2318,7 @@ $nEnabled = 0;
 foreach ($jobs as $jj) { if (($jj['conf']['ENABLED'] ?? 'yes') !== 'no') $nEnabled++; }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.08e',
+    'version'    =&gt; '2026.09.08f',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2238,7 +2389,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.08e"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.08f"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2305,7 +2456,8 @@ $rjdata = [
           &lt;td class="rj-dry"&lt;?= $dryfull !== '' ? ' title="'.htmlspecialchars($dryfull).'"' : '' ?&gt;&gt;&lt;?= htmlspecialchars($dryshort) ?&gt;&lt;?php if ($needAck): ?&gt;&lt;span class="rj-needsack"&gt;needs ack&lt;/span&gt;&lt;?php endif; ?&gt;&lt;/td&gt;
           &lt;td class="rj-acts" style="white-space:nowrap"&gt;
             &lt;input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Dry-run: simulate only, nothing is written'&gt;
-            &lt;input type='button' value='Run' class='rj-btn' data-act='run' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Start a run now (respects the master dry-run switch)'&gt;
+            &lt;input type='button' value='Run' class='rj-btn' data-act='run' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Start a run now (respects the master dry-run switch)'&lt;?= $running ? " style='display:none'" : '' ?&gt;&gt;
+            &lt;input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'&lt;?= $running ? '' : " style='display:none'" ?&gt;&gt;
             &lt;?php if ($needAck): ?&gt;&lt;input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='This dry-run wants to delete files - acknowledge before a real run'&gt;&lt;?php endif; ?&gt;
             &lt;input type='button' value='Log' class='rj-btn' data-act='log' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Open the last log (redacted) in a new window'&gt;
             &lt;input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Last 20 live runs + size trend'&gt;
@@ -2458,15 +2610,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08e &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08f &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>cd96f2b895b11e51ee9d04d2d3ab15f30eddc0fa07052157fd3d932323a72e7b</SHA256>
+<SHA256>c920cf98ee38cb7f9539e1e06b5438ad02cf8c6ebb320b2e94517faedb1e01d2</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.08e - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.08f - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2746,6 +2898,16 @@ case 'run_job':
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
     rj_out(['ok' =&gt; true, 'msg' =&gt; 'Started in background - the Jobs table updates live when it starts and finishes.']);
 
+case 'stop_job':
+    /* stop a live run: the engine verifies lock + cmdline before signaling
+       anything, so a recycled pid can never be killed from here */
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
+    $eo = []; $erc = 0;
+    rj_engine('stop ' . escapeshellarg($name), $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' =&gt; false, 'error' =&gt; 'bad stop response (rc ' . $erc . ')']);
+    rj_out($bj);
+
 case 'status_json':
     /* no job parameter: the whole status map for the live (SSE-triggered or 60 s
        fallback) refresh of the Jobs table; the engine emits exactly one JSON */
@@ -2813,13 +2975,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>26acaeb101a61f1d8ad9b33c8ecd43a15315ab0b00cc5c018e362266347226b5</SHA256>
+<SHA256>d4ef2bdb91fa97d62021b9288a6eb782d6c7beec3839f15625ec62f0d043fe15</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.08e - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.08f - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -2927,12 +3089,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>a5410875c0c828a0182fdce04d4f8ad10f98e40be20d9c84188503af59c72efa</SHA256>
+<SHA256>3ddf1c8c7a6294072c88f5110aa8bca56422086f125bf18c9288371136e447cd</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.08e - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.08f - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -3191,6 +3353,17 @@ function rjApplyStatus(jobs) {
       $tr.find("[data-act='run']").after(" &lt;input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'&gt;");
     } else if (!needAck &amp;&amp; $ack.length) {
       $ack.remove();
+    }
+    /* Run&lt;-&gt;Stop swap (both buttons are server-rendered, one hidden): a
+       running row shows red Stop; the rc=143 exit + SSE (or the 60 s
+       fallback) flips the pair back */
+    var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
+    if (running) {
+      $run.hide();
+      $stop.show().prop('disabled', false).val('Stop');
+    } else {
+      $stop.hide();
+      $run.show();
     }
     /* refresh the row cue: running &gt; needs-ack &gt; ok / failed (rj-off is config-side, untouched) */
     $tr.removeClass('rj-st-ok rj-st-bad rj-st-ack rj-st-run');
@@ -3659,6 +3832,24 @@ $(function () {
       }
       return;
     }
+    if (act === 'stop') {
+      var $btn = $(this);
+      rjConfirm('Stop "' + job + '"?',
+                'Terminates the live transfer now (recorded as rc=143, the log is kept).\nPartial progress stays on disk - the next run re-checks and resumes.',
+                'Stop', true, function () {
+        rjPost({ action: 'stop_job', job: job }, function (res) {
+          if (res.ok) {
+            $btn.prop('disabled', true).val('stopping...');
+            rjPanel('rj-result', 'Stop requested for "' + job + '" - the row returns to idle when the run records rc=143.');
+            setTimeout(rjStatusRefresh, 1500);
+          } else {
+            rjPanel('rj-result', 'ERROR: ' + res.error, true);
+            setTimeout(rjStatusRefresh, 400);
+          }
+        });
+      });
+      return;
+    }
     if (act === 'log') {
       /* dedicated window, live-tailing via log.php; named so repeat clicks
          reuse the same window. Confinement + redaction stay in the engine. */
@@ -3964,13 +4155,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>87129e322af5bba940b606b7b59f12043261a5c2b36368bfa6f4590982b12d3a</SHA256>
+<SHA256>817d5645a070a93367320ddcb1a1e8886b586f29cb467a85834cdc8ec32568f2</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08e - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.08f - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -4129,13 +4320,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>0b2f824780cc9fdbdc1ac111d29f0d222df3820df1c045b85471186a3733f92f</SHA256>
+<SHA256>0c19125b73ecc05119cacdc91e3ace87680aca5f630c386222adc5708acaaab2</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08e - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.08f - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -4214,13 +4405,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>0d9bd2bae93f82e4ccedd4cc89db45fa90496b49f8da7607ef331209f8dc3a09</SHA256>
+<SHA256>02ca6b144ca746210577487244c808cab6898e578e15f28b56a94299695ec1c5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08e - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.08f - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -4288,7 +4479,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>5edff390e0fc61648a886c0c00e759c1c6c561431178a05a137c41362403b8f5</SHA256>
+<SHA256>1ed98c15cf9faa786af3cb425e605dbea74189b8ca2d91cdb753e4a60960911a</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -4409,17 +4600,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.08e - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.08f - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-bcba647444f9129a7c4398b2eca1ee863c020a6b48f10f60dd755f8f15f590b8  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+b355f4848ae06bd9fe983271874b5148f84557fbaf04b7fcbc69761f5c9c9612  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-cd96f2b895b11e51ee9d04d2d3ab15f30eddc0fa07052157fd3d932323a72e7b  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-26acaeb101a61f1d8ad9b33c8ecd43a15315ab0b00cc5c018e362266347226b5  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-a5410875c0c828a0182fdce04d4f8ad10f98e40be20d9c84188503af59c72efa  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-87129e322af5bba940b606b7b59f12043261a5c2b36368bfa6f4590982b12d3a  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-0b2f824780cc9fdbdc1ac111d29f0d222df3820df1c045b85471186a3733f92f  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-0d9bd2bae93f82e4ccedd4cc89db45fa90496b49f8da7607ef331209f8dc3a09  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-5edff390e0fc61648a886c0c00e759c1c6c561431178a05a137c41362403b8f5  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+c920cf98ee38cb7f9539e1e06b5438ad02cf8c6ebb320b2e94517faedb1e01d2  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+d4ef2bdb91fa97d62021b9288a6eb782d6c7beec3839f15625ec62f0d043fe15  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+3ddf1c8c7a6294072c88f5110aa8bca56422086f125bf18c9288371136e447cd  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+817d5645a070a93367320ddcb1a1e8886b586f29cb467a85834cdc8ec32568f2  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+0c19125b73ecc05119cacdc91e3ace87680aca5f630c386222adc5708acaaab2  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+02ca6b144ca746210577487244c808cab6898e578e15f28b56a94299695ec1c5  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+1ed98c15cf9faa786af3cb425e605dbea74189b8ca2d91cdb753e4a60960911a  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -4427,7 +4618,7 @@ a5410875c0c828a0182fdce04d4f8ad10f98e40be20d9c84188503af59c72efa  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>55fe2ebb08836fa482d23857f7a575a45df442cdb5a169f1396df75e460e08fb</SHA256>
+<SHA256>9e001bc2d9207a0aedcc73eadb819a3861b626ced0cf4ac34542c0933652e6b3</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

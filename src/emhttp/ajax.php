@@ -279,6 +279,16 @@ case 'run_job':
     rj_engine('run ' . escapeshellarg($name), $o, $r, true);
     rj_out(['ok' => true, 'msg' => 'Started in background - the Jobs table updates live when it starts and finishes.']);
 
+case 'stop_job':
+    /* stop a live run: the engine verifies lock + cmdline before signaling
+       anything, so a recycled pid can never be killed from here */
+    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
+    $eo = []; $erc = 0;
+    rj_engine('stop ' . escapeshellarg($name), $eo, $erc);
+    $bj = json_decode(implode("\n", $eo), true);
+    if (!is_array($bj) || !isset($bj['ok'])) rj_out(['ok' => false, 'error' => 'bad stop response (rc ' . $erc . ')']);
+    rj_out($bj);
+
 case 'status_json':
     /* no job parameter: the whole status map for the live (SSE-triggered or 60 s
        fallback) refresh of the Jobs table; the engine emits exactly one JSON */

@@ -258,6 +258,17 @@ function rjApplyStatus(jobs) {
     } else if (!needAck && $ack.length) {
       $ack.remove();
     }
+    /* Run<->Stop swap (both buttons are server-rendered, one hidden): a
+       running row shows red Stop; the rc=143 exit + SSE (or the 60 s
+       fallback) flips the pair back */
+    var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
+    if (running) {
+      $run.hide();
+      $stop.show().prop('disabled', false).val('Stop');
+    } else {
+      $stop.hide();
+      $run.show();
+    }
     /* refresh the row cue: running > needs-ack > ok / failed (rj-off is config-side, untouched) */
     $tr.removeClass('rj-st-ok rj-st-bad rj-st-ack rj-st-run');
     if (running) $tr.addClass('rj-st-run');
@@ -723,6 +734,24 @@ $(function () {
                   'Scheduled safety still applies (dry-run gate + delete limits).',
                   'Run for real', true, doRun);
       }
+      return;
+    }
+    if (act === 'stop') {
+      var $btn = $(this);
+      rjConfirm('Stop "' + job + '"?',
+                'Terminates the live transfer now (recorded as rc=143, the log is kept).\nPartial progress stays on disk - the next run re-checks and resumes.',
+                'Stop', true, function () {
+        rjPost({ action: 'stop_job', job: job }, function (res) {
+          if (res.ok) {
+            $btn.prop('disabled', true).val('stopping...');
+            rjPanel('rj-result', 'Stop requested for "' + job + '" - the row returns to idle when the run records rc=143.');
+            setTimeout(rjStatusRefresh, 1500);
+          } else {
+            rjPanel('rj-result', 'ERROR: ' + res.error, true);
+            setTimeout(rjStatusRefresh, 400);
+          }
+        });
+      });
       return;
     }
     if (act === 'log') {

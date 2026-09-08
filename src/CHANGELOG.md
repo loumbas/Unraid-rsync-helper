@@ -1,3 +1,32 @@
+## 2026.09.08f
+Live job cancellation (Stop) + detached runs + phantom-status repair:
+ - Engine 'stop <job>': stops a live run from the WebUI (red Stop button on a
+   running row, with confirmation) or the CLI. Graceful path: stop marker +
+   SIGTERM; the run's own trap records rc=143 (status, SSE, history, keep the
+   log), then SIGKILL escalation if the engine ignores TERM. A pid is only
+   ever signaled when it is alive AND holds the job lock AND its cmdline
+   references rclone-jobs + that exact job - a recycled pid can never be
+   killed. Stop on an idle job is a clean no-op; syslog + a bell notice
+   record the operator stop.
+ - Non-tty runs (cron, WebUI) now detach into their own session via setsid
+   (same pattern as the preview tasks): the engine is the group leader, so
+   the group TERM reaches rclone/rsync/custom-script children too, and a
+   crond restart can no longer take a running transfer's session down.
+   Scheduled runs log a structured DONE syslog line (rc, secs) since cron's
+   output pipe is gone; tty runs stay fully synchronous (Ctrl+C unchanged),
+   'preview' stays synchronous.
+ - Watchdog: repairs phantom statuses (running:true with the flock free -
+   the engine died without its trap: hard kill/OOM) by marking rc=143 and
+   SSE-publishing, so a dead job can never pulse RUN in the UI forever;
+   sweeps leftover <job>.run.pid files of vanished pids and stale stop
+   markers (>10 min); the stuck-run alert behavior is unchanged.
+ - Interrupted dry-runs are no longer recorded into the run history (the
+   old signal trap could log a 143 line for a DRYRUN).
+ - ajax: new stop_job action (POST + CSRF + name validation; all
+   verification stays engine-side). Jobs rows render Run+Stop server-side
+   (hidden pair) so a mid-run page load shows Stop immediately; the live
+   refresh toggles the pair. No MANIFEST change (no new files).
+
 ## 2026.09.08e
 Tiered retention for high-frequency jobs (history rollups + bounded logs + scheduled watchdog):
  - History is now tiered instead of one raw line per run forever: raw lines for

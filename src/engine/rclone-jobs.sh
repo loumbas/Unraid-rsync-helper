@@ -259,6 +259,8 @@ job: $JOB_NAME"
 # ------------------------------------------------------------------- status --
 status_file() { printf '%s/%s.json\n' "$STATUS_DIR" "$1"; }
 dryrun_file() { printf '%s/%s-dryrun.json\n' "$STATUS_DIR" "$1"; }
+run_pid_file()  { printf '%s/%s.run.pid\n' "$STATUS_DIR" "$1"; }
+run_stop_mark() { printf '%s/%s.stop\n' "$STATUS_DIR" "$1"; }
 conf_hash()   { sha256sum "$1" 2>/dev/null | cut -c1-16; }
 
 status_set_running() { # <job> <confhash> <logfile>
@@ -652,12 +654,28 @@ render_preview() { # <logfile> <engine> <rc> <empty-dest yes|no>
 }
 
 # -------------------------------------------------------------- subcommands --
-cmd_run() { # <job> [--dry-run]
+cmd_run() { # <job> [--dry-run] [--sync] [--owned]
   JOB_NAME="${1:-}"
-  local want_dry=no
+  local want_dry=no owned=no syncmode=no a
+  for a in "$@"; do
+    case "$a" in --owned) owned=yes ;; --sync) syncmode=yes ;; esac
+  done
   [ "${2:-}" = "--dry-run" ] && want_dry=yes
   valid_jobname "$JOB_NAME" || die 78 "invalid job name '$JOB_NAME' (allowed: letters, digits, underscore, hyphen; max 40)"
   load_paths
+  # non-tty runs (cron, WebUI nohup) detach into their OWN session (same
+  # pattern as preview-start): the engine becomes the group leader, so 'stop'
+  # can signal the whole tree - rclone/rsync/custom-script children included -
+  # without ever touching the cron or php-fpm group. All authority stays with
+  # the owned child: it re-validates, locks, and records its own pid.
+  if [ "$owned" = no ] && [ "$syncmode" = no ] && [ ! -t 1 ]; then
+    [ -f "$BOOT_DIR/jobs/$JOB_NAME.conf" ] || die 78 "job '$JOB_NAME' not found ($BOOT_DIR/jobs/$JOB_NAME.conf)"
+    local spawner="nohup"
+    command -v setsid >/dev/null 2>&1 && spawner="setsid"
+    $spawner bash "$0" run "$@" --owned > /dev/null 2>&1 < /dev/null &
+    say "rclone-jobs: $JOB_NAME dispatched in the background - logs under $STORAGE_ROOT/logs, status: $0 status $JOB_NAME, stop: $0 stop $JOB_NAME"
+    return 0
+  fi
   storage_guard
   load_job
   local dry=no master_forced=no
@@ -681,7 +699,11 @@ cmd_run() { # <job> [--dry-run]
     notify_job warning "rclone-jobs overlap: $JOB_NAME" "a run was skipped because the previous run is still active"
     exit 0
   fi
-  local chash sj ts logfile t0 t1 rc
+  local chash sj ts logfile t0 t1 rc stopmark runpid
+  # clear any stale stop marker before anything runs: the marker must only
+  # ever belong to THIS run
+  stopmark="$(run_stop_mark "$JOB_NAME")"; runpid="$(run_pid_file "$JOB_NAME")"
+  rm -f "$stopmark" "$runpid" 2>/dev/null
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -689,6 +711,7 @@ cmd_run() { # <job> [--dry-run]
   # log path recorded in the status BEFORE the run: the WebUI Log button finds
   # the file of a live run too, not only of finished ones
   status_set_running "$JOB_NAME" "$chash" "$logfile"
+  printf '%s\n' "$$" > "$runpid" 2>/dev/null
   sse_publish "$JOB_NAME" true null
   build_command "$dry"
   {
@@ -701,22 +724,38 @@ cmd_run() { # <job> [--dry-run]
   say "rclone-jobs: $JOB_NAME starting ($([ "$dry" = yes ] && echo dry-run || echo live)) log=$logfile"
   t0="$(unix_now)"
   # signal-aware exec: 'wait' returns immediately (>128) when TERM/INT arrive,
-  # so the trap can mark the status before the box goes down. rclone children
-  # are left to the shutdown's own kill pass (no force-killing from here).
-  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; mkdir -p "$LOG_DIR/keep" 2>/dev/null; touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2>/dev/null; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" >> "$logfile" 2>/dev/null; trap - TERM INT; exit 143' TERM INT
+  # so the trap can mark the status before the box goes down. Shutdown keeps
+  # its old behavior (children left to the shutdown's own kill pass); when the
+  # stop marker exists this is an operator Stop: the run's own process group
+  # (setsid session) is terminated so the transfer children actually end.
+  trap 'if [ -f "$stopmark" ]; then
+    [ -n "${jpid:-}" ] && kill -TERM "$jpid" 2>/dev/null   # fallback runs (nohup, no own group); cmd_stop already group-signaled a setsid run - signaling our own group from here would interrupt this very trap
+    why="stopped by operator"; else why="interrupted by signal"; fi
+    rm -f "$stopmark" "$runpid" 2>/dev/null
+    status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null
+    sse_publish "$JOB_NAME" false 143
+    [ "$dry" = no ] && hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"
+    mkdir -p "$LOG_DIR/keep" 2>/dev/null
+    touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2>/dev/null
+    printf "rclone-jobs: %s %s at %s (status marked rc=143)\n" "$JOB_NAME" "$why" "$(stamp_now)" >> "$logfile" 2>/dev/null
+    trap - TERM INT
+    exit 143' TERM INT
   local jpid
   if [ -t 1 ]; then
     # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
     # inherited 'set -o pipefail' makes its status the engine's rc, not tee's
-    ( ( umask "$J_UMASK"; "${CMD[@]}" ) 2>&1 | tee -a "$logfile" ) &
+    ( ( umask "$J_UMASK"; exec "${CMD[@]}" ) 2>&1 | tee -a "$logfile" ) &
     jpid=$!
     wait "$jpid"; rc=$?
   else
-    ( umask "$J_UMASK"; "${CMD[@]}" ) >> "$logfile" 2>&1 &
+    # exec: jpid IS the transfer process (no intermediate subshell), so a
+    # non-session-leader fallback stop can signal it precisely
+    ( umask "$J_UMASK"; exec "${CMD[@]}" ) >> "$logfile" 2>&1 &
     jpid=$!
     wait "$jpid"; rc=$?
   fi
   trap - TERM INT
+  rm -f "$runpid" "$stopmark" 2>/dev/null
   t1="$(unix_now)"
   local secs=$(( t1 - t0 ))
   parse_counters "$logfile"
@@ -768,6 +807,9 @@ log: $logfile"
     fi
   fi
   say "rclone-jobs: $JOB_NAME finished rc=$rc (${secs}s) - $CLS_HEAD"
+  # detached (owned) runs have stdout on /dev/null: keep the cron-pipe-era
+  # syslog summary alive for scheduled runs
+  [ "$owned" = yes ] && syslog_line "DONE job=$JOB_NAME rc=$rc secs=${secs} - $CLS_HEAD"
   [ "$rc" -eq 24 ] && rc=0
   exit "$rc"
 }
@@ -782,6 +824,74 @@ cmd_ack() { # acknowledge a deletion-heavy dry-run (UI confirms by typing the jo
   jq '. + {ack:true}' "$f" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f" \
     || die 78 "could not update $f"
   say "acknowledged the deletion preview for $JOB_NAME (stays valid until the next dry-run re-arms it)"
+}
+
+cmd_stop() { # <job> -> exactly one JSON line. Graceful: marker + group TERM; the
+  # run's own trap records rc=143 (status, SSE, history, log keep-marker). A pid
+  # is only ever signaled when it is alive, HOLDS the job lock, AND its cmdline
+  # references rclone-jobs + this exact job - a recycled pid is never killed.
+  JOB_NAME="${1:-}"
+  valid_jobname "$JOB_NAME" || task_json_err "invalid job name '$JOB_NAME'"
+  load_paths
+  storage_guard
+  local pf sm sj lk pid i alive pgid cl
+  pf="$(run_pid_file "$JOB_NAME")"; sm="$(run_stop_mark "$JOB_NAME")"
+  sj="$(status_file "$JOB_NAME")"; lk="$LOCKDIR/$NAME-$JOB_NAME.lock"
+  pid=""
+  [ -f "$pf" ] && pid="$(cat "$pf" 2>/dev/null | tr -dc '0-9')"
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$pf" "$sm" 2>/dev/null
+    task_json_err "no live run of $JOB_NAME"
+  fi
+  if ! { [ -f "$lk" ] && ! flock -n "$lk" true 2>/dev/null; }; then
+    rm -f "$pf" 2>/dev/null
+    task_json_err "no live run of $JOB_NAME (job lock not held - stale pid cleared)"
+  fi
+  cl="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
+  case "$cl" in *rclone-jobs.sh*) ;; *)
+    rm -f "$pf" 2>/dev/null
+    task_json_err "recorded pid $pid is not an rclone-jobs run (stale pid cleared)" ;;
+  esac
+  case " $cl " in *" $JOB_NAME "*) ;; *)
+    rm -f "$pf" 2>/dev/null
+    task_json_err "recorded pid $pid does not belong to job $JOB_NAME (stale pid cleared)" ;;
+  esac
+  touch "$sm" 2>/dev/null
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -dc '0-9')"
+  if [ "$pgid" = "$pid" ]; then kill -TERM -- -"$pid" 2>/dev/null || true; else kill -TERM "$pid" 2>/dev/null || true; fi
+  # the trap can spend ~2 s in sse_publish before exiting: poll ~4 s
+  i=0; alive=yes
+  while [ "$i" -lt 40 ]; do
+    kill -0 "$pid" 2>/dev/null || { alive=no; break; }
+    sleep 0.1; i=$((i + 1))
+  done
+  if [ "$alive" = no ] || { [ -f "$sj" ] && [ "$(jq -r '.running // true' "$sj" 2>/dev/null)" = "false" ]; }; then
+    rm -f "$pf" "$sm" 2>/dev/null
+    syslog_line "STOP job=$JOB_NAME stopped by operator (run marked rc=143)"
+    notify_job normal "rclone-jobs: $JOB_NAME stopped" "the live run was stopped by the operator (rc=143)" \
+      "job: $JOB_NAME
+next: the next scheduled run proceeds normally - a partial sync simply resumes"
+    printf '{"ok":true,"job":"%s","stopped":true,"hard":false}\n' "$JOB_NAME"
+    return 0
+  fi
+  # the engine ignored TERM (hung): escalate to KILL and finish the bookkeeping
+  # the dead trap never did (status, SSE, history, keep-marker for the log)
+  if [ "$pgid" = "$pid" ]; then kill -KILL -- -"$pid" 2>/dev/null || true; else kill -KILL "$pid" 2>/dev/null || true; fi
+  sleep 1
+  local chash lg
+  chash="$(jq -r '.confhash // ""' "$sj" 2>/dev/null)"; lg="$(jq -r '.log // ""' "$sj" 2>/dev/null)"
+  status_finish "$JOB_NAME" 143 0 0 "" false "$chash" "$lg" 2>/dev/null
+  sse_publish "$JOB_NAME" false 143
+  hist_add "$JOB_NAME" 143 0 0 "" "$lg"
+  if [ -n "$lg" ]; then
+    mkdir -p "$LOG_DIR/keep" 2>/dev/null
+    touch "$LOG_DIR/keep/$(basename "$lg").keep" 2>/dev/null
+  fi
+  rm -f "$pf" "$sm" 2>/dev/null
+  syslog_line "STOP job=$JOB_NAME hard-killed by operator (engine ignored TERM)"
+  notify_job warning "rclone-jobs: $JOB_NAME stopped" "the live run ignored TERM and was force-killed (rc=143)" \
+    "job: $JOB_NAME - check the job log; the next scheduled run proceeds normally"
+  printf '{"ok":true,"job":"%s","stopped":true,"hard":true}\n' "$JOB_NAME"
 }
 
 # ------------------------------------------------------- async preview tasks --
@@ -1257,7 +1367,7 @@ cmd_status_json() { # every job's run + dry-run state as ONE json object (live U
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
   load_paths
   storage_guard
-  local now f n nn sj last_ok running dedup lk ttf
+  local now f n nn sj last_ok running dedup lk ttf pf2 ppid2 smk pch plg
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -1265,14 +1375,23 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
     valid_jobname "$n" || continue
     sj="$(status_file "$n")"
     [ -f "$sj" ] || continue
-    nn="$(job_notify_setting "$n")"
-    [ "$nn" = off ] && continue
     dedup="$STATUS_DIR/.wd-$n"
     running="$(jq -r '.running // false' "$sj" 2>/dev/null)"
     if [ "$running" = "true" ]; then
       lk="$LOCKDIR/$NAME-$n.lock"
-      if [ -f "$lk" ] && ! flock -n "$lk" true 2>/dev/null; then
-        if [ $(( now - $(stat -c %Y "$sj" 2>/dev/null || echo "$now") )) -gt 21600 ]; then
+      if ! { [ -f "$lk" ] && ! flock -n "$lk" true 2>/dev/null; } && [ $(( now - $(stat -c %Y "$sj" 2>/dev/null || echo "$now") )) -gt 60 ]; then
+        # phantom run: status claims running but the flock is free - the lock
+        # is taken BEFORE the status flips, so this can only mean the engine
+        # died without its trap (hard kill, OOM). State truth, not a notice:
+        # repaired even for NOTIFY=off so the UI never pulses RUN forever.
+        pch="$(jq -r '.confhash // ""' "$sj" 2>/dev/null)"; plg="$(jq -r '.log // ""' "$sj" 2>/dev/null)"
+        status_finish "$n" 143 0 0 "" false "$pch" "$plg" 2>/dev/null
+        sse_publish "$n" false 143
+        rm -f "$STATUS_DIR/$n.run.pid" "$STATUS_DIR/$n.stop" 2>/dev/null
+        syslog_line "WATCHDOG: $n claimed running but the lock was free - marked interrupted (rc=143)"
+      elif [ $(( now - $(stat -c %Y "$sj" 2>/dev/null || echo "$now") )) -gt 21600 ]; then
+        nn="$(job_notify_setting "$n")"
+        if [ "$nn" != off ]; then
           if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
             touch "$dedup"
             syslog_line "WATCHDOG: $n looks stuck (running >6h with lock held)"
@@ -1282,6 +1401,8 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
       fi
       continue
     fi
+    nn="$(job_notify_setting "$n")"
+    [ "$nn" = off ] && continue
     last_ok="$(jq -r '.last_ok // 0' "$sj" 2>/dev/null)"
     if [ "${last_ok:-0}" -gt 0 ] && [ $(( now - last_ok )) -gt 93600 ]; then
       if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
@@ -1298,6 +1419,17 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
     if [ $(( now - $(stat -c %Y "$ttf" 2>/dev/null || echo "$now") )) -gt 3600 ]; then
       rm -f "$ttf" "${ttf%.rc}.out" "${ttf%.rc}.pid"
     fi
+  done
+  # run leftovers: pid files of vanished pids, and stop markers older than
+  # 10 minutes (a live run clears its own pair at start and in its trap)
+  for pf2 in "$STATUS_DIR"/*.run.pid; do
+    [ -e "$pf2" ] || continue
+    ppid2="$(cat "$pf2" 2>/dev/null | tr -dc '0-9')"
+    if [ -z "$ppid2" ] || ! kill -0 "$ppid2" 2>/dev/null; then rm -f "$pf2"; fi
+  done
+  for smk in "$STATUS_DIR"/*.stop; do
+    [ -e "$smk" ] || continue
+    if [ $(( now - $(stat -c %Y "$smk" 2>/dev/null || echo "$now") )) -gt 600 ]; then rm -f "$smk"; fi
   done
   # history: fold raw runs into hourly/daily rollups (same compaction the runs
   # piggyback, so a job that stopped running still gets its file tiered)
@@ -1672,8 +1804,10 @@ usage() {
   cat <<EOF
 rclone-jobs v$ENGINE_VERSION - scheduled transfers with a dry-run gate (Unraid)
 usage:
-  rclone-jobs.sh run <job> [--dry-run]   run a job (dry-run honors per-job + master switch)
-  rclone-jobs.sh preview <job>           alias of: run <job> --dry-run
+  rclone-jobs.sh run <job> [--dry-run]   run a job (dry-run honors per-job + master switch);
+                                         non-tty runs detach - use 'stop' to cancel
+  rclone-jobs.sh preview <job>           alias of: run <job> --dry-run (stays synchronous)
+  rclone-jobs.sh stop <job>              stop a live run (rc=143; escalates to KILL)
   rclone-jobs.sh preview-start <job>     detached preview (WebUI); poll with task-status
   rclone-jobs.sh task-status <job>       preview task: running | done output (consumed)
   rclone-jobs.sh task-cancel <job>       terminate a running preview task
@@ -1700,7 +1834,8 @@ main() {
   [ $# -gt 0 ] && shift
   case "$sub" in
     run)      [ $# -ge 1 ] || die 78 "usage: $0 run <job> [--dry-run]"; cmd_run "$@" ;;
-    preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview <job>"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run ;;
+    preview)  [ $# -ge 1 ] || die 78 "usage: $0 preview <job>"; JOB_NAME="$1"; cmd_run "$JOB_NAME" --dry-run --sync ;;
+    stop)     [ $# -ge 1 ] || die 78 "usage: $0 stop <job>"; cmd_stop "$1" ;;
     preview-start) [ $# -ge 1 ] || die 78 "usage: $0 preview-start <job>"; cmd_preview_start "$1" ;;
     task-status)   [ $# -ge 1 ] || die 78 "usage: $0 task-status <job>"; cmd_task_status "$1" ;;
     task-cancel)   [ $# -ge 1 ] || die 78 "usage: $0 task-cancel <job>"; cmd_task_cancel "$1" ;;

@@ -208,7 +208,8 @@ $rjdata = [
           <td class="rj-dry"<?= $dryfull !== '' ? ' title="'.htmlspecialchars($dryfull).'"' : '' ?>><?= htmlspecialchars($dryshort) ?><?php if ($needAck): ?><span class="rj-needsack">needs ack</span><?php endif; ?></td>
           <td class="rj-acts" style="white-space:nowrap">
             <input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>' title='Dry-run: simulate only, nothing is written'>
-            <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'>
+            <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'<?= $running ? " style='display:none'" : '' ?>>
+            <input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='<?= htmlspecialchars($name) ?>' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'<?= $running ? '' : " style='display:none'" ?>>
             <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>' title='This dry-run wants to delete files - acknowledge before a real run'><?php endif; ?>
             <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='Open the last log (redacted) in a new window'>
             <input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='Last 20 live runs + size trend'>
