@@ -95,40 +95,81 @@ $rjdata = [
     '#rj-sched-summary{margin:4px 0 2px;font-size:11px;color:#9aa7b2}',
     '#rj-sched-summary.rj-warn{color:#e6867e}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
-    /* structural colors use webGui theme variables (--background/--text/--border)
-       with the classic dark values as fallback, so light themes stay readable and
-       the look is unchanged when the variables are absent */
+    /* Tabs styling */
     'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid var(--border,#46505a)}',
     'ul#rj-tabs>li{list-style:none!important;display:block!important;float:none!important;width:auto!important;margin:0 3px -1px 0;padding:0;background:none;border:none}',
     'ul#rj-tabs>li>a{display:block;padding:9px 26px;font-size:12px;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;color:var(--gray-text,#93a0ab);background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;outline:none}',
     'ul#rj-tabs>li>a:hover{color:var(--text,#e8eef3);background:rgba(128,128,128,0.12)}',
     'ul#rj-tabs>li.active>a{color:var(--text,#fff);font-weight:bold;background:var(--background,#242b31);border-color:var(--border,#46505a);border-bottom:1px solid var(--background,#242b31)}',
-    '#tab_rj_jobs table.rclone-jobs{width:100%}',
-    '#tab_rj_jobs td{word-break:break-word}',
-    '#tab_rj_jobs td [data-act]{white-space:nowrap}',
-    '#rj-strip{display:flex!important;align-items:center;flex-wrap:wrap;gap:14px;margin:12px 0 8px;font-size:11px;color:var(--gray-text,#9aa7b2)}',
-    '#rj-strip .rj-pill{padding:3px 10px;border-radius:10px;font-weight:bold;letter-spacing:0.5px;font-size:10px;text-transform:uppercase;white-space:nowrap}',
-    '#rj-strip .rj-pill.dry{background:#b9692b;color:#fff}',
-    '#rj-strip .rj-pill.live{background:#2f8f46;color:#fff}',
-    '#tab_rj_jobs .rj-badge{padding:2px 9px;border-radius:9px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
+    /* KPI Metric Cards Grid */
+    '.rj-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0 20px}',
+    '.rj-card{background:rgba(255,255,255,0.02);border:1px solid var(--border,#3a444d);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,0.2)}',
+    '.rj-card-title{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--gray-text,#9aa7b2);margin-bottom:6px;font-weight:bold;display:flex;align-items:center;gap:6px}',
+    '.rj-card-title i{color:var(--gray-text,#8b98a3);font-size:12px}',
+    '.rj-card-val{font-size:17px;font-weight:bold;color:var(--text,#e8eef3);display:flex;align-items:center;gap:6px;line-height:1.2}',
+    '.rj-card-sub{font-size:11px;color:var(--gray-text,#8b98a3);margin-top:4px}',
+    /* Live pulse dots */
+    '.rj-live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}',
+    '.rj-live-dot.on{background:#2f8f46;box-shadow:0 0 6px #2f8f46;animation:rj-dot-pulse 2s infinite}',
+    '.rj-live-dot.poll{background:#5a6570}',
+    '.rj-live-dot.wait{background:#d9903a;animation:rj-dot-pulse 1s infinite}',
+    '@keyframes rj-dot-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(0.85)}}',
+    /* Pill statuses */
+    '.rj-pill{padding:3px 10px;border-radius:10px;font-weight:bold;letter-spacing:0.5px;font-size:10px;text-transform:uppercase;white-space:nowrap;display:inline-block}',
+    '.rj-pill.dry{background:#b9692b;color:#fff}',
+    '.rj-pill.live{background:#2f8f46;color:#fff}',
+    /* Table Styling */
+    '#tab_rj_jobs table.rclone-jobs{width:100%;border-collapse:collapse;margin-top:4px}',
+    '#tab_rj_jobs table.rclone-jobs th{padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray-text,#9aa7b2);border-bottom:1px solid var(--border,#46505a);background:rgba(0,0,0,0.1)}',
+    '#tab_rj_jobs table.rclone-jobs td{padding:10px 12px;word-break:break-word;border-bottom:1px solid var(--border,#3a444d);vertical-align:middle}',
+    '#tab_rj_jobs tbody tr:hover{background:rgba(255,255,255,0.015)}',
+    '#tab_rj_jobs tbody tr.rj-st-ok>td:first-child{box-shadow:inset 4px 0 0 #2f8f46}',
+    '#tab_rj_jobs tbody tr.rj-st-bad>td:first-child{box-shadow:inset 4px 0 0 #d65a54}',
+    '#tab_rj_jobs tbody tr.rj-st-ack>td:first-child{box-shadow:inset 4px 0 0 #d9903a}',
+    '#tab_rj_jobs tbody tr.rj-st-run>td:first-child{box-shadow:inset 4px 0 0 #2e97c2;animation:rj-pulse 1.6s ease-in-out infinite}',
+    '@keyframes rj-pulse{0%,100%{box-shadow:inset 4px 0 0 #2e97c2}50%{box-shadow:inset 4px 0 0 rgba(46,151,194,0.25)}}',
+    '#tab_rj_jobs tbody tr.rj-off td{opacity:0.55}',
+    /* Badges & Chips */
+    '#tab_rj_jobs .rj-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
     '#tab_rj_jobs .rj-badge.on{background:#2f8f46;color:#fff}',
     '#tab_rj_jobs .rj-badge.off{background:#5a6570;color:#dfe6ec}',
-    '#tab_rj_jobs .rj-chip{color:#8b98a3;font-size:10px;border:1px solid var(--border,#46505a);border-radius:8px;padding:0 6px;margin-left:4px;white-space:nowrap}',
-    '#tab_rj_jobs tbody tr.rj-st-ok>td:first-child{box-shadow:inset 3px 0 0 #2f8f46}',
-    '#tab_rj_jobs tbody tr.rj-st-bad>td:first-child{box-shadow:inset 3px 0 0 #d65a54}',
-    '#tab_rj_jobs tbody tr.rj-st-ack>td:first-child{box-shadow:inset 3px 0 0 #d9903a}',
-    '#tab_rj_jobs tbody tr.rj-st-run>td:first-child{box-shadow:inset 3px 0 0 #2e97c2;animation:rj-pulse 1.6s ease-in-out infinite}',
-    '@keyframes rj-pulse{0%,100%{box-shadow:inset 3px 0 0 #2e97c2}50%{box-shadow:inset 3px 0 0 rgba(46,151,194,0.25)}}',
-    '#tab_rj_jobs tbody tr.rj-off td{opacity:0.55}',
-    '#tab_rj_jobs .rj-rc{font-weight:bold}',
-    '#tab_rj_jobs .rj-rc.ok{color:#7dcf7d}',
-    '#tab_rj_jobs .rj-rc.bad{color:#e6867e}',
-    '#tab_rj_jobs .rj-lastok,#tab_rj_jobs .rj-next{color:#8b98a3;font-size:10px;font-weight:normal}',
-    '#tab_rj_jobs .rj-needsack{color:#e6867e;font-weight:bold;margin-left:4px;text-transform:uppercase;font-size:10px}',
-    '#tab_rj_jobs td.rj-acts .rj-btn{padding:2px 8px;font-size:11px;margin:1px 3px 1px 0;width:auto}',
-    /* same nowrap pattern as dd.rj-inline (multi-control rows that render fine):
-       the dd must stay inside the Dynamix dl/float layout - declaring display
-       on the dd itself took it out of that context and misaligned the inputs */
+    '#tab_rj_jobs .rj-chip{color:var(--gray-text,#8b98a3);font-size:10px;border:1px solid var(--border,#46505a);border-radius:8px;padding:1px 6px;margin-left:4px;white-space:nowrap;display:inline-block;vertical-align:middle}',
+    /* Paths */
+    '.rj-path-container{max-width:380px;display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
+    '.rj-path-endpoint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}',
+    '.rj-path-arrow{color:var(--gray-text,#8b98a3);font-size:10px;flex:0 0 auto}',
+    /* Status Badges */
+    '.rj-rc{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;letter-spacing:0.3px}',
+    '.rj-rc.ok{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
+    '.rj-rc.bad{background:rgba(214,90,84,0.15);color:#e6867e;border:1px solid rgba(214,90,84,0.3)}',
+    '.rj-rc.run{background:rgba(46,151,194,0.15);color:#2e97c2;border:1px solid rgba(46,151,194,0.3);animation:rj-dot-pulse 1.6s infinite}',
+    '#tab_rj_jobs .rj-lastok,#tab_rj_jobs .rj-next{color:var(--gray-text,#8b98a3);font-size:10px;font-weight:normal;display:inline-block;margin-top:2px}',
+    '#tab_rj_jobs .rj-needsack{color:#fff;background:#d9903a;font-weight:bold;margin-left:4px;text-transform:uppercase;font-size:9px;padding:2px 5px;border-radius:4px;letter-spacing:0.5px}',
+    /* Dry-run diff chips */
+    '.rj-dry-ts{font-size:10px;color:var(--gray-text,#8b98a3);margin-right:4px;display:block}',
+    '.rj-chip-diff{display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:bold;margin-right:2px}',
+    '.rj-chip-add{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
+    '.rj-chip-del{background:rgba(230,134,126,0.15);color:#e6867e;border:1px solid rgba(230,134,126,0.3)}',
+    '.rj-chip-err{background:rgba(217,144,58,0.15);color:#d9903a;border:1px solid rgba(217,144,58,0.3)}',
+    /* Button Group & Buttons */
+    '.rj-btn-group{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}',
+    '.rj-btn{padding:3px 8px;font-size:11px;border-radius:5px;border:1px solid var(--border,#46505a);background:var(--background,#242b31);color:var(--text,#dfe6ec);cursor:pointer;display:inline-flex;align-items:center;gap:4px;outline:none;transition:all 0.15s ease;text-decoration:none}',
+    '.rj-btn i{pointer-events:none;font-size:10px}',
+    '.rj-btn:hover{background:rgba(255,255,255,0.08);border-color:var(--text,#fff);color:#fff}',
+    '.rj-btn.rj-run:hover{border-color:#2f8f46;color:#7dcf7d}',
+    '.rj-btn.rj-del{color:#e6867e;border-color:rgba(214,90,84,0.4)}',
+    '.rj-btn.rj-del:hover{background:rgba(214,90,84,0.2);border-color:#d65a54;color:#fff}',
+    '.rj-btn.rj-warn{background:rgba(217,144,58,0.2);border-color:#d9903a;color:#f0ad4e}',
+    '.rj-btn.rj-btn-primary{background:#24638a;border-color:#2e97c2;color:#fff}',
+    '.rj-btn.rj-btn-primary:hover{background:#2e97c2;color:#fff}',
+    /* History card */
+    '.rj-hist-card{background:rgba(0,0,0,0.2);border:1px solid var(--border,#3a444d);border-radius:8px;padding:16px 18px;margin-top:14px;box-shadow:0 3px 8px rgba(0,0,0,0.15)}',
+    '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border,#3a444d)}',
+    '.rj-hist-title{font-size:12px;font-weight:bold;color:var(--text,#e8eef3);display:flex;align-items:center;gap:6px}',
+    '.rj-hist-spark{display:flex;align-items:flex-end;height:44px;margin:8px 0 4px;padding:4px 0;background:rgba(255,255,255,0.01);border-radius:4px}',
+    '.rj-spark-bar{width:10px;margin-right:3px;flex:0 0 auto;border-radius:3px 3px 1px 1px;transition:opacity 0.15s ease}',
+    '.rj-spark-bar:hover{opacity:0.75}',
+    /* Form */
     '.rj-pathrow{white-space:nowrap;max-width:100%}',
     '#rj-form-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--text,#e8eef3);text-decoration:none;font-weight:bold}',
     '#rj-form-toggle i{color:var(--gray-text,#93a0ab)}',
@@ -154,11 +195,32 @@ $rjdata = [
 
   <!-- ======================= JOBS TAB ======================= -->
   <div id="tab_rj_jobs">
-    <div id="rj-strip">
-      <span id="rj-master-pill" class="rj-pill <?= $master === 'no' ? 'live' : 'dry' ?>" title="<?= $master === 'no' ? 'Scheduled runs perform real transfers (per-job dry-run settings still apply)' : 'Every scheduled run is simulated - change this on the Alerts & Safety tab' ?>">master dry-run: <?= $master === 'no' ? 'off' : 'on' ?></span>
-      <span id="rj-counts"><?php echo count($jobs) === 0 ? 'no jobs yet' : count($jobs).' jobs · '.$nEnabled.' enabled'; ?></span>
-      <span id="rj-live-ind"></span>
+    <div class="rj-cards">
+      <div class="rj-card">
+        <div class="rj-card-title"><i class="fa fa-tasks"></i> Total Jobs</div>
+        <div class="rj-card-val"><span id="rj-card-active"><?= $nEnabled ?></span> <span style="font-size:13px;font-weight:normal;color:var(--gray-text,#8b98a3)">/ <?= count($jobs) ?> enabled</span></div>
+        <div class="rj-card-sub"><?= count($jobs) === 0 ? 'No jobs configured' : count($jobs).' total job'.(count($jobs) === 1 ? '' : 's') ?></div>
+      </div>
+      <div class="rj-card">
+        <div class="rj-card-title"><i class="fa fa-shield"></i> Master Dry-Run</div>
+        <div class="rj-card-val">
+          <span id="rj-master-pill" class="rj-pill <?= $master === 'no' ? 'live' : 'dry' ?>" title="<?= $master === 'no' ? 'Scheduled runs perform real transfers (per-job dry-run settings still apply)' : 'Every scheduled run is simulated - change this on the Alerts & Safety tab' ?>"><?= $master === 'no' ? 'LIVE RUNS' : 'ACTIVE (SAFE)' ?></span>
+        </div>
+        <div class="rj-card-sub"><?= $master === 'no' ? 'Transfers write real data' : 'All scheduled runs simulated' ?></div>
+      </div>
+      <div class="rj-card">
+        <div class="rj-card-title"><i class="fa fa-heartbeat"></i> Daemon Status</div>
+        <div class="rj-card-val"><span id="rj-live-ind"></span></div>
+        <div class="rj-card-sub" id="rj-live-sub">Live status stream</div>
+      </div>
+      <div class="rj-card" style="justify-content:center;align-items:flex-start">
+        <div class="rj-card-title"><i class="fa fa-plus-circle"></i> Quick Actions</div>
+        <div style="margin-top:2px">
+          <button type="button" id="rj-btn-add-top" class="rj-btn rj-btn-primary" style="padding:5px 12px;font-weight:bold"><i class="fa fa-plus"></i> Add New Job</button>
+        </div>
+      </div>
     </div>
+    <span id="rj-counts" style="display:none"><?= count($jobs).' jobs · '.$nEnabled.' enabled' ?></span>
     <table class="rclone-jobs view-table sortable">
       <thead><tr>
         <th>Job</th><th>On</th><th>Schedule</th>
@@ -198,23 +260,55 @@ $rjdata = [
           if ($en === 'no') $stCls .= ' rj-off';
       ?>
         <tr data-job="<?= htmlspecialchars($name) ?>" class="rj-row <?= $stCls ?>">
-          <td><b><?= htmlspecialchars($name) ?></b><span class="rj-chip"><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></span><?php if (($c['DESC'] ?? '') !== ''): ?><br><span class="gray"><?= htmlspecialchars($c['DESC']) ?></span><?php endif; ?></td>
+          <td>
+            <div style="font-weight:600;font-size:13px;color:var(--text,#e8eef3)"><?= htmlspecialchars($name) ?></div>
+            <span class="rj-chip"><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></span>
+            <?php if (($c['DESC'] ?? '') !== ''): ?><br><span class="gray"><?= htmlspecialchars($c['DESC']) ?></span><?php endif; ?>
+          </td>
           <td><span class="rj-badge <?= $en === 'no' ? 'off' : 'on' ?>"><?= $en === 'no' ? 'off' : 'on' ?></span></td>
           <td class="rj-sched"><?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?></td>
-          <!-- max-width must sit on a div: <td> ignores it in auto table layout -->
-          <td><div style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= htmlspecialchars(($c['SRC'] ?? '').' -> '.($c['DST'] ?? '')) ?>">
-            <?= htmlspecialchars($c['SRC'] ?? '') ?> → <?= htmlspecialchars($c['DST'] ?? '') ?></div></td>
-          <td style="white-space:nowrap"><span class="rj-rc<?= $ok ? ' ok' : (($rcTxt !== '-' && $rcTxt !== 'RUN') ? ' bad' : '') ?>"><?= htmlspecialchars($rcTxt) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?></span><br><span class="rj-lastok">last OK: <?= htmlspecialchars((string)$lastok) ?></span></td>
-          <td class="rj-dry"<?= $dryfull !== '' ? ' title="'.htmlspecialchars($dryfull).'"' : '' ?>><?= htmlspecialchars($dryshort) ?><?php if ($needAck): ?><span class="rj-needsack">needs ack</span><?php endif; ?></td>
+          <?php
+            $src = $c['SRC'] ?? '';
+            $dst = $c['DST'] ?? '';
+            $srcIsRemote = strpos($src, ':') !== false;
+            $dstIsRemote = strpos($dst, ':') !== false;
+          ?>
+          <td>
+            <div class="rj-path-container" title="<?= htmlspecialchars($src.' -> '.$dst) ?>">
+              <span class="rj-path-endpoint"><i class="fa <?= $srcIsRemote ? 'fa-cloud' : 'fa-folder-o' ?>" style="color:<?= $srcIsRemote ? '#5cacee' : '#e5c07b' ?>"></i> <?= htmlspecialchars($src) ?></span>
+              <i class="fa fa-arrow-right rj-path-arrow"></i>
+              <span class="rj-path-endpoint"><i class="fa <?= $dstIsRemote ? 'fa-cloud' : 'fa-folder-o' ?>" style="color:<?= $dstIsRemote ? '#5cacee' : '#e5c07b' ?>"></i> <?= htmlspecialchars($dst) ?></span>
+            </div>
+          </td>
+          <td style="white-space:nowrap">
+            <span class="rj-rc<?= $ok ? ' ok' : (($rcTxt !== '-' && $rcTxt !== 'RUN') ? ' bad' : ($running ? ' run' : '')) ?>">
+              <?php if ($ok): ?><i class="fa fa-check"></i> <?php elseif ($running): ?><i class="fa fa-refresh fa-spin"></i> <?php elseif ($rcTxt !== '-'): ?><i class="fa fa-exclamation-circle"></i> <?php endif; ?>
+              <?= htmlspecialchars($rcTxt) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?>
+            </span>
+            <br><span class="rj-lastok">last OK: <?= htmlspecialchars((string)$lastok) ?></span>
+          </td>
+          <td class="rj-dry"<?= $dryfull !== '' ? ' title="'.htmlspecialchars($dryfull).'"' : '' ?>>
+            <?php if ($d): ?>
+              <span class="rj-dry-ts"><?= htmlspecialchars($dts) ?></span>
+              <span class="rj-chip-diff rj-chip-add" title="Files copied/added">+<?= (int)($d['copies'] ?? 0) ?></span>
+              <span class="rj-chip-diff rj-chip-del" title="Files deleted">-<?= (int)($d['deletes'] ?? 0) ?></span>
+              <span class="rj-chip-diff rj-chip-err" title="Errors">!<?= (int)($d['fails'] ?? 0) ?></span>
+              <?php if ($needAck): ?><span class="rj-needsack">needs ack</span><?php endif; ?>
+            <?php else: ?>
+              -
+            <?php endif; ?>
+          </td>
           <td class="rj-acts" style="white-space:nowrap">
-            <input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>' title='Dry-run: simulate only, nothing is written'>
-            <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'<?= $running ? " style='display:none'" : '' ?>>
-            <input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='<?= htmlspecialchars($name) ?>' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'<?= $running ? '' : " style='display:none'" ?>>
-            <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>' title='This dry-run wants to delete files - acknowledge before a real run'><?php endif; ?>
-            <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='Open the last log (redacted) in a new window'>
-            <input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='Last 20 live runs + size trend'>
-            <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>' title='Edit this job'>
-            <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>' title='Delete this job (config kept as a .removed-* backup)'>
+            <div class="rj-btn-group">
+              <button type="button" class="rj-btn" data-act="dry" data-job="<?= htmlspecialchars($name) ?>" title="Dry-run: simulate only, nothing is written"><i class="fa fa-flask"></i> Dry</button>
+              <button type="button" class="rj-btn rj-run" data-act="run" data-job="<?= htmlspecialchars($name) ?>" title="Start a run now (respects the master dry-run switch)"<?= $running ? " style='display:none'" : '' ?>><i class="fa fa-play"></i> Run</button>
+              <button type="button" class="rj-btn rj-del rj-stop" data-act="stop" data-job="<?= htmlspecialchars($name) ?>" title="Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)"<?= $running ? '' : " style='display:none'" ?>><i class="fa fa-stop"></i> Stop</button>
+              <?php if ($needAck): ?><button type="button" class="rj-btn rj-warn" data-act="ack" data-job="<?= htmlspecialchars($name) ?>" title="This dry-run wants to delete files - acknowledge before a real run"><i class="fa fa-check"></i> Ack</button><?php endif; ?>
+              <button type="button" class="rj-btn" data-act="log" data-job="<?= htmlspecialchars($name) ?>" title="Open the last log (redacted) in a new window"><i class="fa fa-file-text-o"></i> Log</button>
+              <button type="button" class="rj-btn" data-act="hist" data-job="<?= htmlspecialchars($name) ?>" title="Last 20 live runs + size trend"><i class="fa fa-bar-chart"></i> Hist</button>
+              <button type="button" class="rj-btn" data-act="edit" data-job="<?= htmlspecialchars($name) ?>" title="Edit this job"><i class="fa fa-pencil"></i> Edit</button>
+              <button type="button" class="rj-btn rj-del" data-act="del" data-job="<?= htmlspecialchars($name) ?>" title="Delete this job (config kept as a .removed-* backup)"><i class="fa fa-trash"></i></button>
+            </div>
           </td>
         </tr>
       <?php endforeach; ?>

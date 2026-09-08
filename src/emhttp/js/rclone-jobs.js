@@ -215,11 +215,18 @@ function rjRunPreview(job) {
 var rjLive = { es: null, errs: 0, timer: null, pending: false };
 
 function rjLiveInd(mode) {
-  var $i = $('#rj-live-ind');
+  var $i = $('#rj-live-ind'), $sub = $('#rj-live-sub');
   if (!$i.length) return;
-  if (mode === 'on') $i.text('\u25CF live').css('color', '#7dcf7d').attr('title', 'nchan SSE: status updates arrive the moment a run starts or ends');
-  else if (mode === 'poll') $i.text('\u25CB live: off - refreshing every 60 s').css('color', '#9aa7b2').attr('title', 'EventSource unavailable on this box; the table still refreshes once a minute');
-  else $i.text('\u25CB live: connecting...').css('color', '#9aa7b2');
+  if (mode === 'on') {
+    $i.html('<span class="rj-live-dot on"></span><span style="color:#7dcf7d;font-weight:bold;font-size:13px">Live SSE</span>').attr('title', 'nchan SSE: status updates arrive the moment a run starts or ends');
+    if ($sub.length) $sub.text('Instant updates active');
+  } else if (mode === 'poll') {
+    $i.html('<span class="rj-live-dot poll"></span><span style="color:#9aa7b2;font-size:13px">Polling (60s)</span>').attr('title', 'EventSource unavailable on this box; the table still refreshes once a minute');
+    if ($sub.length) $sub.text('Fallback refresh mode');
+  } else {
+    $i.html('<span class="rj-live-dot wait"></span><span style="color:#9aa7b2;font-size:13px">Connecting...</span>');
+    if ($sub.length) $sub.text('Establishing live stream');
+  }
 }
 
 /* compact + full dry-run summaries - must match the server-rendered cells in the .page */
@@ -227,6 +234,14 @@ function rjDryShort(d) {
   var ts = String(d.stamp || '?');
   var s = ts.length >= 16 ? ts.substring(5, 10) + ' ' + ts.substring(11, 16) : ts;
   return s + ' +' + (d.copies || 0) + ' -' + (d.deletes || 0) + ' !' + (d.fails || 0);
+}
+function rjDryChips(d) {
+  var ts = String(d.stamp || '?');
+  var s = ts.length >= 16 ? ts.substring(5, 10) + ' ' + ts.substring(11, 16) : ts;
+  return '<span class="rj-dry-ts">' + rjEsc(s) + '</span>' +
+    '<span class="rj-chip-diff rj-chip-add" title="Files copied/added">+' + (d.copies || 0) + '</span>' +
+    '<span class="rj-chip-diff rj-chip-del" title="Files deleted">-' + (d.deletes || 0) + '</span>' +
+    '<span class="rj-chip-diff rj-chip-err" title="Errors">!' + (d.fails || 0) + '</span>';
 }
 function rjDryFull(d) {
   return (d.stamp || '?') + ' copy+' + (d.copies || 0) + ' del-' + (d.deletes || 0) + ' fail:' + (d.fails || 0);
@@ -239,22 +254,27 @@ function rjApplyStatus(jobs) {
     var rcTxt = (j.rc === null || j.rc === undefined) ? '-' : String(j.rc);
     var running = !!j.running;
     var ok = /^(0|24)$/.test(rcTxt) && !running;
+    var iconHtml = '';
+    if (ok) iconHtml = '<i class="fa fa-check"></i> ';
+    else if (running) iconHtml = '<i class="fa fa-refresh fa-spin"></i> ';
+    else if (rcTxt !== '-' && rcTxt !== 'RUN') iconHtml = '<i class="fa fa-exclamation-circle"></i> ';
+
     $tr.find('.rj-rc')
-      .text(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : ''))
-      .toggleClass('ok', ok).toggleClass('bad', !ok && !running && rcTxt !== '-' && rcTxt !== 'RUN');
+      .html(iconHtml + rjEsc(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : '')))
+      .toggleClass('ok', ok).toggleClass('bad', !ok && !running && rcTxt !== '-' && rcTxt !== 'RUN').toggleClass('run', running);
     $tr.find('.rj-lastok').text('last OK: ' + (j.last_ok_run || 'never'));
     var d = j.dry, needAck = false;
     if (d) {
       /* same rule as the engine's gate_check and the server-rendered badge */
       needAck = (d.deletes || 0) > (d.warnDelete || 0) && !d.ack;
       $tr.find('.rj-dry').attr('title', rjDryFull(d))
-        .html(rjEsc(rjDryShort(d)) + (needAck ? " <span class=\"rj-needsack\">needs ack</span>" : ''));
+        .html(rjDryChips(d) + (needAck ? " <span class=\"rj-needsack\">needs ack</span>" : ''));
     } else {
       $tr.find('.rj-dry').text('-').removeAttr('title');
     }
     var $ack = $tr.find("[data-act='ack']");
     if (needAck && $ack.length === 0) {
-      $tr.find("[data-act='run']").after(" <input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'>");
+      $tr.find("[data-act='run']").after(" <button type='button' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'><i class='fa fa-check'></i> Ack</button>");
     } else if (!needAck && $ack.length) {
       $ack.remove();
     }
@@ -264,7 +284,7 @@ function rjApplyStatus(jobs) {
     var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
     if (running) {
       $run.hide();
-      $stop.show().prop('disabled', false).val('Stop');
+      $stop.show().prop('disabled', false).html('<i class="fa fa-stop"></i> Stop');
     } else {
       $stop.hide();
       $run.show();
@@ -327,9 +347,16 @@ function rjShowHistory(job) {
     if (!res.ok) { $p.append($('<pre style="color:#e6867e"></pre>').text('ERROR: ' + (res.error || '?'))).show(); return; }
     var e = res.entries || [], roll = res.rollups || [];
     var nowMs = Date.now(), HR = 3600000;
-    var $wrap = $('<div></div>');
+    var $wrap = $('<div class="rj-hist-card"></div>');
+    var $hdr = $('<div class="rj-hist-top">' +
+      '<div class="rj-hist-title"><i class="fa fa-bar-chart"></i> Run History &amp; Trend: <span style="color:#2e97c2">"' + rjEsc(job) + '"</span></div>' +
+      '<div><button type="button" class="rj-btn" id="rj-hist-close" style="padding:2px 8px"><i class="fa fa-times"></i> Close</button></div>' +
+      '</div>');
+    $wrap.append($hdr);
+    $hdr.find('#rj-hist-close').on('click', function () { $p.slideUp(180); });
+
     if (!e.length && !roll.length) {
-      $wrap.append('<div class="gray" style="padding:6px 0">No live runs recorded yet - history counts real runs, not dry-runs.</div>');
+      $wrap.append('<div class="gray" style="padding:8px 0">No live runs recorded yet - history counts real runs, not dry-runs.</div>');
       $p.append($wrap).show();
       $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
@@ -342,9 +369,12 @@ function rjShowHistory(job) {
     roll.forEach(function (b) {
       if (b.rollup === 'h' && (b.ts || 0) * 1000 >= nowMs - 24 * HR) { s24r += (b.runs || 0); s24f += (b.fails || 0); s24b += (b.bytes || 0); }
     });
-    $wrap.append($('<div class="gray" style="font-size:11px;margin:2px 0"></div>').text(
-      'Last 24h: ' + s24r + ' run(s), ' + s24f + ' failed, ' + (s24b > 0 ? rjHistBytes(s24b) : '0 B') +
-      ' moved - "' + job + '" (raw ' + e.length + ' run(s) + ' + roll.length + ' bucket(s))'));
+    $wrap.append($('<div style="display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 12px"></div>').html(
+      '<div class="rj-card" style="padding:8px 12px;min-width:130px"><div class="rj-card-title">24h Runs</div><div class="rj-card-val" style="font-size:15px">' + s24r + '</div></div>' +
+      '<div class="rj-card" style="padding:8px 12px;min-width:130px"><div class="rj-card-title">24h Failed</div><div class="rj-card-val" style="font-size:15px;color:' + (s24f > 0 ? '#e6867e' : '#7dcf7d') + '">' + s24f + '</div></div>' +
+      '<div class="rj-card" style="padding:8px 12px;min-width:130px"><div class="rj-card-title">24h Transferred</div><div class="rj-card-val" style="font-size:15px">' + (s24b > 0 ? rjHistBytes(s24b) : '0 B') + '</div></div>' +
+      '<div class="rj-card" style="padding:8px 12px;min-width:130px"><div class="rj-card-title">Entries Window</div><div class="rj-card-val" style="font-size:15px">' + e.length + ' <span style="font-size:11px;font-weight:normal;color:#8b98a3">(' + roll.length + ' buckets)</span></div></div>'
+    ));
     /* hourly sparkline, last 48h: raw runs folded by hour + hourly buckets */
     var hmap = {};
     function hourAdd(ts, runs, fails, bytes, secs) {
@@ -360,18 +390,18 @@ function rjShowHistory(job) {
     if (keys.length > 1) {
       var hmax = 1;
       keys.forEach(function (kk) { var v = hmap[kk].bytes > 0 ? hmap[kk].bytes : hmap[kk].secs; if (v > hmax) hmax = v; });
-      var $sp = $('<div style="display:flex;align-items:flex-end;height:44px;margin:4px 0 2px"></div>');
+      var $sp = $('<div class="rj-hist-spark"></div>');
       keys.forEach(function (kk) {
         var h = hmap[kk], v = h.bytes > 0 ? h.bytes : h.secs;
         var d = new Date(kk * 3600 * 1000);
-        $sp.append($('<div style="width:10px;margin-right:2px;flex:0 0 auto;border-radius:2px"></div>')
+        $sp.append($('<div class="rj-spark-bar"></div>')
           .attr('title', ('0' + d.getHours()).slice(-2) + ':00 - ' + h.runs + ' run(s)' +
             (h.fails ? ', ' + h.fails + ' FAILED' : '') + ', ' +
             (h.bytes > 0 ? rjHistBytes(h.bytes) : '0 B') + (h.secs ? ', ' + h.secs + 's busy' : ''))
-          .css('height', Math.max(3, Math.round(40 * v / hmax)) + 'px')
+          .css('height', Math.max(4, Math.round(36 * v / hmax)) + 'px')
           .css('background', h.fails > 0 ? '#e6867e' : '#2e97c2'));
       });
-      $wrap.append($('<div class="gray" style="font-size:11px;margin-top:6px">Hourly trend, last 48h (bar = transferred, fallback busy seconds; red = hour with failures)</div>').append($sp));
+      $wrap.append($('<div class="gray" style="font-size:11px;margin-top:6px;font-weight:600">Hourly trend, last 48h (bar = transferred, fallback busy seconds; red = hour with failures)</div>').append($sp));
     }
     /* daily rollup buckets, last 14 days */
     var days = roll.filter(function (b) { return b.rollup === 'd'; }).slice(-14).reverse();
@@ -388,10 +418,10 @@ function rjShowHistory(job) {
           + '<td style="color:' + (b.fails > 0 ? '#e6867e' : '#7dcf7d') + '">' + (b.fails || 0) + '</td>'
           + '<td>' + avg + 's</td><td>' + (b.secs_max || 0) + 's</td><td>' + (b.errors || 0) + '</td>'
           + '<td>' + rjHistBytes(b.bytes) + '</td>'
-          + '<td style="width:160px"><div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"></div></td></tr>');
+          + '<td style="width:160px"><div style="height:8px;background:#2e97c2;border-radius:3px;width:' + w + '%"></div></td></tr>');
       });
-      $wrap.append($('<div class="gray" style="font-size:11px;margin-top:8px">Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)</div>'),
-        $('<table class="view-table" style="width:auto;min-width:620px"><thead><tr><th>Day</th><th>Runs</th><th>Failed</th><th>Avg run</th><th>Max run</th><th>Errors</th><th>Transferred</th><th>Trend</th></tr></thead></table>').append($dtb));
+      $wrap.append($('<div class="gray" style="font-size:11px;margin:12px 0 4px;font-weight:600">Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)</div>'),
+        $('<table class="view-table" style="width:100%;margin-bottom:12px"><thead><tr><th>Day</th><th>Runs</th><th>Failed</th><th>Avg run</th><th>Max run</th><th>Errors</th><th>Transferred</th><th>Trend</th></tr></thead></table>').append($dtb));
     }
     /* raw per-run detail (newest first) with a failures-only filter */
     var $tb = $('<tbody></tbody>');
@@ -412,11 +442,11 @@ function rjShowHistory(job) {
         var res2 = x.rc === 0 ? 'OK' : (x.rc === 24 ? 'OK (24)' : (x.rc === 143 ? 'interrupted' : 'rc ' + x.rc));
         var w = x.bytes ? Math.max(2, Math.round(100 * x.bytes / rmax)) : 0;
         $tb.append('<tr><td style="white-space:nowrap">' + rjEsc(x.iso) + '</td>'
-          + '<td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + '">' + rjEsc(res2) + '</td>'
+          + '<td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + ';font-weight:bold">' + rjEsc(res2) + '</td>'
           + '<td>' + (x.secs === null || x.secs === undefined ? '-' : x.secs + 's') + '</td>'
           + '<td>' + (x.errors || 0) + '</td>'
           + '<td>' + rjEsc(x.transferred || rjHistBytes(x.bytes)) + '</td>'
-          + '<td style="width:200px"><div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"></div></td></tr>');
+          + '<td style="width:180px"><div style="height:8px;background:#2e97c2;border-radius:3px;width:' + w + '%"></div></td></tr>');
       });
       if (list.length > shown.length) $tb.append('<tr><td colspan="6" class="gray" style="text-align:center;padding:6px">+ ' +
         (list.length - shown.length) + ' older run(s) not shown - see the rollups above</td></tr>');
@@ -424,8 +454,8 @@ function rjShowHistory(job) {
     renderRaw();
     var $ff = $('<label style="font-size:11px;cursor:pointer;margin-left:10px"><input type="checkbox"> failures only</label>');
     $ff.find('input').on('change', function () { failsOnly = this.checked; renderRaw(); });
-    $wrap.append($('<div class="gray" style="font-size:11px;margin-top:8px">Raw per-run detail (newest first)').append($ff),
-      $('<table class="view-table" style="width:auto;min-width:620px"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb));
+    $wrap.append($('<div class="gray" style="font-size:11px;margin:10px 0 4px;font-weight:600;display:flex;align-items:center">Raw per-run detail (newest first)</div>').append($ff),
+      $('<table class="view-table" style="width:100%"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb));
     $p.append($wrap).show();
     $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
@@ -664,6 +694,10 @@ $(function () {
   }).on('keydown.rjform', function (ev) {
     if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); rjSetFormOpen(!$('#rj-form-wrap').is(':visible')); }
   });
+  $('#rj-btn-add-top').off('.rjadd').on('click.rjadd', function () {
+    showForm('Add job', null);
+    rjSetFormOpen(true);
+  });
   if (!Object.keys(D.jobs).length) rjSetFormOpen(true);
 
   function showForm(title, j) {
@@ -743,7 +777,7 @@ $(function () {
                 'Stop', true, function () {
         rjPost({ action: 'stop_job', job: job }, function (res) {
           if (res.ok) {
-            $btn.prop('disabled', true).val('stopping...');
+            $btn.prop('disabled', true).val('stopping...').html('<i class="fa fa-spinner fa-spin"></i> Stopping...');
             rjPanel('rj-result', 'Stop requested for "' + job + '" - the row returns to idle when the run records rc=143.');
             setTimeout(rjStatusRefresh, 1500);
           } else {
