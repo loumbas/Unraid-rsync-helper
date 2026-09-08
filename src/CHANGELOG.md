@@ -1,3 +1,28 @@
+## 2026.09.08e
+Tiered retention for high-frequency jobs (history rollups + bounded logs + scheduled watchdog):
+ - History is now tiered instead of one raw line per run forever: raw lines for
+   HISTORY_RAW_HOURS (max HISTORY_RAW_MAX), then one hourly bucket for
+   HISTORY_HOUR_DAYS, then one daily bucket for HISTORY_DAYS (runs/fails/errors/
+   secs min-max-sum/bytes per bucket in history/<job>.rollup.jsonl; the raw file
+   format is unchanged). A job on a 3-minute schedule now keeps a full 90-day
+   trend in a few hundred lines instead of tens of thousands.
+ - Compaction runs automatically: piggybacked on hist_add (bounded append, same
+   lock) and every 15 minutes via a NEW maintenance line in the managed cron
+   block - the watchdog (stale/stuck alerts + pruning) was previously never
+   scheduled by the plugin at all.
+ - Job logs: OK/dry-run logs age out after LOG_KEEP_DAYS (3) with a per-job
+   count cap LOG_KEEP_MAX (300, newest win); failed/interrupted logs carry a
+   keep-marker (logs/keep/) and stay LOG_KEEP_FAIL_DAYS (14). tail_log explains
+   the new window when a log is gone.
+ - paths.env gains the seven retention keys (defaults as above, engine clamps);
+   editable on the Safety tab (same Save settings button).
+ - WebUI: the HIST panel shows a last-24h summary line, a 48h hourly sparkline
+   (raw + hourly buckets merged), a 14-day rollup table and a raw detail table
+   with a failures-only filter; history loads up to 600 raw runs (ajax/engine
+   cap raised from 200).
+ - Doctor: INFO line with history line count, log file count and active
+   retention settings; regen --check already flags a missing maintenance line.
+
 ## 2026.09.08d
 Form alignment regression fix (Jobs tab):
 - WebUI: Source/Destination/Script/Backup-dir inputs were completely detached from

@@ -90,6 +90,12 @@ for f in "$BOOT_DIR/jobs"/*.conf; do
   any=1
 done
 
+# maintenance line: stale/stuck alerts + history rollup compaction + log pruning.
+# Written even when every job is disabled (pruning still matters); the engine
+# watchdog is a cheap no-op when there is nothing to do.
+echo "*/15 * * * * /usr/bin/env bash '$eng' watchdog 2>&1 | /usr/bin/logger -t $NAME" >> "$block"
+any=1
+
 our_block=""
 if [ "$any" = 1 ]; then
   our_block="$(printf '%s\n%s\n%s\n' "$BEGIN_MARK" "$(cat "$block")" "$END_MARK")"

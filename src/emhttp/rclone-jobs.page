@@ -40,6 +40,22 @@ if ($storage === '') {
 $master   = $paths['DRY_RUN_MASTER'] ?? 'yes';
 $quietSt  = $paths['QUIET_START'] ?? '23:00';
 $quietEn  = $paths['QUIET_END'] ?? '07:00';
+function rj_ret($paths, $key, $def, $lo, $hi) {
+    /* same defaults AND same clamps as the engine's load_paths()/num_clamp():
+       a hand-edited paths.env value never reaches the fields as garbage */
+    $v = $paths[$key] ?? '';
+    if (!preg_match('/^\d{1,5}$/', $v)) return $def;
+    return max($lo, min($hi, intval($v)));
+}
+$retention = [
+    'rawHours'  => rj_ret($paths, 'HISTORY_RAW_HOURS', 24, 1, 168),
+    'rawMax'    => rj_ret($paths, 'HISTORY_RAW_MAX', 500, 20, 5000),
+    'hourDays'  => rj_ret($paths, 'HISTORY_HOUR_DAYS', 7, 1, 60),
+    'days'      => rj_ret($paths, 'HISTORY_DAYS', 90, 7, 365),
+    'logDays'   => rj_ret($paths, 'LOG_KEEP_DAYS', 3, 1, 90),
+    'failDays'  => rj_ret($paths, 'LOG_KEEP_FAIL_DAYS', 14, 1, 90),
+    'logMax'    => rj_ret($paths, 'LOG_KEEP_MAX', 300, 20, 20000),
+];
 
 $jobs = [];
 foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
@@ -58,6 +74,7 @@ $rjdata = [
     'storage'    => $storage,
     'master'     => $master,
     'quiet'      => ['start' => $quietSt, 'end' => $quietEn],
+    'retention'  => $retention,
     'jobs'       => $jobs,
 ];
 ?>
@@ -71,7 +88,7 @@ $rjdata = [
     '#tab_rj_jobs input.rj-size,#tab_rj_alerts input.rj-size{width:auto}',
     '#tab_rj_alerts #a_qstart,#tab_rj_alerts #a_qend{width:64px}',
     '#tab_rj_alerts #a_ntlevel{width:150px;max-width:100%}',
-    '#tab_rj_jobs input[type=number]{width:64px}',
+    '#tab_rj_jobs input[type=number],#tab_rj_alerts input[type=number]{width:64px}',
     '#tab_rj_jobs #f_sched_hour,#tab_rj_jobs #f_sched_min,#tab_rj_jobs #f_sched_hmin,#tab_rj_jobs #f_sched_dom{width:64px}',
     '#tab_rj_jobs #f_s_at{margin:0 2px 0 6px}',
     '#tab_rj_jobs .rj-wd label{margin-right:8px;white-space:nowrap}',
@@ -290,6 +307,22 @@ $rjdata = [
       <dl><dt id="dt_quiet">Quiet window (heartbeats):</dt>
         <dd class="rj-inline"><input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"><span style="margin:0 8px">to</span><input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"></dd></dl>
       <blockquote class='inline_help'><p>24-hour clock. Inside this window the OK notices of successful runs are suppressed; failures and warnings are always sent.</p></blockquote>
+    <div class="title">
+      <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-hourglass title'></i>Retention (history &amp; logs)</span>
+    </div>
+    <p></p>
+      <dl><dt>Run history - raw per run:</dt>
+        <dd class="rj-inline"><input type="number" id="a_rawhours" min="1" max="168"> hours (max <input type="number" id="a_rawmax" min="20" max="5000"> lines)</dd></dl>
+      <dl><dt>History - hourly buckets:</dt>
+        <dd class="rj-inline">keep <input type="number" id="a_hourdays" min="1" max="60"> days</dd></dl>
+      <dl><dt>History - daily buckets:</dt>
+        <dd class="rj-inline">keep <input type="number" id="a_hdays" min="7" max="365"> days</dd></dl>
+      <blockquote class='inline_help'><p>Tiered history: every live run is stored as a raw line for the window above, then folded into one <em>hourly</em> bucket (runs, failures, errors, duration min/max/sum, bytes) and later into one <em>daily</em> bucket. A job that runs every few minutes therefore keeps a full 90-day trend in a few hundred lines instead of tens of thousands - the compaction runs automatically after runs and every 15 minutes via the managed cron block.</p></blockquote>
+      <dl><dt>Job logs - successful:</dt>
+        <dd class="rj-inline">keep <input type="number" id="a_logdays" min="1" max="90"> days, max <input type="number" id="a_logmax" min="20" max="20000"> files per job</dd></dl>
+      <dl><dt>Job logs - failed:</dt>
+        <dd class="rj-inline">keep <input type="number" id="a_faildays" min="1" max="90"> days</dd></dl>
+      <blockquote class='inline_help'><p>Log files of OK and dry-run runs age out quickly (a 3-minute schedule produces ~480 files/day); failed and interrupted logs are kept longer and are never removed by the per-job count cap. The Log button of a finished run always shows its log while it exists.</p></blockquote>
     <div class="title">
       <span class='left inline-flex flex-row items-center gap-1'><i class='fa fa-bell title'></i>Delivery (Unraid notifications)</span>
     </div>

@@ -31,6 +31,21 @@ DRY_RUN_MASTER=yes
 QUIET_START=23:00
 QUIET_END=07:00
 
+# History + log retention (integers; the engine clamps anything else back to the
+# defaults shown). History is tiered so high-frequency jobs stay bounded: every
+# live run is kept raw for HISTORY_RAW_HOURS (max HISTORY_RAW_MAX lines), then
+# folded into one hourly bucket for HISTORY_HOUR_DAYS, then one daily bucket for
+# HISTORY_DAYS. Job logs: OK/dry-run logs age out after LOG_KEEP_DAYS (and no
+# more than LOG_KEEP_MAX files per job); failed/interrupted logs stay
+# LOG_KEEP_FAIL_DAYS. The watchdog (cron block, every 15 min) does the work.
+HISTORY_RAW_HOURS=24
+HISTORY_RAW_MAX=500
+HISTORY_HOUR_DAYS=7
+HISTORY_DAYS=90
+LOG_KEEP_DAYS=3
+LOG_KEEP_FAIL_DAYS=14
+LOG_KEEP_MAX=300
+
 # Config schema marker (readers must ignore unknown keys; a future release that
 # changes this file's format bumps the number and migrates from the old value).
 CONFIG_VERSION=1

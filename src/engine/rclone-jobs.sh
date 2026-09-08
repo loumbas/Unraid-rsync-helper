@@ -49,6 +49,15 @@ STATUS_DIR=""
 BACKUP_DIR=""
 PHP_BIN=""
 
+# history + log retention (paths.env overrides, clamped in load_paths)
+HIST_RAW_HOURS="24"
+HIST_RAW_MAX="500"
+HIST_HOUR_DAYS="7"
+HIST_DAYS="90"
+LOG_KEEP_DAYS="3"
+LOG_KEEP_FAIL_DAYS="14"
+LOG_KEEP_MAX="300"
+
 # ------------------------------------------------------------------- basics --
 say()         { printf '%s\n' "$*"; }
 stamp_now()   { date '+%F %T'; }
@@ -101,6 +110,15 @@ valid_schedule() { # 5 cron fields, numerics plus * , - / only (cron-injection d
   [[ "$1" =~ $re ]]
 }
 
+num_clamp() { # <value> <min> <max> <default> -> validated int on stdout (paths.env values are never trusted)
+  local v="${1:-}"
+  [[ "$v" =~ ^[0-9]{1,5}$ ]] || { printf '%s' "$4"; return 0; }
+  v="$((10#$v))"
+  [ "$v" -lt "$2" ] && v="$2"
+  [ "$v" -gt "$3" ] && v="$3"
+  printf '%s' "$v"
+}
+
 # ----------------------------------------------------------- configuration --
 detect_storage() { # first /mnt/diskN backed by /dev/md* (array; parity is never mounted)
   local d src
@@ -130,6 +148,13 @@ load_paths() {
         DRY_RUN_MASTER) DRY_RUN_MASTER="$val" ;;
         QUIET_START)    QUIET_START="$val" ;;
         QUIET_END)      QUIET_END="$val" ;;
+        HISTORY_RAW_HOURS)  HIST_RAW_HOURS="$val" ;;
+        HISTORY_RAW_MAX)    HIST_RAW_MAX="$val" ;;
+        HISTORY_HOUR_DAYS)  HIST_HOUR_DAYS="$val" ;;
+        HISTORY_DAYS)       HIST_DAYS="$val" ;;
+        LOG_KEEP_DAYS)      LOG_KEEP_DAYS="$val" ;;
+        LOG_KEEP_FAIL_DAYS) LOG_KEEP_FAIL_DAYS="$val" ;;
+        LOG_KEEP_MAX)       LOG_KEEP_MAX="$val" ;;
       esac
     done < "$BOOT_DIR/paths.env"
   fi
@@ -137,6 +162,16 @@ load_paths() {
   [ -n "${RJ_STORAGE_ROOT:-}" ]   && STORAGE_ROOT="$RJ_STORAGE_ROOT"
   [ -n "${RJ_DRY_RUN_MASTER:-}" ] && DRY_RUN_MASTER="$RJ_DRY_RUN_MASTER"
   [ -n "$STORAGE_ROOT" ] || STORAGE_ROOT="$(detect_storage || true)"
+  # retention knobs: clamp hard, compaction math must never see garbage
+  HIST_RAW_HOURS="$(num_clamp "$HIST_RAW_HOURS" 1 168 24)"
+  HIST_RAW_MAX="$(num_clamp "$HIST_RAW_MAX" 20 5000 500)"
+  HIST_HOUR_DAYS="$(num_clamp "$HIST_HOUR_DAYS" 1 60 7)"
+  HIST_DAYS="$(num_clamp "$HIST_DAYS" 7 365 90)"
+  [ "$HIST_DAYS" -lt "$HIST_HOUR_DAYS" ] && HIST_DAYS="$HIST_HOUR_DAYS"
+  LOG_KEEP_DAYS="$(num_clamp "$LOG_KEEP_DAYS" 1 90 3)"
+  LOG_KEEP_FAIL_DAYS="$(num_clamp "$LOG_KEEP_FAIL_DAYS" 1 90 14)"
+  [ "$LOG_KEEP_FAIL_DAYS" -lt "$LOG_KEEP_DAYS" ] && LOG_KEEP_FAIL_DAYS="$LOG_KEEP_DAYS"
+  LOG_KEEP_MAX="$(num_clamp "$LOG_KEEP_MAX" 20 20000 300)"
 }
 
 storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
@@ -668,7 +703,7 @@ cmd_run() { # <job> [--dry-run]
   # signal-aware exec: 'wait' returns immediately (>128) when TERM/INT arrive,
   # so the trap can mark the status before the box goes down. rclone children
   # are left to the shutdown's own kill pass (no force-killing from here).
-  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" >> "$logfile" 2>/dev/null; trap - TERM INT; exit 143' TERM INT
+  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2>/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; mkdir -p "$LOG_DIR/keep" 2>/dev/null; touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2>/dev/null; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" >> "$logfile" 2>/dev/null; trap - TERM INT; exit 143' TERM INT
   local jpid
   if [ -t 1 ]; then
     # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
@@ -704,6 +739,12 @@ cmd_run() { # <job> [--dry-run]
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash" "$logfile"
     sse_publish "$JOB_NAME" false "$rc"
     hist_add "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" "$logfile"
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 24 ]; then
+      # failed log: marked so the watchdog keeps it LOG_KEEP_FAIL_DAYS (OK logs
+      # of a busy job age out much faster and flood the count cap)
+      mkdir -p "$LOG_DIR/keep" 2>/dev/null || true
+      touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2>/dev/null || true
+    fi
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
       # recovered: clear stale problem notices from the bell + fresh watchdog dedup
       notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
@@ -858,7 +899,7 @@ cmd_tail_log() { # <job> -> JSON {ok,log,size,text}: redacted tail of the record
     "$LOG_DIR"/*.log) : ;;
     *) printf '{"ok":false,"error":"no log path recorded for %s (run it once, or status predates v%s)"}\n' "$JOB_NAME" "$ENGINE_VERSION"; return 0 ;;
   esac
-  [ -f "$log" ] || { printf '{"ok":false,"error":"log file is gone (pruned after 14 days?)"}\n'; return 0; }
+  [ -f "$log" ] || { printf '{"ok":false,"error":"log file is gone (OK logs are kept %s day(s), failed logs %s - retention: paths.env)"}\n' "$LOG_KEEP_DAYS" "$LOG_KEEP_FAIL_DAYS"; return 0; }
   sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
   if [ "${sz:-0}" -gt 65536 ]; then head="[last 64 KiB of ${sz} bytes - truncated]
 "; fi
@@ -1006,39 +1047,139 @@ hist_bytes() { # <human size like '1.2 GiB'> -> integer bytes on stdout, rc1 on 
 }
 
 hist_add() { # <job> <rc> <secs> <errors> <transferred> <logfile> - best effort, never fatal
-  local hb=""
+  local hb="" line dir
   command -v jq >/dev/null 2>&1 || return 0
   hb="$(hist_bytes "${5:-}" 2>/dev/null)" || hb=""
-  local dir="$STORAGE_ROOT/history"
+  dir="$STORAGE_ROOT/history"
   mkdir -p "$dir" 2>/dev/null || return 0
-  jq -nc --argjson ts "$(unix_now)" --arg iso "$(stamp_now)" --argjson rc "${2:-0}" \
+  line="$(jq -nc --argjson ts "$(unix_now)" --arg iso "$(stamp_now)" --argjson rc "${2:-0}" \
          --argjson secs "${3:-0}" --argjson errors "${4:-0}" --arg transferred "${5:-}" \
          --arg bytes "$hb" --arg log "${6:-}" \
     '{ts:$ts, iso:$iso, rc:$rc, secs:$secs, errors:$errors, transferred:$transferred,
-      bytes:(if $bytes=="" then null else ($bytes|tonumber) end), log:$log}' >> "$dir/$JOB_NAME.jsonl" 2>/dev/null || true
+      bytes:(if $bytes=="" then null else ($bytes|tonumber) end), log:$log}' 2>/dev/null)" || return 0
+  [ -n "$line" ] || return 0
+  # append + piggyback compaction under one lock: a high-frequency job keeps its
+  # raw file bounded even if the watchdog never runs, and a concurrent watchdog
+  # compaction never interleaves with this append
+  (
+    exec 210>>"$dir/.$JOB_NAME.clock" 2>/dev/null || exit 0
+    flock -w 10 210 || exit 0
+    printf '%s\n' "$line" >> "$dir/$JOB_NAME.jsonl" 2>/dev/null || exit 0
+    if [ "$(wc -l < "$dir/$JOB_NAME.jsonl" 2>/dev/null || echo 0)" -gt "$(( HIST_RAW_MAX + 100 ))" ]; then
+      hist_compact "$JOB_NAME" locked
+    fi
+  ) 2>/dev/null || true
   return 0
 }
 
-cmd_history() { # <job> [n] -> {ok, job, entries:[...last n...]} (broken lines dropped)
+hist_compact() { # <job> [locked] - fold raw runs into hourly/daily rollup buckets.
+  # Tiered retention: raw lines live HIST_RAW_HOURS (max HIST_RAW_MAX), then one
+  # hourly bucket per hour for HIST_HOUR_DAYS, then one daily bucket per day for
+  # HIST_DAYS - so a 3-min job still fits ~600 lines instead of 43k. Rollups go
+  # to <job>.rollup.jsonl ({rollup:"h"|"d",ts,iso,runs,fails,errors,secs_*,bytes});
+  # the raw file keeps its exact old format. Best effort, never fatal.
+  local job="${1:-}" hdir raw roll foldt rawt rollt now craw chr cdd tzoff
+  valid_jobname "$job" || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  hdir="$STORAGE_ROOT/history"
+  raw="$hdir/$job.jsonl"
+  roll="$hdir/$job.rollup.jsonl"
+  mkdir -p "$hdir" 2>/dev/null || return 0
+  if [ "${2:-}" != "locked" ]; then
+    exec 210>>"$hdir/.$job.clock" 2>/dev/null || return 0
+    flock -n 210 || return 0
+  fi
+  [ -f "$raw" ] || return 0
+  now="$(unix_now)"
+  craw=$(( now - HIST_RAW_HOURS * 3600 ))
+  chr=$(( now - HIST_HOUR_DAYS * 86400 ))
+  cdd=$(( now - HIST_DAYS * 86400 ))
+  tzoff=$(( $(date +%s) - $(date -u +%s) ))   # strftime is UTC; keep bucket iso local like raw
+  foldt="$hdir/.$job.fold.$$"; rawt="$hdir/.$job.raw.$$"; rollt="$hdir/.$job.roll.$$"
+  # effective raw cutoff: the raw-window time, pushed up when more than
+  # HIST_RAW_MAX lines still fit in it (ts-based so it works whatever order
+  # the file's lines happen to be in; fold keeps ts < fcut, kept keeps >=)
+  local fcut
+  fcut="$(jq -c -R -n --argjson cut "$craw" --argjson keep "$HIST_RAW_MAX" '
+      [ inputs | fromjson? | select(type == "object" and ((.ts | type) == "number")) | .ts ]
+      | sort | (if length > $keep then [$cut, .[length - $keep]] | max else $cut end)' \
+      "$raw" 2>/dev/null)" || fcut=""
+  case "${fcut:-}" in ''|*[!0-9]*) fcut="$craw" ;; esac
+  # units folded OUT of raw: older than the effective cutoff
+  if ! jq -c -R -n --argjson cut "$fcut" '
+      [ inputs | fromjson? | select(type == "object" and ((.ts | type) == "number")) ] as $e
+      | $e[] | select(.ts < $cut)
+      | { ts, runs: 1, fails: (if .rc == 0 or .rc == 24 then 0 else 1 end),
+          errors: (.errors // 0), secs_sum: (.secs // 0), secs_min: (.secs // 0),
+          secs_max: (.secs // 0), bytes: (if ((.bytes | type) == "number") then .bytes else null end) }' \
+      "$raw" > "$foldt" 2>/dev/null; then
+    rm -f "$foldt" "$rawt" "$rollt"; return 0
+  fi
+  # kept raw window (also self-heals corrupt lines out of the file)
+  if ! jq -c -R --argjson cut "$fcut" \
+      'fromjson? | select(type == "object") | select((.ts | type) == "number" and .ts >= $cut)' \
+      "$raw" 2>/dev/null | tail -n "$HIST_RAW_MAX" > "$rawt"; then
+    rm -f "$foldt" "$rawt" "$rollt"; return 0
+  fi
+  [ -f "$roll" ] || touch "$roll" 2>/dev/null || { rm -f "$foldt" "$rawt" "$rollt"; return 0; }
+  # merge folded units with existing buckets: hourly keeps >= chr, everything
+  # older (folded raw + old hourly + old daily) re-buckets to daily keeps >= cdd
+  if ! jq -c -n --argjson ch "$chr" --argjson cd "$cdd" --argjson off "$tzoff" '
+      def agg($k; $kind): group_by(.ts - .ts % $k)
+        | map({ rollup: $kind, ts: (.[0].ts - .[0].ts % $k),
+                iso: (((.[0].ts - .[0].ts % $k) + $off) | strftime("%Y-%m-%d %H:%M")),
+                runs: (map(.runs) | add), fails: (map(.fails) | add),
+                errors: (map(.errors) | add), secs_sum: (map(.secs_sum) | add),
+                secs_min: (map(.secs_min) | min), secs_max: (map(.secs_max) | max),
+                bytes: ([ .[].bytes | select(. != null) ] | if length > 0 then add else null end) })
+        | sort_by(.ts);
+      [ inputs | select(type == "object" and ((.ts | type) == "number")) ] as $u
+      | ( [ $u[] | select((.rollup == null or .rollup == "h") and .ts >= $ch) ]
+          # keep buckets OVERLAPPING the window (a run inside the window must
+          # never be dropped just because its bucket starts slightly before ch;
+          # once ch advances past the whole bucket it gets promoted to daily)
+          | agg(3600; "h") | map(select(.ts + 3600 > $ch)) ) as $H
+      | ( [ ($u[] | select((.rollup == null or .rollup == "h") and .ts < $ch)),
+            ($u[] | select(.rollup == "d")) ]
+          | agg(86400; "d") | map(select(.ts + 86400 > $cd)) ) as $D
+      | ($H + $D)[]' "$foldt" "$roll" > "$rollt" 2>/dev/null; then
+    rm -f "$foldt" "$rawt" "$rollt"; return 0
+  fi
+  cmp -s "$rawt" "$raw" || mv -f "$rawt" "$raw" 2>/dev/null || true
+  cmp -s "$rollt" "$roll" 2>/dev/null || mv -f "$rollt" "$roll" 2>/dev/null || true
+  rm -f "$foldt" "$rawt" "$rollt"
+  return 0
+}
+
+cmd_history() { # <job> [n] -> {ok, job, entries:[...last n raw...], rollups:[h/d buckets]}
   JOB_NAME="${1:-}"
   valid_jobname "$JOB_NAME" || { printf '{"ok":false,"error":"invalid job name"}\n'; return 0; }
-  local n="${2:-20}" hf
-  [[ "$n" =~ ^[0-9]{1,3}$ ]] || n=20
-  [ "$n" -gt 200 ] && n=200
+  local n="${2:-20}" hf rf
+  [[ "$n" =~ ^[0-9]{1,4}$ ]] || n=20
+  [ "$n" -gt 600 ] && n=600
   load_paths
   storage_guard
   hf="$STORAGE_ROOT/history/$JOB_NAME.jsonl"
-  if [ ! -f "$hf" ]; then
-    printf '{"ok":true,"job":"%s","entries":[]}\n' "$JOB_NAME"; return 0
+  rf="$STORAGE_ROOT/history/$JOB_NAME.rollup.jsonl"
+  if [ ! -f "$hf" ] && [ ! -f "$rf" ]; then
+    printf '{"ok":true,"job":"%s","entries":[],"rollups":[]}\n' "$JOB_NAME"; return 0
   fi
   # -R + fromjson? skips corrupt lines one by one (a half-written line from a
   # hard kill must not make the whole history unreadable)
-  if jq -c -R 'fromjson? | select(type=="object")' "$hf" 2>/dev/null | tail -n "$n" | jq -sc '.' > "$hf.ui.$$" 2>/dev/null; then
-    jq -c --arg j "$JOB_NAME" '{ok:true, job:$j, entries:(. // [])}' < "$hf.ui.$$"
+  if [ ! -f "$hf" ]; then printf '[]' > "$hf.ui.$$"; fi
+  if [ ! -f "$hf" ] || jq -c -R 'fromjson? | select(type=="object")' "$hf" 2>/dev/null | tail -n "$n" | jq -sc '.' > "$hf.ui.$$" 2>/dev/null; then
+    if [ -f "$rf" ]; then
+      jq -c -R 'fromjson? | select(type=="object")' "$rf" 2>/dev/null | jq -sc '.' > "$hf.ur.$$" 2>/dev/null \
+        || printf '[]' > "$hf.ur.$$"
+    else
+      printf '[]' > "$hf.ur.$$"
+    fi
+    jq -c --arg j "$JOB_NAME" --slurpfile ro "$hf.ur.$$" \
+      '{ok:true, job:$j, entries:(. // []), rollups:($ro[0] // [])}' < "$hf.ui.$$"
   else
     printf '{"ok":false,"error":"history file unreadable"}\n'
   fi
-  rm -f "$hf.ui.$$"
+  rm -f "$hf.ui.$$" "$hf.ur.$$"
 }
 
 cmd_list() {
@@ -1158,22 +1299,51 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
       rm -f "$ttf" "${ttf%.rc}.out" "${ttf%.rc}.pid"
     fi
   done
-  # history trim: 90-day cutoff + 400-line cap; a corrupt file still gets cut to
-  # its newest 400 lines (self-heal) instead of growing forever
-  local hdir="$STORAGE_ROOT/history" hf htmp
+  # history: fold raw runs into hourly/daily rollups (same compaction the runs
+  # piggyback, so a job that stopped running still gets its file tiered)
+  local hdir="$STORAGE_ROOT/history" hf hn
   if [ -d "$hdir" ]; then
     for hf in "$hdir"/*.jsonl; do
       [ -e "$hf" ] || continue
-      htmp="$hf.trim.$$"
-      if jq -c --argjson cut "$(( now - 7776000 ))" 'select((.ts // 0) >= $cut)' "$hf" > "$htmp" 2>/dev/null; then
-        tail -n 400 "$htmp" > "$htmp.2" 2>/dev/null && mv -f "$htmp.2" "$hf" || rm -f "$htmp.2"
-      else
-        tail -n 400 "$hf" > "$htmp.2" 2>/dev/null && mv -f "$htmp.2" "$hf" || rm -f "$htmp.2"
-      fi
-      rm -f "$htmp"
+      hn="$(basename "$hf" .jsonl)"
+      case "$hn" in *.rollup) continue ;; esac
+      valid_jobname "$hn" || continue
+      hist_compact "$hn"
     done
   fi
-  find "$LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'doctor-*.txt' \) -mtime +14 -delete 2>/dev/null
+  # logs: OK/dry-run logs age out after LOG_KEEP_DAYS; failed/interrupted ones
+  # carry a keep-marker (written at run end) and stay LOG_KEEP_FAIL_DAYS. The
+  # marker expires with the failure window, then the age sweep reclaims the log.
+  local kdir="$LOG_DIR/keep" lf jf jname jcnt
+  if [ -d "$LOG_DIR" ]; then
+    mkdir -p "$kdir" 2>/dev/null || true
+    find "$kdir" -maxdepth 1 -type f -mtime +"$LOG_KEEP_FAIL_DAYS" -delete 2>/dev/null
+    for lf in "$LOG_DIR"/*.log; do
+      [ -e "$lf" ] || continue
+      [ -f "$kdir/$(basename "$lf").keep" ] && continue
+      if [ $(( now - $(stat -c %Y "$lf" 2>/dev/null || echo "$now") )) -gt $(( LOG_KEEP_DAYS * 86400 )) ]; then
+        rm -f "$lf" "$kdir/$(basename "$lf").keep"
+      fi
+    done
+    # count cap (per job): newest LOG_KEEP_MAX live+DRYRUN logs survive regardless
+    # of age; marked (failed) logs are never deleted by the cap. Globs require the
+    # 8-digit date / DRYRUN tag so a job never touches another job's logs.
+    for f in "$BOOT_DIR/jobs"/*.conf; do
+      [ -e "$f" ] || continue
+      jname="$(basename "$f" .conf)"
+      valid_jobname "$jname" || continue
+      jcnt=0
+      while IFS= read -r jf; do
+        [ -n "$jf" ] && [ -e "$jf" ] || continue
+        jcnt=$(( jcnt + 1 ))
+        if [ "$jcnt" -gt "$LOG_KEEP_MAX" ] && [ ! -f "$kdir/$(basename "$jf").keep" ]; then
+          rm -f "$jf" "$kdir/$(basename "$jf").keep"
+        fi
+      done < <(ls -1t -- "$LOG_DIR/$jname-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*.log \
+                          "$LOG_DIR/$jname-DRYRUN-"*.log 2>/dev/null)
+    done
+  fi
+  find "$LOG_DIR" -maxdepth 1 -type f -name 'doctor-*.txt' -mtime +14 -delete 2>/dev/null
   return 0
 }
 
@@ -1291,6 +1461,7 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
       else d_line FAIL "STORAGE_ROOT not writable: $STORAGE_ROOT"; fi
       d_line INFO "free space: $(df -h "$STORAGE_ROOT" 2>/dev/null | awk 'NR==2{printf "%s free (%s used) on %s", $4, $5, $1}')"
       d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2>/dev/null)"
+      d_line INFO "retention: $(find "$STORAGE_ROOT/history" -maxdepth 1 -name '*.jsonl' -exec cat {} + 2>/dev/null | wc -l) history line(s), $(find "$STORAGE_ROOT/logs" -maxdepth 1 -type f -name '*.log' 2>/dev/null | wc -l) log file(s) (raw ${HIST_RAW_HOURS}h/max ${HIST_RAW_MAX}, hourly ${HIST_HOUR_DAYS}d, daily ${HIST_DAYS}d; logs ${LOG_KEEP_DAYS}d & max ${LOG_KEEP_MAX}/job, failures ${LOG_KEEP_FAIL_DAYS}d)"
     else d_line WARN "STORAGE_ROOT does not exist yet (array stopped, or first run pending): $STORAGE_ROOT"; fi
     if [ -f "$STORAGE_ROOT/notify.env" ]; then
       d_line INFO "legacy notify.env still present (no longer read) - optional cleanup: rm '$STORAGE_ROOT/notify.env'"
@@ -1510,7 +1681,8 @@ usage:
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh tail-log <job>          redacted tail (64 KiB) of the job's last log as JSON
-  rclone-jobs.sh history <job> [n]       last n live runs as JSON (ts, rc, secs, bytes)
+  rclone-jobs.sh history <job> [n]       last n live runs + hourly/daily rollups as JSON
+  rclone-jobs.sh watchdog                stale/stuck alerts + history rollups + log pruning
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh export-jobs             job set as tar.gz, base64 on stdout (JSON)
   rclone-jobs.sh import-jobs <ask|overwrite|skip> <b64-file>   validated import

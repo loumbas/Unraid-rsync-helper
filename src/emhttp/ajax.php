@@ -267,7 +267,7 @@ case 'history':
        Jobs-tab trend panel; n is range-checked here and again in the engine */
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     $hn = rj_num($_POST['n'] ?? 20);
-    if ($hn < 1 || $hn > 200) $hn = 20;
+    if ($hn < 1 || $hn > 600) $hn = 20;
     $eo = []; $erc = 0;
     rj_engine('history ' . escapeshellarg($name) . ' ' . $hn, $eo, $erc);
     $bj = json_decode(implode("\n", $eo), true);
@@ -307,6 +307,24 @@ case 'save_alerts':
     if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qs) && $qs !== '') rj_out(['ok' => false, 'error' => 'quiet window start must be HH:MM (24h) or empty']);
     if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qe) && $qe !== '') rj_out(['ok' => false, 'error' => 'quiet window end must be HH:MM (24h) or empty']);
     $qp['QUIET_START'] = $qs; $qp['QUIET_END'] = $qe;
+    /* retention: same clamps as the engine's num_clamp(); out-of-range input is
+       clamped silently (the field hints show the allowed range) */
+    $retmap = [
+        'HISTORY_RAW_HOURS'  => ['raw_hours',  24, 1, 168],
+        'HISTORY_RAW_MAX'    => ['raw_max',    500, 20, 5000],
+        'HISTORY_HOUR_DAYS'  => ['hour_days',  7, 1, 60],
+        'HISTORY_DAYS'       => ['hist_days',  90, 7, 365],
+        'LOG_KEEP_DAYS'      => ['log_days',   3, 1, 90],
+        'LOG_KEEP_FAIL_DAYS' => ['fail_days',  14, 1, 90],
+        'LOG_KEEP_MAX'       => ['log_max',    300, 20, 20000],
+    ];
+    foreach ($retmap as $envkey => $spec) {
+        if (!isset($_POST[$spec[0]])) continue;
+        $v = preg_match('/^\d{1,5}$/', trim(rj_str($_POST[$spec[0]]))) ? intval(trim(rj_str($_POST[$spec[0]]))) : $spec[1];
+        $qp[$envkey] = strval(max($spec[2], min($spec[3], $v)));
+    }
+    if (intval($qp['HISTORY_DAYS'] ?? 90) < intval($qp['HISTORY_HOUR_DAYS'] ?? 7)) $qp['HISTORY_DAYS'] = $qp['HISTORY_HOUR_DAYS'];
+    if (intval($qp['LOG_KEEP_FAIL_DAYS'] ?? 14) < intval($qp['LOG_KEEP_DAYS'] ?? 3)) $qp['LOG_KEEP_FAIL_DAYS'] = $qp['LOG_KEEP_DAYS'];
     rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
     rj_out(['ok' => true, 'msg' => 'Settings saved. Delivery (email/Telegram/...) is configured in Settings -> Notification Settings.']);
 

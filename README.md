@@ -27,7 +27,12 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 - Self-diagnostics: `doctor` checks rclone wrapper/config, storage policy, crontab sync,
   cron daemon, binaries, notify script — one pasteable block.
 - Locks: per-job `flock` (overlapping runs are skipped + alerted); watchdog detects
-  stuck runs and >26 h without success.
+  stuck runs and >26 h without success — it runs automatically every 15 min from the
+  managed cron block (also compacts history and prunes logs; `watchdog` by hand works too).
+- Retention (tiered, survives minutes-schedules): run history keeps raw lines for
+  24 h, hourly buckets for 7 days, daily buckets for 90 days; OK/dry-run logs age
+  out after 3 days (max 300/job), failed logs stay 14 days — all tunable in
+  `paths.env` or the Safety tab.
 
 ## Safety model (hard guarantees)
 

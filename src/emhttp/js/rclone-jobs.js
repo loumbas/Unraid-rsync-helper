@@ -21,6 +21,11 @@ function rjData() {
   if (!d || typeof d !== 'object') d = {};
   if (!d.jobs || typeof d.jobs !== 'object') d.jobs = {};
   if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
+  if (!d.retention || typeof d.retention !== 'object') d.retention = {};
+  var rdefs = { rawHours: 24, rawMax: 500, hourDays: 7, days: 90, logDays: 3, failDays: 14, logMax: 300 };
+  Object.keys(rdefs).forEach(function (k) {
+    if (typeof d.retention[k] !== 'number' || d.retention[k] <= 0) d.retention[k] = rdefs[k];
+  });
   if (d.master === undefined) d.master = 'yes';
   return d;
 }
@@ -303,28 +308,114 @@ function rjHistBytes(b) {
 }
 
 function rjShowHistory(job) {
-  rjPost({ action: 'history', job: job, n: 20 }, function (res) {
+  /* tiered view: 24h summary + hourly sparkline (raw runs merged with hourly
+     buckets) + daily rollup table + raw per-run detail with a failures-only
+     filter. A job on a minutes-schedule stays readable this way. */
+  rjPost({ action: 'history', job: job, n: 600 }, function (res) {
     var $p = $('#rj-history').empty();
     if (!res.ok) { $p.append($('<pre style="color:#e6867e"></pre>').text('ERROR: ' + (res.error || '?'))).show(); return; }
-    var e = res.entries || [], max = 1;
-    e.forEach(function (x) { if (x.bytes && x.bytes > max) max = x.bytes; });
-    var $tb = $('<tbody></tbody>');
-    if (!e.length) $tb.append('<tr><td colspan="6" style="text-align:center;padding:10px">No live runs recorded yet - history counts real runs, not dry-runs.</td></tr>');
-    e.slice().reverse().forEach(function (x) { /* newest first */
-      var ok = (x.rc === 0 || x.rc === 24);
-      var res2 = x.rc === 0 ? 'OK' : (x.rc === 24 ? 'OK (24)' : (x.rc === 143 ? 'interrupted' : 'rc ' + x.rc));
-      var w = x.bytes ? Math.max(2, Math.round(100 * x.bytes / max)) : 0;
-      $tb.append('<tr><td style="white-space:nowrap">' + rjEsc(x.iso) + '</td>'
-        + '<td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + '">' + rjEsc(res2) + '</td>'
-        + '<td>' + (x.secs === null || x.secs === undefined ? '-' : x.secs + 's') + '</td>'
-        + '<td>' + (x.errors || 0) + '</td>'
-        + '<td>' + rjEsc(x.transferred || rjHistBytes(x.bytes)) + '</td>'
-        + '<td style="width:200px"><div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"></div></td></tr>');
+    var e = res.entries || [], roll = res.rollups || [];
+    var nowMs = Date.now(), HR = 3600000;
+    var $wrap = $('<div></div>');
+    if (!e.length && !roll.length) {
+      $wrap.append('<div class="gray" style="padding:6px 0">No live runs recorded yet - history counts real runs, not dry-runs.</div>');
+      $p.append($wrap).show();
+      $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+    /* last-24h summary (raw entries + hourly buckets inside the window) */
+    var s24r = 0, s24f = 0, s24b = 0;
+    e.forEach(function (x) {
+      if ((x.ts || 0) * 1000 >= nowMs - 24 * HR) { s24r++; if (!(x.rc === 0 || x.rc === 24)) s24f++; s24b += (x.bytes || 0); }
     });
-    $p.append(
-      $('<div class="gray" style="font-size:11px;margin:2px 0 4px">Last ' + e.length + ' live run(s) of "' + rjEsc(job) + '" (newest first; bars relative to the largest recorded run)</div>'),
-      $('<table class="view-table" style="width:auto;min-width:620px"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb)
-    ).show();
+    roll.forEach(function (b) {
+      if (b.rollup === 'h' && (b.ts || 0) * 1000 >= nowMs - 24 * HR) { s24r += (b.runs || 0); s24f += (b.fails || 0); s24b += (b.bytes || 0); }
+    });
+    $wrap.append($('<div class="gray" style="font-size:11px;margin:2px 0"></div>').text(
+      'Last 24h: ' + s24r + ' run(s), ' + s24f + ' failed, ' + (s24b > 0 ? rjHistBytes(s24b) : '0 B') +
+      ' moved - "' + job + '" (raw ' + e.length + ' run(s) + ' + roll.length + ' bucket(s))'));
+    /* hourly sparkline, last 48h: raw runs folded by hour + hourly buckets */
+    var hmap = {};
+    function hourAdd(ts, runs, fails, bytes, secs) {
+      var kk = Math.floor(ts / 3600);
+      if (!hmap[kk]) hmap[kk] = { runs: 0, fails: 0, bytes: 0, secs: 0 };
+      hmap[kk].runs += runs; hmap[kk].fails += fails; hmap[kk].bytes += (bytes || 0); hmap[kk].secs += (secs || 0);
+    }
+    e.forEach(function (x) { hourAdd(x.ts || 0, 1, (x.rc === 0 || x.rc === 24) ? 0 : 1, x.bytes, x.secs); });
+    roll.forEach(function (b) { if (b.rollup === 'h') hourAdd(b.ts || 0, b.runs || 0, b.fails || 0, b.bytes, b.secs_sum); });
+    var keys = Object.keys(hmap).map(Number)
+      .filter(function (kk) { return kk * 3600 * 1000 >= nowMs - 48 * HR; })
+      .sort(function (a, b) { return a - b; });
+    if (keys.length > 1) {
+      var hmax = 1;
+      keys.forEach(function (kk) { var v = hmap[kk].bytes > 0 ? hmap[kk].bytes : hmap[kk].secs; if (v > hmax) hmax = v; });
+      var $sp = $('<div style="display:flex;align-items:flex-end;height:44px;margin:4px 0 2px"></div>');
+      keys.forEach(function (kk) {
+        var h = hmap[kk], v = h.bytes > 0 ? h.bytes : h.secs;
+        var d = new Date(kk * 3600 * 1000);
+        $sp.append($('<div style="width:10px;margin-right:2px;flex:0 0 auto;border-radius:2px"></div>')
+          .attr('title', ('0' + d.getHours()).slice(-2) + ':00 - ' + h.runs + ' run(s)' +
+            (h.fails ? ', ' + h.fails + ' FAILED' : '') + ', ' +
+            (h.bytes > 0 ? rjHistBytes(h.bytes) : '0 B') + (h.secs ? ', ' + h.secs + 's busy' : ''))
+          .css('height', Math.max(3, Math.round(40 * v / hmax)) + 'px')
+          .css('background', h.fails > 0 ? '#e6867e' : '#2e97c2'));
+      });
+      $wrap.append($('<div class="gray" style="font-size:11px;margin-top:6px">Hourly trend, last 48h (bar = transferred, fallback busy seconds; red = hour with failures)</div>').append($sp));
+    }
+    /* daily rollup buckets, last 14 days */
+    var days = roll.filter(function (b) { return b.rollup === 'd'; }).slice(-14).reverse();
+    if (days.length) {
+      var dmax = 1;
+      days.forEach(function (b) { if (b.bytes && b.bytes > dmax) dmax = b.bytes; });
+      var $dtb = $('<tbody></tbody>');
+      days.forEach(function (b) {
+        var avg = b.runs ? Math.round((b.secs_sum || 0) / b.runs) : 0;
+        var w = b.bytes ? Math.max(2, Math.round(100 * b.bytes / dmax)) : 0;
+        var day = b.iso ? String(b.iso).slice(0, 10) : new Date((b.ts || 0) * 1000).toISOString().slice(0, 10);
+        $dtb.append('<tr><td style="white-space:nowrap">' + rjEsc(day) + '</td>'
+          + '<td>' + (b.runs || 0) + '</td>'
+          + '<td style="color:' + (b.fails > 0 ? '#e6867e' : '#7dcf7d') + '">' + (b.fails || 0) + '</td>'
+          + '<td>' + avg + 's</td><td>' + (b.secs_max || 0) + 's</td><td>' + (b.errors || 0) + '</td>'
+          + '<td>' + rjHistBytes(b.bytes) + '</td>'
+          + '<td style="width:160px"><div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"></div></td></tr>');
+      });
+      $wrap.append($('<div class="gray" style="font-size:11px;margin-top:8px">Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)</div>'),
+        $('<table class="view-table" style="width:auto;min-width:620px"><thead><tr><th>Day</th><th>Runs</th><th>Failed</th><th>Avg run</th><th>Max run</th><th>Errors</th><th>Transferred</th><th>Trend</th></tr></thead></table>').append($dtb));
+    }
+    /* raw per-run detail (newest first) with a failures-only filter */
+    var $tb = $('<tbody></tbody>');
+    var failsOnly = false;
+    function renderRaw() {
+      $tb.empty();
+      var list = [], i;
+      for (i = e.length - 1; i >= 0; i--) {
+        if (failsOnly && (e[i].rc === 0 || e[i].rc === 24)) continue;
+        list.push(e[i]);
+      }
+      var shown = list.slice(0, 100), rmax = 1;
+      shown.forEach(function (x) { if (x.bytes && x.bytes > rmax) rmax = x.bytes; });
+      if (!list.length) $tb.append('<tr><td colspan="6" style="text-align:center;padding:10px">' +
+        (failsOnly ? 'No failed runs in the loaded window.' : 'No live runs recorded yet - history counts real runs, not dry-runs.') + '</td></tr>');
+      shown.forEach(function (x) {
+        var ok = (x.rc === 0 || x.rc === 24);
+        var res2 = x.rc === 0 ? 'OK' : (x.rc === 24 ? 'OK (24)' : (x.rc === 143 ? 'interrupted' : 'rc ' + x.rc));
+        var w = x.bytes ? Math.max(2, Math.round(100 * x.bytes / rmax)) : 0;
+        $tb.append('<tr><td style="white-space:nowrap">' + rjEsc(x.iso) + '</td>'
+          + '<td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + '">' + rjEsc(res2) + '</td>'
+          + '<td>' + (x.secs === null || x.secs === undefined ? '-' : x.secs + 's') + '</td>'
+          + '<td>' + (x.errors || 0) + '</td>'
+          + '<td>' + rjEsc(x.transferred || rjHistBytes(x.bytes)) + '</td>'
+          + '<td style="width:200px"><div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"></div></td></tr>');
+      });
+      if (list.length > shown.length) $tb.append('<tr><td colspan="6" class="gray" style="text-align:center;padding:6px">+ ' +
+        (list.length - shown.length) + ' older run(s) not shown - see the rollups above</td></tr>');
+    }
+    renderRaw();
+    var $ff = $('<label style="font-size:11px;cursor:pointer;margin-left:10px"><input type="checkbox"> failures only</label>');
+    $ff.find('input').on('change', function () { failsOnly = this.checked; renderRaw(); });
+    $wrap.append($('<div class="gray" style="font-size:11px;margin-top:8px">Raw per-run detail (newest first)').append($ff),
+      $('<table class="view-table" style="width:auto;min-width:620px"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb));
+    $p.append($wrap).show();
     $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 }
@@ -405,6 +496,13 @@ $(function () {
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
   $('#a_qstart').val(D.quiet.start);
   $('#a_qend').val(D.quiet.end);
+  $('#a_rawhours').val(D.retention.rawHours);
+  $('#a_rawmax').val(D.retention.rawMax);
+  $('#a_hourdays').val(D.retention.hourDays);
+  $('#a_hdays').val(D.retention.days);
+  $('#a_logdays').val(D.retention.logDays);
+  $('#a_faildays').val(D.retention.failDays);
+  $('#a_logmax').val(D.retention.logMax);
 
   /* engine-dependent form rows */
   function engRows() {
@@ -678,9 +776,13 @@ $(function () {
     var $b = $(this);
     if ($b.prop('disabled')) return;
     $b.prop('disabled', true).val('Saving...');
+    function numv(id, def) { var v = parseInt($('#' + id).val(), 10); return isNaN(v) ? def : v; }
     rjPost({
       action: 'save_alerts',
-      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val()
+      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val(),
+      raw_hours: numv('a_rawhours', 24), raw_max: numv('a_rawmax', 500),
+      hour_days: numv('a_hourdays', 7), hist_days: numv('a_hdays', 90),
+      log_days: numv('a_logdays', 3), fail_days: numv('a_faildays', 14), log_max: numv('a_logmax', 300)
     }, function (res) {
       $b.prop('disabled', false).val('Save settings');
       rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);

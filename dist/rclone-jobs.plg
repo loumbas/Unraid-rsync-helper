@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.08d">
+<!ENTITY version   "2026.09.08e">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,31 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.08e
+Tiered retention for high-frequency jobs (history rollups + bounded logs + scheduled watchdog):
+ - History is now tiered instead of one raw line per run forever: raw lines for
+   HISTORY_RAW_HOURS (max HISTORY_RAW_MAX), then one hourly bucket for
+   HISTORY_HOUR_DAYS, then one daily bucket for HISTORY_DAYS (runs/fails/errors/
+   secs min-max-sum/bytes per bucket in history/&lt;job&gt;.rollup.jsonl; the raw file
+   format is unchanged). A job on a 3-minute schedule now keeps a full 90-day
+   trend in a few hundred lines instead of tens of thousands.
+ - Compaction runs automatically: piggybacked on hist_add (bounded append, same
+   lock) and every 15 minutes via a NEW maintenance line in the managed cron
+   block - the watchdog (stale/stuck alerts + pruning) was previously never
+   scheduled by the plugin at all.
+ - Job logs: OK/dry-run logs age out after LOG_KEEP_DAYS (3) with a per-job
+   count cap LOG_KEEP_MAX (300, newest win); failed/interrupted logs carry a
+   keep-marker (logs/keep/) and stay LOG_KEEP_FAIL_DAYS (14). tail_log explains
+   the new window when a log is gone.
+ - paths.env gains the seven retention keys (defaults as above, engine clamps);
+   editable on the Safety tab (same Save settings button).
+ - WebUI: the HIST panel shows a last-24h summary line, a 48h hourly sparkline
+   (raw + hourly buckets merged), a 14-day rollup table and a raw detail table
+   with a failures-only filter; history loads up to 600 raw runs (ajax/engine
+   cap raised from 200).
+ - Doctor: INFO line with history line count, log file count and active
+   retention settings; regen --check already flags a missing maintenance line.
+
 ## 2026.09.08d
 Form alignment regression fix (Jobs tab):
 - WebUI: Source/Destination/Script/Backup-dir inputs were completely detached from
@@ -136,17 +161,6 @@ Doctor verifies the deployed files against a shipped checksum manifest:
   children are left to the shutdown's own kill pass (no force-killing from the engine).
 - The tty branch keeps the real engine exit code via a pipefail-wrapped subshell
   (a bare backgrounded pipeline would report tee's status instead).
-
-## 2026.09.07h
-Tail-log viewer in the WebUI:
-- Engine: the absolute log path is now recorded into the status file at run START (so a
-  live run's log is viewable too) and kept by status_finish; new 'tail-log &lt;job&gt;'
-  subcommand returns the redacted tail (64 KiB, NUL-stripped) of that log as JSON with a
-  byte-count banner. The path comes only from the validated status file and must sit
-  inside LOG_DIR - a request can never name a path (no traversal).
-- WebUI: a 'Log' button per job row shows the redacted tail in the result panel; ajax
-  'tail_log' is a thin POST+CSRF passthrough like every other action.
-- Old status files (from before the log key) get a clear 'run it once' message.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -185,7 +199,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.08d - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.08e - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -207,7 +221,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.08d"
+ENGINE_VERSION="2026.09.08e"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -233,6 +247,15 @@ LOG_DIR=""
 STATUS_DIR=""
 BACKUP_DIR=""
 PHP_BIN=""
+
+# history + log retention (paths.env overrides, clamped in load_paths)
+HIST_RAW_HOURS="24"
+HIST_RAW_MAX="500"
+HIST_HOUR_DAYS="7"
+HIST_DAYS="90"
+LOG_KEEP_DAYS="3"
+LOG_KEEP_FAIL_DAYS="14"
+LOG_KEEP_MAX="300"
 
 # ------------------------------------------------------------------- basics --
 say()         { printf '%s\n' "$*"; }
@@ -286,6 +309,15 @@ valid_schedule() { # 5 cron fields, numerics plus * , - / only (cron-injection d
   [[ "$1" =~ $re ]]
 }
 
+num_clamp() { # &lt;value&gt; &lt;min&gt; &lt;max&gt; &lt;default&gt; -&gt; validated int on stdout (paths.env values are never trusted)
+  local v="${1:-}"
+  [[ "$v" =~ ^[0-9]{1,5}$ ]] || { printf '%s' "$4"; return 0; }
+  v="$((10#$v))"
+  [ "$v" -lt "$2" ] &amp;&amp; v="$2"
+  [ "$v" -gt "$3" ] &amp;&amp; v="$3"
+  printf '%s' "$v"
+}
+
 # ----------------------------------------------------------- configuration --
 detect_storage() { # first /mnt/diskN backed by /dev/md* (array; parity is never mounted)
   local d src
@@ -315,6 +347,13 @@ load_paths() {
         DRY_RUN_MASTER) DRY_RUN_MASTER="$val" ;;
         QUIET_START)    QUIET_START="$val" ;;
         QUIET_END)      QUIET_END="$val" ;;
+        HISTORY_RAW_HOURS)  HIST_RAW_HOURS="$val" ;;
+        HISTORY_RAW_MAX)    HIST_RAW_MAX="$val" ;;
+        HISTORY_HOUR_DAYS)  HIST_HOUR_DAYS="$val" ;;
+        HISTORY_DAYS)       HIST_DAYS="$val" ;;
+        LOG_KEEP_DAYS)      LOG_KEEP_DAYS="$val" ;;
+        LOG_KEEP_FAIL_DAYS) LOG_KEEP_FAIL_DAYS="$val" ;;
+        LOG_KEEP_MAX)       LOG_KEEP_MAX="$val" ;;
       esac
     done &lt; "$BOOT_DIR/paths.env"
   fi
@@ -322,6 +361,16 @@ load_paths() {
   [ -n "${RJ_STORAGE_ROOT:-}" ]   &amp;&amp; STORAGE_ROOT="$RJ_STORAGE_ROOT"
   [ -n "${RJ_DRY_RUN_MASTER:-}" ] &amp;&amp; DRY_RUN_MASTER="$RJ_DRY_RUN_MASTER"
   [ -n "$STORAGE_ROOT" ] || STORAGE_ROOT="$(detect_storage || true)"
+  # retention knobs: clamp hard, compaction math must never see garbage
+  HIST_RAW_HOURS="$(num_clamp "$HIST_RAW_HOURS" 1 168 24)"
+  HIST_RAW_MAX="$(num_clamp "$HIST_RAW_MAX" 20 5000 500)"
+  HIST_HOUR_DAYS="$(num_clamp "$HIST_HOUR_DAYS" 1 60 7)"
+  HIST_DAYS="$(num_clamp "$HIST_DAYS" 7 365 90)"
+  [ "$HIST_DAYS" -lt "$HIST_HOUR_DAYS" ] &amp;&amp; HIST_DAYS="$HIST_HOUR_DAYS"
+  LOG_KEEP_DAYS="$(num_clamp "$LOG_KEEP_DAYS" 1 90 3)"
+  LOG_KEEP_FAIL_DAYS="$(num_clamp "$LOG_KEEP_FAIL_DAYS" 1 90 14)"
+  [ "$LOG_KEEP_FAIL_DAYS" -lt "$LOG_KEEP_DAYS" ] &amp;&amp; LOG_KEEP_FAIL_DAYS="$LOG_KEEP_DAYS"
+  LOG_KEEP_MAX="$(num_clamp "$LOG_KEEP_MAX" 20 20000 300)"
 }
 
 storage_guard() { # validate STORAGE_ROOT, create plugin dirs, set *_DIR globals
@@ -853,7 +902,7 @@ cmd_run() { # &lt;job&gt; [--dry-run]
   # signal-aware exec: 'wait' returns immediately (&gt;128) when TERM/INT arrive,
   # so the trap can mark the status before the box goes down. rclone children
   # are left to the shutdown's own kill pass (no force-killing from here).
-  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2&gt;/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" &gt;&gt; "$logfile" 2&gt;/dev/null; trap - TERM INT; exit 143' TERM INT
+  trap 'status_finish "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" false "$chash" "$logfile" 2&gt;/dev/null; sse_publish "$JOB_NAME" false 143; hist_add "$JOB_NAME" 143 "$(( $(unix_now) - t0 ))" 0 "" "$logfile"; mkdir -p "$LOG_DIR/keep" 2&gt;/dev/null; touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2&gt;/dev/null; printf "rclone-jobs: %s interrupted by signal at %s (status marked rc=143)\n" "$JOB_NAME" "$(stamp_now)" &gt;&gt; "$logfile" 2&gt;/dev/null; trap - TERM INT; exit 143' TERM INT
   local jpid
   if [ -t 1 ]; then
     # wrapped in a subshell: $! then waits for the WHOLE pipeline, and the
@@ -889,6 +938,12 @@ cmd_run() { # &lt;job&gt; [--dry-run]
     status_finish "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" false "$chash" "$logfile"
     sse_publish "$JOB_NAME" false "$rc"
     hist_add "$JOB_NAME" "$rc" "$secs" "$ERR_COUNT" "$TR" "$logfile"
+    if [ "$rc" -ne 0 ] &amp;&amp; [ "$rc" -ne 24 ]; then
+      # failed log: marked so the watchdog keeps it LOG_KEEP_FAIL_DAYS (OK logs
+      # of a busy job age out much faster and flood the count cap)
+      mkdir -p "$LOG_DIR/keep" 2&gt;/dev/null || true
+      touch "$LOG_DIR/keep/$(basename "$logfile").keep" 2&gt;/dev/null || true
+    fi
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 24 ]; then
       # recovered: clear stale problem notices from the bell + fresh watchdog dedup
       notify_dismiss "rclone-jobs: $JOB_NAME FAILED"
@@ -1043,7 +1098,7 @@ cmd_tail_log() { # &lt;job&gt; -&gt; JSON {ok,log,size,text}: redacted tail of t
     "$LOG_DIR"/*.log) : ;;
     *) printf '{"ok":false,"error":"no log path recorded for %s (run it once, or status predates v%s)"}\n' "$JOB_NAME" "$ENGINE_VERSION"; return 0 ;;
   esac
-  [ -f "$log" ] || { printf '{"ok":false,"error":"log file is gone (pruned after 14 days?)"}\n'; return 0; }
+  [ -f "$log" ] || { printf '{"ok":false,"error":"log file is gone (OK logs are kept %s day(s), failed logs %s - retention: paths.env)"}\n' "$LOG_KEEP_DAYS" "$LOG_KEEP_FAIL_DAYS"; return 0; }
   sz="$(stat -c %s "$log" 2&gt;/dev/null || echo 0)"
   if [ "${sz:-0}" -gt 65536 ]; then head="[last 64 KiB of ${sz} bytes - truncated]
 "; fi
@@ -1191,39 +1246,139 @@ hist_bytes() { # &lt;human size like '1.2 GiB'&gt; -&gt; integer bytes on stdout
 }
 
 hist_add() { # &lt;job&gt; &lt;rc&gt; &lt;secs&gt; &lt;errors&gt; &lt;transferred&gt; &lt;logfile&gt; - best effort, never fatal
-  local hb=""
+  local hb="" line dir
   command -v jq &gt;/dev/null 2&gt;&amp;1 || return 0
   hb="$(hist_bytes "${5:-}" 2&gt;/dev/null)" || hb=""
-  local dir="$STORAGE_ROOT/history"
+  dir="$STORAGE_ROOT/history"
   mkdir -p "$dir" 2&gt;/dev/null || return 0
-  jq -nc --argjson ts "$(unix_now)" --arg iso "$(stamp_now)" --argjson rc "${2:-0}" \
+  line="$(jq -nc --argjson ts "$(unix_now)" --arg iso "$(stamp_now)" --argjson rc "${2:-0}" \
          --argjson secs "${3:-0}" --argjson errors "${4:-0}" --arg transferred "${5:-}" \
          --arg bytes "$hb" --arg log "${6:-}" \
     '{ts:$ts, iso:$iso, rc:$rc, secs:$secs, errors:$errors, transferred:$transferred,
-      bytes:(if $bytes=="" then null else ($bytes|tonumber) end), log:$log}' &gt;&gt; "$dir/$JOB_NAME.jsonl" 2&gt;/dev/null || true
+      bytes:(if $bytes=="" then null else ($bytes|tonumber) end), log:$log}' 2&gt;/dev/null)" || return 0
+  [ -n "$line" ] || return 0
+  # append + piggyback compaction under one lock: a high-frequency job keeps its
+  # raw file bounded even if the watchdog never runs, and a concurrent watchdog
+  # compaction never interleaves with this append
+  (
+    exec 210&gt;&gt;"$dir/.$JOB_NAME.clock" 2&gt;/dev/null || exit 0
+    flock -w 10 210 || exit 0
+    printf '%s\n' "$line" &gt;&gt; "$dir/$JOB_NAME.jsonl" 2&gt;/dev/null || exit 0
+    if [ "$(wc -l &lt; "$dir/$JOB_NAME.jsonl" 2&gt;/dev/null || echo 0)" -gt "$(( HIST_RAW_MAX + 100 ))" ]; then
+      hist_compact "$JOB_NAME" locked
+    fi
+  ) 2&gt;/dev/null || true
   return 0
 }
 
-cmd_history() { # &lt;job&gt; [n] -&gt; {ok, job, entries:[...last n...]} (broken lines dropped)
+hist_compact() { # &lt;job&gt; [locked] - fold raw runs into hourly/daily rollup buckets.
+  # Tiered retention: raw lines live HIST_RAW_HOURS (max HIST_RAW_MAX), then one
+  # hourly bucket per hour for HIST_HOUR_DAYS, then one daily bucket per day for
+  # HIST_DAYS - so a 3-min job still fits ~600 lines instead of 43k. Rollups go
+  # to &lt;job&gt;.rollup.jsonl ({rollup:"h"|"d",ts,iso,runs,fails,errors,secs_*,bytes});
+  # the raw file keeps its exact old format. Best effort, never fatal.
+  local job="${1:-}" hdir raw roll foldt rawt rollt now craw chr cdd tzoff
+  valid_jobname "$job" || return 0
+  command -v jq &gt;/dev/null 2&gt;&amp;1 || return 0
+  hdir="$STORAGE_ROOT/history"
+  raw="$hdir/$job.jsonl"
+  roll="$hdir/$job.rollup.jsonl"
+  mkdir -p "$hdir" 2&gt;/dev/null || return 0
+  if [ "${2:-}" != "locked" ]; then
+    exec 210&gt;&gt;"$hdir/.$job.clock" 2&gt;/dev/null || return 0
+    flock -n 210 || return 0
+  fi
+  [ -f "$raw" ] || return 0
+  now="$(unix_now)"
+  craw=$(( now - HIST_RAW_HOURS * 3600 ))
+  chr=$(( now - HIST_HOUR_DAYS * 86400 ))
+  cdd=$(( now - HIST_DAYS * 86400 ))
+  tzoff=$(( $(date +%s) - $(date -u +%s) ))   # strftime is UTC; keep bucket iso local like raw
+  foldt="$hdir/.$job.fold.$$"; rawt="$hdir/.$job.raw.$$"; rollt="$hdir/.$job.roll.$$"
+  # effective raw cutoff: the raw-window time, pushed up when more than
+  # HIST_RAW_MAX lines still fit in it (ts-based so it works whatever order
+  # the file's lines happen to be in; fold keeps ts &lt; fcut, kept keeps &gt;=)
+  local fcut
+  fcut="$(jq -c -R -n --argjson cut "$craw" --argjson keep "$HIST_RAW_MAX" '
+      [ inputs | fromjson? | select(type == "object" and ((.ts | type) == "number")) | .ts ]
+      | sort | (if length &gt; $keep then [$cut, .[length - $keep]] | max else $cut end)' \
+      "$raw" 2&gt;/dev/null)" || fcut=""
+  case "${fcut:-}" in ''|*[!0-9]*) fcut="$craw" ;; esac
+  # units folded OUT of raw: older than the effective cutoff
+  if ! jq -c -R -n --argjson cut "$fcut" '
+      [ inputs | fromjson? | select(type == "object" and ((.ts | type) == "number")) ] as $e
+      | $e[] | select(.ts &lt; $cut)
+      | { ts, runs: 1, fails: (if .rc == 0 or .rc == 24 then 0 else 1 end),
+          errors: (.errors // 0), secs_sum: (.secs // 0), secs_min: (.secs // 0),
+          secs_max: (.secs // 0), bytes: (if ((.bytes | type) == "number") then .bytes else null end) }' \
+      "$raw" &gt; "$foldt" 2&gt;/dev/null; then
+    rm -f "$foldt" "$rawt" "$rollt"; return 0
+  fi
+  # kept raw window (also self-heals corrupt lines out of the file)
+  if ! jq -c -R --argjson cut "$fcut" \
+      'fromjson? | select(type == "object") | select((.ts | type) == "number" and .ts &gt;= $cut)' \
+      "$raw" 2&gt;/dev/null | tail -n "$HIST_RAW_MAX" &gt; "$rawt"; then
+    rm -f "$foldt" "$rawt" "$rollt"; return 0
+  fi
+  [ -f "$roll" ] || touch "$roll" 2&gt;/dev/null || { rm -f "$foldt" "$rawt" "$rollt"; return 0; }
+  # merge folded units with existing buckets: hourly keeps &gt;= chr, everything
+  # older (folded raw + old hourly + old daily) re-buckets to daily keeps &gt;= cdd
+  if ! jq -c -n --argjson ch "$chr" --argjson cd "$cdd" --argjson off "$tzoff" '
+      def agg($k; $kind): group_by(.ts - .ts % $k)
+        | map({ rollup: $kind, ts: (.[0].ts - .[0].ts % $k),
+                iso: (((.[0].ts - .[0].ts % $k) + $off) | strftime("%Y-%m-%d %H:%M")),
+                runs: (map(.runs) | add), fails: (map(.fails) | add),
+                errors: (map(.errors) | add), secs_sum: (map(.secs_sum) | add),
+                secs_min: (map(.secs_min) | min), secs_max: (map(.secs_max) | max),
+                bytes: ([ .[].bytes | select(. != null) ] | if length &gt; 0 then add else null end) })
+        | sort_by(.ts);
+      [ inputs | select(type == "object" and ((.ts | type) == "number")) ] as $u
+      | ( [ $u[] | select((.rollup == null or .rollup == "h") and .ts &gt;= $ch) ]
+          # keep buckets OVERLAPPING the window (a run inside the window must
+          # never be dropped just because its bucket starts slightly before ch;
+          # once ch advances past the whole bucket it gets promoted to daily)
+          | agg(3600; "h") | map(select(.ts + 3600 &gt; $ch)) ) as $H
+      | ( [ ($u[] | select((.rollup == null or .rollup == "h") and .ts &lt; $ch)),
+            ($u[] | select(.rollup == "d")) ]
+          | agg(86400; "d") | map(select(.ts + 86400 &gt; $cd)) ) as $D
+      | ($H + $D)[]' "$foldt" "$roll" &gt; "$rollt" 2&gt;/dev/null; then
+    rm -f "$foldt" "$rawt" "$rollt"; return 0
+  fi
+  cmp -s "$rawt" "$raw" || mv -f "$rawt" "$raw" 2&gt;/dev/null || true
+  cmp -s "$rollt" "$roll" 2&gt;/dev/null || mv -f "$rollt" "$roll" 2&gt;/dev/null || true
+  rm -f "$foldt" "$rawt" "$rollt"
+  return 0
+}
+
+cmd_history() { # &lt;job&gt; [n] -&gt; {ok, job, entries:[...last n raw...], rollups:[h/d buckets]}
   JOB_NAME="${1:-}"
   valid_jobname "$JOB_NAME" || { printf '{"ok":false,"error":"invalid job name"}\n'; return 0; }
-  local n="${2:-20}" hf
-  [[ "$n" =~ ^[0-9]{1,3}$ ]] || n=20
-  [ "$n" -gt 200 ] &amp;&amp; n=200
+  local n="${2:-20}" hf rf
+  [[ "$n" =~ ^[0-9]{1,4}$ ]] || n=20
+  [ "$n" -gt 600 ] &amp;&amp; n=600
   load_paths
   storage_guard
   hf="$STORAGE_ROOT/history/$JOB_NAME.jsonl"
-  if [ ! -f "$hf" ]; then
-    printf '{"ok":true,"job":"%s","entries":[]}\n' "$JOB_NAME"; return 0
+  rf="$STORAGE_ROOT/history/$JOB_NAME.rollup.jsonl"
+  if [ ! -f "$hf" ] &amp;&amp; [ ! -f "$rf" ]; then
+    printf '{"ok":true,"job":"%s","entries":[],"rollups":[]}\n' "$JOB_NAME"; return 0
   fi
   # -R + fromjson? skips corrupt lines one by one (a half-written line from a
   # hard kill must not make the whole history unreadable)
-  if jq -c -R 'fromjson? | select(type=="object")' "$hf" 2&gt;/dev/null | tail -n "$n" | jq -sc '.' &gt; "$hf.ui.$$" 2&gt;/dev/null; then
-    jq -c --arg j "$JOB_NAME" '{ok:true, job:$j, entries:(. // [])}' &lt; "$hf.ui.$$"
+  if [ ! -f "$hf" ]; then printf '[]' &gt; "$hf.ui.$$"; fi
+  if [ ! -f "$hf" ] || jq -c -R 'fromjson? | select(type=="object")' "$hf" 2&gt;/dev/null | tail -n "$n" | jq -sc '.' &gt; "$hf.ui.$$" 2&gt;/dev/null; then
+    if [ -f "$rf" ]; then
+      jq -c -R 'fromjson? | select(type=="object")' "$rf" 2&gt;/dev/null | jq -sc '.' &gt; "$hf.ur.$$" 2&gt;/dev/null \
+        || printf '[]' &gt; "$hf.ur.$$"
+    else
+      printf '[]' &gt; "$hf.ur.$$"
+    fi
+    jq -c --arg j "$JOB_NAME" --slurpfile ro "$hf.ur.$$" \
+      '{ok:true, job:$j, entries:(. // []), rollups:($ro[0] // [])}' &lt; "$hf.ui.$$"
   else
     printf '{"ok":false,"error":"history file unreadable"}\n'
   fi
-  rm -f "$hf.ui.$$"
+  rm -f "$hf.ui.$$" "$hf.ur.$$"
 }
 
 cmd_list() {
@@ -1343,22 +1498,51 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
       rm -f "$ttf" "${ttf%.rc}.out" "${ttf%.rc}.pid"
     fi
   done
-  # history trim: 90-day cutoff + 400-line cap; a corrupt file still gets cut to
-  # its newest 400 lines (self-heal) instead of growing forever
-  local hdir="$STORAGE_ROOT/history" hf htmp
+  # history: fold raw runs into hourly/daily rollups (same compaction the runs
+  # piggyback, so a job that stopped running still gets its file tiered)
+  local hdir="$STORAGE_ROOT/history" hf hn
   if [ -d "$hdir" ]; then
     for hf in "$hdir"/*.jsonl; do
       [ -e "$hf" ] || continue
-      htmp="$hf.trim.$$"
-      if jq -c --argjson cut "$(( now - 7776000 ))" 'select((.ts // 0) &gt;= $cut)' "$hf" &gt; "$htmp" 2&gt;/dev/null; then
-        tail -n 400 "$htmp" &gt; "$htmp.2" 2&gt;/dev/null &amp;&amp; mv -f "$htmp.2" "$hf" || rm -f "$htmp.2"
-      else
-        tail -n 400 "$hf" &gt; "$htmp.2" 2&gt;/dev/null &amp;&amp; mv -f "$htmp.2" "$hf" || rm -f "$htmp.2"
-      fi
-      rm -f "$htmp"
+      hn="$(basename "$hf" .jsonl)"
+      case "$hn" in *.rollup) continue ;; esac
+      valid_jobname "$hn" || continue
+      hist_compact "$hn"
     done
   fi
-  find "$LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name 'doctor-*.txt' \) -mtime +14 -delete 2&gt;/dev/null
+  # logs: OK/dry-run logs age out after LOG_KEEP_DAYS; failed/interrupted ones
+  # carry a keep-marker (written at run end) and stay LOG_KEEP_FAIL_DAYS. The
+  # marker expires with the failure window, then the age sweep reclaims the log.
+  local kdir="$LOG_DIR/keep" lf jf jname jcnt
+  if [ -d "$LOG_DIR" ]; then
+    mkdir -p "$kdir" 2&gt;/dev/null || true
+    find "$kdir" -maxdepth 1 -type f -mtime +"$LOG_KEEP_FAIL_DAYS" -delete 2&gt;/dev/null
+    for lf in "$LOG_DIR"/*.log; do
+      [ -e "$lf" ] || continue
+      [ -f "$kdir/$(basename "$lf").keep" ] &amp;&amp; continue
+      if [ $(( now - $(stat -c %Y "$lf" 2&gt;/dev/null || echo "$now") )) -gt $(( LOG_KEEP_DAYS * 86400 )) ]; then
+        rm -f "$lf" "$kdir/$(basename "$lf").keep"
+      fi
+    done
+    # count cap (per job): newest LOG_KEEP_MAX live+DRYRUN logs survive regardless
+    # of age; marked (failed) logs are never deleted by the cap. Globs require the
+    # 8-digit date / DRYRUN tag so a job never touches another job's logs.
+    for f in "$BOOT_DIR/jobs"/*.conf; do
+      [ -e "$f" ] || continue
+      jname="$(basename "$f" .conf)"
+      valid_jobname "$jname" || continue
+      jcnt=0
+      while IFS= read -r jf; do
+        [ -n "$jf" ] &amp;&amp; [ -e "$jf" ] || continue
+        jcnt=$(( jcnt + 1 ))
+        if [ "$jcnt" -gt "$LOG_KEEP_MAX" ] &amp;&amp; [ ! -f "$kdir/$(basename "$jf").keep" ]; then
+          rm -f "$jf" "$kdir/$(basename "$jf").keep"
+        fi
+      done &lt; &lt;(ls -1t -- "$LOG_DIR/$jname-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*.log \
+                          "$LOG_DIR/$jname-DRYRUN-"*.log 2&gt;/dev/null)
+    done
+  fi
+  find "$LOG_DIR" -maxdepth 1 -type f -name 'doctor-*.txt' -mtime +14 -delete 2&gt;/dev/null
   return 0
 }
 
@@ -1476,6 +1660,7 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
       else d_line FAIL "STORAGE_ROOT not writable: $STORAGE_ROOT"; fi
       d_line INFO "free space: $(df -h "$STORAGE_ROOT" 2&gt;/dev/null | awk 'NR==2{printf "%s free (%s used) on %s", $4, $5, $1}')"
       d_line INFO "fstype: $(findmnt -no FSTYPE -T "$STORAGE_ROOT" 2&gt;/dev/null)"
+      d_line INFO "retention: $(find "$STORAGE_ROOT/history" -maxdepth 1 -name '*.jsonl' -exec cat {} + 2&gt;/dev/null | wc -l) history line(s), $(find "$STORAGE_ROOT/logs" -maxdepth 1 -type f -name '*.log' 2&gt;/dev/null | wc -l) log file(s) (raw ${HIST_RAW_HOURS}h/max ${HIST_RAW_MAX}, hourly ${HIST_HOUR_DAYS}d, daily ${HIST_DAYS}d; logs ${LOG_KEEP_DAYS}d &amp; max ${LOG_KEEP_MAX}/job, failures ${LOG_KEEP_FAIL_DAYS}d)"
     else d_line WARN "STORAGE_ROOT does not exist yet (array stopped, or first run pending): $STORAGE_ROOT"; fi
     if [ -f "$STORAGE_ROOT/notify.env" ]; then
       d_line INFO "legacy notify.env still present (no longer read) - optional cleanup: rm '$STORAGE_ROOT/notify.env'"
@@ -1695,7 +1880,8 @@ usage:
   rclone-jobs.sh status                  one line per job (run + dry-run outcomes)
   rclone-jobs.sh status-json             all jobs' live state as one JSON object
   rclone-jobs.sh tail-log &lt;job&gt;          redacted tail (64 KiB) of the job's last log as JSON
-  rclone-jobs.sh history &lt;job&gt; [n]       last n live runs as JSON (ts, rc, secs, bytes)
+  rclone-jobs.sh history &lt;job&gt; [n]       last n live runs + hourly/daily rollups as JSON
+  rclone-jobs.sh watchdog                stale/stuck alerts + history rollups + log pruning
   rclone-jobs.sh list                    list job names
   rclone-jobs.sh export-jobs             job set as tar.gz, base64 on stdout (JSON)
   rclone-jobs.sh import-jobs &lt;ask|overwrite|skip&gt; &lt;b64-file&gt;   validated import
@@ -1737,7 +1923,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>8059052dea36d68a3c844363878053b94849ee106cccdfae89a6ea3d405343b4</SHA256>
+<SHA256>bcba647444f9129a7c4398b2eca1ee863c020a6b48f10f60dd755f8f15f590b8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1914,7 +2100,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.08d - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.08e - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1951,6 +2137,22 @@ if ($storage === '') {
 $master   = $paths['DRY_RUN_MASTER'] ?? 'yes';
 $quietSt  = $paths['QUIET_START'] ?? '23:00';
 $quietEn  = $paths['QUIET_END'] ?? '07:00';
+function rj_ret($paths, $key, $def, $lo, $hi) {
+    /* same defaults AND same clamps as the engine's load_paths()/num_clamp():
+       a hand-edited paths.env value never reaches the fields as garbage */
+    $v = $paths[$key] ?? '';
+    if (!preg_match('/^\d{1,5}$/', $v)) return $def;
+    return max($lo, min($hi, intval($v)));
+}
+$retention = [
+    'rawHours'  =&gt; rj_ret($paths, 'HISTORY_RAW_HOURS', 24, 1, 168),
+    'rawMax'    =&gt; rj_ret($paths, 'HISTORY_RAW_MAX', 500, 20, 5000),
+    'hourDays'  =&gt; rj_ret($paths, 'HISTORY_HOUR_DAYS', 7, 1, 60),
+    'days'      =&gt; rj_ret($paths, 'HISTORY_DAYS', 90, 7, 365),
+    'logDays'   =&gt; rj_ret($paths, 'LOG_KEEP_DAYS', 3, 1, 90),
+    'failDays'  =&gt; rj_ret($paths, 'LOG_KEEP_FAIL_DAYS', 14, 1, 90),
+    'logMax'    =&gt; rj_ret($paths, 'LOG_KEEP_MAX', 300, 20, 20000),
+];
 
 $jobs = [];
 foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
@@ -1965,10 +2167,11 @@ $nEnabled = 0;
 foreach ($jobs as $jj) { if (($jj['conf']['ENABLED'] ?? 'yes') !== 'no') $nEnabled++; }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.08d',
+    'version'    =&gt; '2026.09.08e',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
+    'retention'  =&gt; $retention,
     'jobs'       =&gt; $jobs,
 ];
 ?&gt;
@@ -1982,7 +2185,7 @@ $rjdata = [
     '#tab_rj_jobs input.rj-size,#tab_rj_alerts input.rj-size{width:auto}',
     '#tab_rj_alerts #a_qstart,#tab_rj_alerts #a_qend{width:64px}',
     '#tab_rj_alerts #a_ntlevel{width:150px;max-width:100%}',
-    '#tab_rj_jobs input[type=number]{width:64px}',
+    '#tab_rj_jobs input[type=number],#tab_rj_alerts input[type=number]{width:64px}',
     '#tab_rj_jobs #f_sched_hour,#tab_rj_jobs #f_sched_min,#tab_rj_jobs #f_sched_hmin,#tab_rj_jobs #f_sched_dom{width:64px}',
     '#tab_rj_jobs #f_s_at{margin:0 2px 0 6px}',
     '#tab_rj_jobs .rj-wd label{margin-right:8px;white-space:nowrap}',
@@ -2035,7 +2238,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.08d"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.08e"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2202,6 +2405,22 @@ $rjdata = [
         &lt;dd class="rj-inline"&gt;&lt;input type="text" id="a_qstart" class="rj-size" size="6" placeholder="23:00"&gt;&lt;span style="margin:0 8px"&gt;to&lt;/span&gt;&lt;input type="text" id="a_qend" class="rj-size" size="6" placeholder="07:00"&gt;&lt;/dd&gt;&lt;/dl&gt;
       &lt;blockquote class='inline_help'&gt;&lt;p&gt;24-hour clock. Inside this window the OK notices of successful runs are suppressed; failures and warnings are always sent.&lt;/p&gt;&lt;/blockquote&gt;
     &lt;div class="title"&gt;
+      &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-hourglass title'&gt;&lt;/i&gt;Retention (history &amp;amp; logs)&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;p&gt;&lt;/p&gt;
+      &lt;dl&gt;&lt;dt&gt;Run history - raw per run:&lt;/dt&gt;
+        &lt;dd class="rj-inline"&gt;&lt;input type="number" id="a_rawhours" min="1" max="168"&gt; hours (max &lt;input type="number" id="a_rawmax" min="20" max="5000"&gt; lines)&lt;/dd&gt;&lt;/dl&gt;
+      &lt;dl&gt;&lt;dt&gt;History - hourly buckets:&lt;/dt&gt;
+        &lt;dd class="rj-inline"&gt;keep &lt;input type="number" id="a_hourdays" min="1" max="60"&gt; days&lt;/dd&gt;&lt;/dl&gt;
+      &lt;dl&gt;&lt;dt&gt;History - daily buckets:&lt;/dt&gt;
+        &lt;dd class="rj-inline"&gt;keep &lt;input type="number" id="a_hdays" min="7" max="365"&gt; days&lt;/dd&gt;&lt;/dl&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Tiered history: every live run is stored as a raw line for the window above, then folded into one &lt;em&gt;hourly&lt;/em&gt; bucket (runs, failures, errors, duration min/max/sum, bytes) and later into one &lt;em&gt;daily&lt;/em&gt; bucket. A job that runs every few minutes therefore keeps a full 90-day trend in a few hundred lines instead of tens of thousands - the compaction runs automatically after runs and every 15 minutes via the managed cron block.&lt;/p&gt;&lt;/blockquote&gt;
+      &lt;dl&gt;&lt;dt&gt;Job logs - successful:&lt;/dt&gt;
+        &lt;dd class="rj-inline"&gt;keep &lt;input type="number" id="a_logdays" min="1" max="90"&gt; days, max &lt;input type="number" id="a_logmax" min="20" max="20000"&gt; files per job&lt;/dd&gt;&lt;/dl&gt;
+      &lt;dl&gt;&lt;dt&gt;Job logs - failed:&lt;/dt&gt;
+        &lt;dd class="rj-inline"&gt;keep &lt;input type="number" id="a_faildays" min="1" max="90"&gt; days&lt;/dd&gt;&lt;/dl&gt;
+      &lt;blockquote class='inline_help'&gt;&lt;p&gt;Log files of OK and dry-run runs age out quickly (a 3-minute schedule produces ~480 files/day); failed and interrupted logs are kept longer and are never removed by the per-job count cap. The Log button of a finished run always shows its log while it exists.&lt;/p&gt;&lt;/blockquote&gt;
+    &lt;div class="title"&gt;
       &lt;span class='left inline-flex flex-row items-center gap-1'&gt;&lt;i class='fa fa-bell title'&gt;&lt;/i&gt;Delivery (Unraid notifications)&lt;/span&gt;
     &lt;/div&gt;
     &lt;p&gt;&lt;/p&gt;
@@ -2239,15 +2458,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08d &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08e &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>762bf2f859e52f918e4b20c33d573377eba6440c2cb4c992bb8075184c3390d4</SHA256>
+<SHA256>cd96f2b895b11e51ee9d04d2d3ab15f30eddc0fa07052157fd3d932323a72e7b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.08d - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.08e - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2515,7 +2734,7 @@ case 'history':
        Jobs-tab trend panel; n is range-checked here and again in the engine */
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
     $hn = rj_num($_POST['n'] ?? 20);
-    if ($hn &lt; 1 || $hn &gt; 200) $hn = 20;
+    if ($hn &lt; 1 || $hn &gt; 600) $hn = 20;
     $eo = []; $erc = 0;
     rj_engine('history ' . escapeshellarg($name) . ' ' . $hn, $eo, $erc);
     $bj = json_decode(implode("\n", $eo), true);
@@ -2555,6 +2774,24 @@ case 'save_alerts':
     if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qs) &amp;&amp; $qs !== '') rj_out(['ok' =&gt; false, 'error' =&gt; 'quiet window start must be HH:MM (24h) or empty']);
     if (!preg_match('/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/', $qe) &amp;&amp; $qe !== '') rj_out(['ok' =&gt; false, 'error' =&gt; 'quiet window end must be HH:MM (24h) or empty']);
     $qp['QUIET_START'] = $qs; $qp['QUIET_END'] = $qe;
+    /* retention: same clamps as the engine's num_clamp(); out-of-range input is
+       clamped silently (the field hints show the allowed range) */
+    $retmap = [
+        'HISTORY_RAW_HOURS'  =&gt; ['raw_hours',  24, 1, 168],
+        'HISTORY_RAW_MAX'    =&gt; ['raw_max',    500, 20, 5000],
+        'HISTORY_HOUR_DAYS'  =&gt; ['hour_days',  7, 1, 60],
+        'HISTORY_DAYS'       =&gt; ['hist_days',  90, 7, 365],
+        'LOG_KEEP_DAYS'      =&gt; ['log_days',   3, 1, 90],
+        'LOG_KEEP_FAIL_DAYS' =&gt; ['fail_days',  14, 1, 90],
+        'LOG_KEEP_MAX'       =&gt; ['log_max',    300, 20, 20000],
+    ];
+    foreach ($retmap as $envkey =&gt; $spec) {
+        if (!isset($_POST[$spec[0]])) continue;
+        $v = preg_match('/^\d{1,5}$/', trim(rj_str($_POST[$spec[0]]))) ? intval(trim(rj_str($_POST[$spec[0]]))) : $spec[1];
+        $qp[$envkey] = strval(max($spec[2], min($spec[3], $v)));
+    }
+    if (intval($qp['HISTORY_DAYS'] ?? 90) &lt; intval($qp['HISTORY_HOUR_DAYS'] ?? 7)) $qp['HISTORY_DAYS'] = $qp['HISTORY_HOUR_DAYS'];
+    if (intval($qp['LOG_KEEP_FAIL_DAYS'] ?? 14) &lt; intval($qp['LOG_KEEP_DAYS'] ?? 3)) $qp['LOG_KEEP_FAIL_DAYS'] = $qp['LOG_KEEP_DAYS'];
     rj_env_upsert($RJ_BOOT.'/paths.env', $qp, 0600);
     rj_out(['ok' =&gt; true, 'msg' =&gt; 'Settings saved. Delivery (email/Telegram/...) is configured in Settings -&gt; Notification Settings.']);
 
@@ -2576,13 +2813,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>e2da3abbe678c22f40157c7463eb6098f7e6968cbcb3b05a4d97ec145834e9ac</SHA256>
+<SHA256>26acaeb101a61f1d8ad9b33c8ecd43a15315ab0b00cc5c018e362266347226b5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.08d - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.08e - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -2690,12 +2927,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>9b3b9dced084d2b687d066cba4931d3c7e76e39be4ac7068d8d75171c911897b</SHA256>
+<SHA256>a5410875c0c828a0182fdce04d4f8ad10f98e40be20d9c84188503af59c72efa</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.08d - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.08e - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2718,6 +2955,11 @@ function rjData() {
   if (!d || typeof d !== 'object') d = {};
   if (!d.jobs || typeof d.jobs !== 'object') d.jobs = {};
   if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
+  if (!d.retention || typeof d.retention !== 'object') d.retention = {};
+  var rdefs = { rawHours: 24, rawMax: 500, hourDays: 7, days: 90, logDays: 3, failDays: 14, logMax: 300 };
+  Object.keys(rdefs).forEach(function (k) {
+    if (typeof d.retention[k] !== 'number' || d.retention[k] &lt;= 0) d.retention[k] = rdefs[k];
+  });
   if (d.master === undefined) d.master = 'yes';
   return d;
 }
@@ -3000,28 +3242,114 @@ function rjHistBytes(b) {
 }
 
 function rjShowHistory(job) {
-  rjPost({ action: 'history', job: job, n: 20 }, function (res) {
+  /* tiered view: 24h summary + hourly sparkline (raw runs merged with hourly
+     buckets) + daily rollup table + raw per-run detail with a failures-only
+     filter. A job on a minutes-schedule stays readable this way. */
+  rjPost({ action: 'history', job: job, n: 600 }, function (res) {
     var $p = $('#rj-history').empty();
     if (!res.ok) { $p.append($('&lt;pre style="color:#e6867e"&gt;&lt;/pre&gt;').text('ERROR: ' + (res.error || '?'))).show(); return; }
-    var e = res.entries || [], max = 1;
-    e.forEach(function (x) { if (x.bytes &amp;&amp; x.bytes &gt; max) max = x.bytes; });
-    var $tb = $('&lt;tbody&gt;&lt;/tbody&gt;');
-    if (!e.length) $tb.append('&lt;tr&gt;&lt;td colspan="6" style="text-align:center;padding:10px"&gt;No live runs recorded yet - history counts real runs, not dry-runs.&lt;/td&gt;&lt;/tr&gt;');
-    e.slice().reverse().forEach(function (x) { /* newest first */
-      var ok = (x.rc === 0 || x.rc === 24);
-      var res2 = x.rc === 0 ? 'OK' : (x.rc === 24 ? 'OK (24)' : (x.rc === 143 ? 'interrupted' : 'rc ' + x.rc));
-      var w = x.bytes ? Math.max(2, Math.round(100 * x.bytes / max)) : 0;
-      $tb.append('&lt;tr&gt;&lt;td style="white-space:nowrap"&gt;' + rjEsc(x.iso) + '&lt;/td&gt;'
-        + '&lt;td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + '"&gt;' + rjEsc(res2) + '&lt;/td&gt;'
-        + '&lt;td&gt;' + (x.secs === null || x.secs === undefined ? '-' : x.secs + 's') + '&lt;/td&gt;'
-        + '&lt;td&gt;' + (x.errors || 0) + '&lt;/td&gt;'
-        + '&lt;td&gt;' + rjEsc(x.transferred || rjHistBytes(x.bytes)) + '&lt;/td&gt;'
-        + '&lt;td style="width:200px"&gt;&lt;div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"&gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;');
+    var e = res.entries || [], roll = res.rollups || [];
+    var nowMs = Date.now(), HR = 3600000;
+    var $wrap = $('&lt;div&gt;&lt;/div&gt;');
+    if (!e.length &amp;&amp; !roll.length) {
+      $wrap.append('&lt;div class="gray" style="padding:6px 0"&gt;No live runs recorded yet - history counts real runs, not dry-runs.&lt;/div&gt;');
+      $p.append($wrap).show();
+      $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+    /* last-24h summary (raw entries + hourly buckets inside the window) */
+    var s24r = 0, s24f = 0, s24b = 0;
+    e.forEach(function (x) {
+      if ((x.ts || 0) * 1000 &gt;= nowMs - 24 * HR) { s24r++; if (!(x.rc === 0 || x.rc === 24)) s24f++; s24b += (x.bytes || 0); }
     });
-    $p.append(
-      $('&lt;div class="gray" style="font-size:11px;margin:2px 0 4px"&gt;Last ' + e.length + ' live run(s) of "' + rjEsc(job) + '" (newest first; bars relative to the largest recorded run)&lt;/div&gt;'),
-      $('&lt;table class="view-table" style="width:auto;min-width:620px"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;When&lt;/th&gt;&lt;th&gt;Result&lt;/th&gt;&lt;th&gt;Duration&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Size trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($tb)
-    ).show();
+    roll.forEach(function (b) {
+      if (b.rollup === 'h' &amp;&amp; (b.ts || 0) * 1000 &gt;= nowMs - 24 * HR) { s24r += (b.runs || 0); s24f += (b.fails || 0); s24b += (b.bytes || 0); }
+    });
+    $wrap.append($('&lt;div class="gray" style="font-size:11px;margin:2px 0"&gt;&lt;/div&gt;').text(
+      'Last 24h: ' + s24r + ' run(s), ' + s24f + ' failed, ' + (s24b &gt; 0 ? rjHistBytes(s24b) : '0 B') +
+      ' moved - "' + job + '" (raw ' + e.length + ' run(s) + ' + roll.length + ' bucket(s))'));
+    /* hourly sparkline, last 48h: raw runs folded by hour + hourly buckets */
+    var hmap = {};
+    function hourAdd(ts, runs, fails, bytes, secs) {
+      var kk = Math.floor(ts / 3600);
+      if (!hmap[kk]) hmap[kk] = { runs: 0, fails: 0, bytes: 0, secs: 0 };
+      hmap[kk].runs += runs; hmap[kk].fails += fails; hmap[kk].bytes += (bytes || 0); hmap[kk].secs += (secs || 0);
+    }
+    e.forEach(function (x) { hourAdd(x.ts || 0, 1, (x.rc === 0 || x.rc === 24) ? 0 : 1, x.bytes, x.secs); });
+    roll.forEach(function (b) { if (b.rollup === 'h') hourAdd(b.ts || 0, b.runs || 0, b.fails || 0, b.bytes, b.secs_sum); });
+    var keys = Object.keys(hmap).map(Number)
+      .filter(function (kk) { return kk * 3600 * 1000 &gt;= nowMs - 48 * HR; })
+      .sort(function (a, b) { return a - b; });
+    if (keys.length &gt; 1) {
+      var hmax = 1;
+      keys.forEach(function (kk) { var v = hmap[kk].bytes &gt; 0 ? hmap[kk].bytes : hmap[kk].secs; if (v &gt; hmax) hmax = v; });
+      var $sp = $('&lt;div style="display:flex;align-items:flex-end;height:44px;margin:4px 0 2px"&gt;&lt;/div&gt;');
+      keys.forEach(function (kk) {
+        var h = hmap[kk], v = h.bytes &gt; 0 ? h.bytes : h.secs;
+        var d = new Date(kk * 3600 * 1000);
+        $sp.append($('&lt;div style="width:10px;margin-right:2px;flex:0 0 auto;border-radius:2px"&gt;&lt;/div&gt;')
+          .attr('title', ('0' + d.getHours()).slice(-2) + ':00 - ' + h.runs + ' run(s)' +
+            (h.fails ? ', ' + h.fails + ' FAILED' : '') + ', ' +
+            (h.bytes &gt; 0 ? rjHistBytes(h.bytes) : '0 B') + (h.secs ? ', ' + h.secs + 's busy' : ''))
+          .css('height', Math.max(3, Math.round(40 * v / hmax)) + 'px')
+          .css('background', h.fails &gt; 0 ? '#e6867e' : '#2e97c2'));
+      });
+      $wrap.append($('&lt;div class="gray" style="font-size:11px;margin-top:6px"&gt;Hourly trend, last 48h (bar = transferred, fallback busy seconds; red = hour with failures)&lt;/div&gt;').append($sp));
+    }
+    /* daily rollup buckets, last 14 days */
+    var days = roll.filter(function (b) { return b.rollup === 'd'; }).slice(-14).reverse();
+    if (days.length) {
+      var dmax = 1;
+      days.forEach(function (b) { if (b.bytes &amp;&amp; b.bytes &gt; dmax) dmax = b.bytes; });
+      var $dtb = $('&lt;tbody&gt;&lt;/tbody&gt;');
+      days.forEach(function (b) {
+        var avg = b.runs ? Math.round((b.secs_sum || 0) / b.runs) : 0;
+        var w = b.bytes ? Math.max(2, Math.round(100 * b.bytes / dmax)) : 0;
+        var day = b.iso ? String(b.iso).slice(0, 10) : new Date((b.ts || 0) * 1000).toISOString().slice(0, 10);
+        $dtb.append('&lt;tr&gt;&lt;td style="white-space:nowrap"&gt;' + rjEsc(day) + '&lt;/td&gt;'
+          + '&lt;td&gt;' + (b.runs || 0) + '&lt;/td&gt;'
+          + '&lt;td style="color:' + (b.fails &gt; 0 ? '#e6867e' : '#7dcf7d') + '"&gt;' + (b.fails || 0) + '&lt;/td&gt;'
+          + '&lt;td&gt;' + avg + 's&lt;/td&gt;&lt;td&gt;' + (b.secs_max || 0) + 's&lt;/td&gt;&lt;td&gt;' + (b.errors || 0) + '&lt;/td&gt;'
+          + '&lt;td&gt;' + rjHistBytes(b.bytes) + '&lt;/td&gt;'
+          + '&lt;td style="width:160px"&gt;&lt;div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"&gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;');
+      });
+      $wrap.append($('&lt;div class="gray" style="font-size:11px;margin-top:8px"&gt;Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)&lt;/div&gt;'),
+        $('&lt;table class="view-table" style="width:auto;min-width:620px"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Day&lt;/th&gt;&lt;th&gt;Runs&lt;/th&gt;&lt;th&gt;Failed&lt;/th&gt;&lt;th&gt;Avg run&lt;/th&gt;&lt;th&gt;Max run&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($dtb));
+    }
+    /* raw per-run detail (newest first) with a failures-only filter */
+    var $tb = $('&lt;tbody&gt;&lt;/tbody&gt;');
+    var failsOnly = false;
+    function renderRaw() {
+      $tb.empty();
+      var list = [], i;
+      for (i = e.length - 1; i &gt;= 0; i--) {
+        if (failsOnly &amp;&amp; (e[i].rc === 0 || e[i].rc === 24)) continue;
+        list.push(e[i]);
+      }
+      var shown = list.slice(0, 100), rmax = 1;
+      shown.forEach(function (x) { if (x.bytes &amp;&amp; x.bytes &gt; rmax) rmax = x.bytes; });
+      if (!list.length) $tb.append('&lt;tr&gt;&lt;td colspan="6" style="text-align:center;padding:10px"&gt;' +
+        (failsOnly ? 'No failed runs in the loaded window.' : 'No live runs recorded yet - history counts real runs, not dry-runs.') + '&lt;/td&gt;&lt;/tr&gt;');
+      shown.forEach(function (x) {
+        var ok = (x.rc === 0 || x.rc === 24);
+        var res2 = x.rc === 0 ? 'OK' : (x.rc === 24 ? 'OK (24)' : (x.rc === 143 ? 'interrupted' : 'rc ' + x.rc));
+        var w = x.bytes ? Math.max(2, Math.round(100 * x.bytes / rmax)) : 0;
+        $tb.append('&lt;tr&gt;&lt;td style="white-space:nowrap"&gt;' + rjEsc(x.iso) + '&lt;/td&gt;'
+          + '&lt;td style="color:' + (ok ? '#7dcf7d' : '#e6867e') + '"&gt;' + rjEsc(res2) + '&lt;/td&gt;'
+          + '&lt;td&gt;' + (x.secs === null || x.secs === undefined ? '-' : x.secs + 's') + '&lt;/td&gt;'
+          + '&lt;td&gt;' + (x.errors || 0) + '&lt;/td&gt;'
+          + '&lt;td&gt;' + rjEsc(x.transferred || rjHistBytes(x.bytes)) + '&lt;/td&gt;'
+          + '&lt;td style="width:200px"&gt;&lt;div style="height:10px;background:#2e97c2;border-radius:2px;width:' + w + '%"&gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;');
+      });
+      if (list.length &gt; shown.length) $tb.append('&lt;tr&gt;&lt;td colspan="6" class="gray" style="text-align:center;padding:6px"&gt;+ ' +
+        (list.length - shown.length) + ' older run(s) not shown - see the rollups above&lt;/td&gt;&lt;/tr&gt;');
+    }
+    renderRaw();
+    var $ff = $('&lt;label style="font-size:11px;cursor:pointer;margin-left:10px"&gt;&lt;input type="checkbox"&gt; failures only&lt;/label&gt;');
+    $ff.find('input').on('change', function () { failsOnly = this.checked; renderRaw(); });
+    $wrap.append($('&lt;div class="gray" style="font-size:11px;margin-top:8px"&gt;Raw per-run detail (newest first)').append($ff),
+      $('&lt;table class="view-table" style="width:auto;min-width:620px"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;When&lt;/th&gt;&lt;th&gt;Result&lt;/th&gt;&lt;th&gt;Duration&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Size trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($tb));
+    $p.append($wrap).show();
     $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 }
@@ -3102,6 +3430,13 @@ $(function () {
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
   $('#a_qstart').val(D.quiet.start);
   $('#a_qend').val(D.quiet.end);
+  $('#a_rawhours').val(D.retention.rawHours);
+  $('#a_rawmax').val(D.retention.rawMax);
+  $('#a_hourdays').val(D.retention.hourDays);
+  $('#a_hdays').val(D.retention.days);
+  $('#a_logdays').val(D.retention.logDays);
+  $('#a_faildays').val(D.retention.failDays);
+  $('#a_logmax').val(D.retention.logMax);
 
   /* engine-dependent form rows */
   function engRows() {
@@ -3375,9 +3710,13 @@ $(function () {
     var $b = $(this);
     if ($b.prop('disabled')) return;
     $b.prop('disabled', true).val('Saving...');
+    function numv(id, def) { var v = parseInt($('#' + id).val(), 10); return isNaN(v) ? def : v; }
     rjPost({
       action: 'save_alerts',
-      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val()
+      master: $('#a_master').val(), quiet_start: $('#a_qstart').val(), quiet_end: $('#a_qend').val(),
+      raw_hours: numv('a_rawhours', 24), raw_max: numv('a_rawmax', 500),
+      hour_days: numv('a_hourdays', 7), hist_days: numv('a_hdays', 90),
+      log_days: numv('a_logdays', 3), fail_days: numv('a_faildays', 14), log_max: numv('a_logmax', 300)
     }, function (res) {
       $b.prop('disabled', false).val('Save settings');
       rjPanel('rj-alerts-result', res.ok ? res.msg : ('ERROR: ' + res.error), !res.ok);
@@ -3625,13 +3964,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>742cfaf53a48f447a33160fbd161c453f576b0e2c8cb23d11cce3d6d1944e3b4</SHA256>
+<SHA256>87129e322af5bba940b606b7b59f12043261a5c2b36368bfa6f4590982b12d3a</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08d - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.08e - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -3722,6 +4061,12 @@ for f in "$BOOT_DIR/jobs"/*.conf; do
   any=1
 done
 
+# maintenance line: stale/stuck alerts + history rollup compaction + log pruning.
+# Written even when every job is disabled (pruning still matters); the engine
+# watchdog is a cheap no-op when there is nothing to do.
+echo "*/15 * * * * /usr/bin/env bash '$eng' watchdog 2&gt;&amp;1 | /usr/bin/logger -t $NAME" &gt;&gt; "$block"
+any=1
+
 our_block=""
 if [ "$any" = 1 ]; then
   our_block="$(printf '%s\n%s\n%s\n' "$BEGIN_MARK" "$(cat "$block")" "$END_MARK")"
@@ -3784,13 +4129,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>eab79a4c864cfc99ef41f758ed863efb7c30966c86d08a638a2b8645645cfcd4</SHA256>
+<SHA256>0b2f824780cc9fdbdc1ac111d29f0d222df3820df1c045b85471186a3733f92f</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08d - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.08e - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -3869,13 +4214,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>87c0b915443b65d8701adbd874b347e0f180ececd33158a62df7345ce88a59ba</SHA256>
+<SHA256>0d9bd2bae93f82e4ccedd4cc89db45fa90496b49f8da7607ef331209f8dc3a09</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08d - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.08e - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -3907,6 +4252,21 @@ DRY_RUN_MASTER=yes
 QUIET_START=23:00
 QUIET_END=07:00
 
+# History + log retention (integers; the engine clamps anything else back to the
+# defaults shown). History is tiered so high-frequency jobs stay bounded: every
+# live run is kept raw for HISTORY_RAW_HOURS (max HISTORY_RAW_MAX lines), then
+# folded into one hourly bucket for HISTORY_HOUR_DAYS, then one daily bucket for
+# HISTORY_DAYS. Job logs: OK/dry-run logs age out after LOG_KEEP_DAYS (and no
+# more than LOG_KEEP_MAX files per job); failed/interrupted logs stay
+# LOG_KEEP_FAIL_DAYS. The watchdog (cron block, every 15 min) does the work.
+HISTORY_RAW_HOURS=24
+HISTORY_RAW_MAX=500
+HISTORY_HOUR_DAYS=7
+HISTORY_DAYS=90
+LOG_KEEP_DAYS=3
+LOG_KEEP_FAIL_DAYS=14
+LOG_KEEP_MAX=300
+
 # Config schema marker (readers must ignore unknown keys; a future release that
 # changes this file's format bumps the number and migrates from the old value).
 CONFIG_VERSION=1
@@ -3928,7 +4288,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>16c5f933296c750bc6df7cb9f255c0c237ab6328fa6cfb0d120d500fdc059664</SHA256>
+<SHA256>5edff390e0fc61648a886c0c00e759c1c6c561431178a05a137c41362403b8f5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -4049,17 +4409,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.08d - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.08e - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-8059052dea36d68a3c844363878053b94849ee106cccdfae89a6ea3d405343b4  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+bcba647444f9129a7c4398b2eca1ee863c020a6b48f10f60dd755f8f15f590b8  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-762bf2f859e52f918e4b20c33d573377eba6440c2cb4c992bb8075184c3390d4  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-e2da3abbe678c22f40157c7463eb6098f7e6968cbcb3b05a4d97ec145834e9ac  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-9b3b9dced084d2b687d066cba4931d3c7e76e39be4ac7068d8d75171c911897b  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-742cfaf53a48f447a33160fbd161c453f576b0e2c8cb23d11cce3d6d1944e3b4  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-eab79a4c864cfc99ef41f758ed863efb7c30966c86d08a638a2b8645645cfcd4  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-87c0b915443b65d8701adbd874b347e0f180ececd33158a62df7345ce88a59ba  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-16c5f933296c750bc6df7cb9f255c0c237ab6328fa6cfb0d120d500fdc059664  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+cd96f2b895b11e51ee9d04d2d3ab15f30eddc0fa07052157fd3d932323a72e7b  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+26acaeb101a61f1d8ad9b33c8ecd43a15315ab0b00cc5c018e362266347226b5  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+a5410875c0c828a0182fdce04d4f8ad10f98e40be20d9c84188503af59c72efa  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+87129e322af5bba940b606b7b59f12043261a5c2b36368bfa6f4590982b12d3a  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+0b2f824780cc9fdbdc1ac111d29f0d222df3820df1c045b85471186a3733f92f  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+0d9bd2bae93f82e4ccedd4cc89db45fa90496b49f8da7607ef331209f8dc3a09  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+5edff390e0fc61648a886c0c00e759c1c6c561431178a05a137c41362403b8f5  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -4067,7 +4427,7 @@ eab79a4c864cfc99ef41f758ed863efb7c30966c86d08a638a2b8645645cfcd4  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>afbc0fee0f2cbee3717c988ea3f3ef4cba2921f6cdb2c599759c44e21c125c2c</SHA256>
+<SHA256>55fe2ebb08836fa482d23857f7a575a45df442cdb5a169f1396df75e460e08fb</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
