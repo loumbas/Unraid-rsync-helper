@@ -1,3 +1,18 @@
+## 2026.09.08b
+Job log opens in its own live window:
+- WebUI: the per-row Log button now opens a dedicated popup window instead of
+  the result panel (named window - repeat clicks reuse it; a blocked popup
+  reports back in the result panel).
+- New shipped page emhttp/log.php: read-only live tail of one job. Accepts only
+  ?job=<valid-name>, content always via the ajax tail_log action (paths only
+  ever from the validated status file, engine redaction unchanged). Polls every
+  2 s while the job runs, slows to 15 s when idle (catches a run started in the
+  main tab), pauses entirely in hidden tabs; Refresh button, auto-scroll
+  checkbox that respects a user scrolled up, status chip
+  running/finished-rc/idle/error.
+- Engine tail-log: JSON gains running/rc/ts from the status file it already
+  reads, so the window knows when to stop fast-polling.
+
 ## 2026.09.08a
 Dialog opacity fix, take 2 (the 2026.09.08 fix was a no-op on the test box):
 - WebUI: rjSolidBg() now resolves --background through a throwaway probe element so

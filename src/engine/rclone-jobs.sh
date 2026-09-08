@@ -863,8 +863,17 @@ cmd_tail_log() { # <job> -> JSON {ok,log,size,text}: redacted tail of the record
   if [ "${sz:-0}" -gt 65536 ]; then head="[last 64 KiB of ${sz} bytes - truncated]
 "; fi
   text="$(tail -c 65536 "$log" | tr -d '\0' | redact)"  # nulls cannot live in $vars or json
+  # running/rc/ts let a log window poll live and stop when the run ends
+  local run rcn tsj
+  run="$(jq -r 'if (.running // false) then "true" else "false" end' "$sj" 2>/dev/null)"
+  [ "$run" = "true" ] || run="false"
+  rcn="$(jq -r '.rc // "null"' "$sj" 2>/dev/null)"
+  case "$rcn" in ''|*[!0-9-]*) rcn="null" ;; esac
+  tsj="$(jq -r '.ts // 0' "$sj" 2>/dev/null)"
+  case "$tsj" in ''|*[!0-9]*) tsj="0" ;; esac
   jq -nc --arg log "$log" --arg text "$head$text" --argjson size "${sz:-0}" \
-    '{ok:true, log:$log, size:$size, text:$text}'
+        --argjson running "$run" --argjson rc "$rcn" --argjson ts "$tsj" \
+    '{ok:true, log:$log, size:$size, running:$running, rc:$rc, ts:$ts, text:$text}'
 }
 
 # ------------------------------------------------------ export / import -----

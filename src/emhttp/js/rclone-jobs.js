@@ -589,14 +589,11 @@ $(function () {
       return;
     }
     if (act === 'log') {
-      var $lb = $(this);
-      if ($lb.prop('disabled')) return;
-      $lb.prop('disabled', true).val('...');
-      rjPost({ action: 'tail_log', job: job }, function (res) {
-        $lb.prop('disabled', false).val('Log');
-        if (res.ok) rjPanel('rj-result', 'log: ' + res.log + '  (' + res.size + ' bytes total)\n\n' + res.text, false);
-        else rjPanel('rj-result', 'ERROR: ' + (res.error || '?'), true);
-      });
+      /* dedicated window, live-tailing via log.php; named so repeat clicks
+         reuse the same window. Confinement + redaction stay in the engine. */
+      var w = window.open('/plugins/rclone-jobs/log.php?job=' + encodeURIComponent(job),
+                          'rjlog_' + job, 'width=1000,height=720,resizable,scrollbars');
+      if (!w) rjPanel('rj-result', 'the log window was blocked by the browser - allow popups for this site', true);
       return;
     }
     if (act === 'hist') { rjShowHistory(job); return; }
