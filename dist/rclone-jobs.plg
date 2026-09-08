@@ -2360,7 +2360,11 @@ $rjdata = [
     'ul#rj-tabs&gt;li.active&gt;a{color:var(--text,#fff);font-weight:bold;background:var(--background,#242b31);border-color:var(--border,#46505a);border-bottom:1px solid var(--background,#242b31)}',
     /* KPI Metric Cards Grid */
     '.rj-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0 20px}',
+<<<<<<< HEAD
     '.rj-card{background:var(--background,#242b31);border:1px solid var(--border,#3a444d);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;justify-content:space-between;min-height:76px;box-sizing:border-box;box-shadow:0 1px 3px rgba(0,0,0,0.2)}',
+=======
+    '.rj-card{background:rgba(255,255,255,0.02);border:1px solid var(--border,#3a444d);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,0.2)}',
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     '.rj-card-title{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--gray-text,#9aa7b2);margin-bottom:6px;font-weight:bold;display:flex;align-items:center;gap:6px}',
     '.rj-card-title i{color:var(--gray-text,#8b98a3);font-size:12px}',
     '.rj-card-val{font-size:17px;font-weight:bold;color:var(--text,#e8eef3);display:flex;align-items:center;gap:6px;line-height:1.2}',
@@ -2392,9 +2396,15 @@ $rjdata = [
     '#tab_rj_jobs .rj-badge.off{background:#5a6570;color:#dfe6ec}',
     '#tab_rj_jobs .rj-chip{color:var(--gray-text,#8b98a3);font-size:10px;border:1px solid var(--border,#46505a);border-radius:8px;padding:1px 6px;margin-left:4px;white-space:nowrap;display:inline-block;vertical-align:middle}',
     /* Paths */
+<<<<<<< HEAD
     '.rj-path-container{max-width:550px;width:100%;display:flex;align-items:center;gap:6px;overflow:hidden;font-size:12px}',
     '.rj-path-endpoint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;flex:1 1 auto;min-width:0}',
     '.rj-path-arrow{color:var(--gray-text,#8b98a3);font-size:10px;flex:0 0 auto;padding:0 2px}',
+=======
+    '.rj-path-container{max-width:380px;display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
+    '.rj-path-endpoint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}',
+    '.rj-path-arrow{color:var(--gray-text,#8b98a3);font-size:10px;flex:0 0 auto}',
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     /* Status Badges */
     '.rj-rc{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;letter-spacing:0.3px}',
     '.rj-rc.ok{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
@@ -2403,6 +2413,7 @@ $rjdata = [
     '#tab_rj_jobs .rj-lastok,#tab_rj_jobs .rj-next{color:var(--gray-text,#8b98a3);font-size:10px;font-weight:normal;display:inline-block;margin-top:2px}',
     '#tab_rj_jobs .rj-needsack{color:#fff;background:#d9903a;font-weight:bold;margin-left:4px;text-transform:uppercase;font-size:9px;padding:2px 5px;border-radius:4px;letter-spacing:0.5px}',
     /* Dry-run diff chips */
+<<<<<<< HEAD
     '.rj-dry-ts{font-size:10px;color:var(--gray-text,#8b98a3);margin-right:4px;display:block;margin-bottom:2px}',
     '.rj-chip-diff{display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:bold;margin-right:3px}',
     '.rj-chip-add{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
@@ -2431,6 +2442,31 @@ $rjdata = [
     '.rj-hist-scroll th{position:sticky!important;top:0;background:var(--background,#242b31)!important;z-index:2;box-shadow:0 1px 0 var(--border,#46505a)}',
     '.rj-daily-scroll{max-height:220px;overflow-y:auto;border:1px solid var(--border,#3a444d);border-radius:6px;margin-top:6px}',
     '.rj-daily-scroll th{position:sticky!important;top:0;background:var(--background,#242b31)!important;z-index:2;box-shadow:0 1px 0 var(--border,#46505a)}',
+=======
+    '.rj-dry-ts{font-size:10px;color:var(--gray-text,#8b98a3);margin-right:4px;display:block}',
+    '.rj-chip-diff{display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:bold;margin-right:2px}',
+    '.rj-chip-add{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
+    '.rj-chip-del{background:rgba(230,134,126,0.15);color:#e6867e;border:1px solid rgba(230,134,126,0.3)}',
+    '.rj-chip-err{background:rgba(217,144,58,0.15);color:#d9903a;border:1px solid rgba(217,144,58,0.3)}',
+    /* Button Group &amp; Buttons */
+    '.rj-btn-group{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}',
+    '.rj-btn{padding:3px 8px;font-size:11px;border-radius:5px;border:1px solid var(--border,#46505a);background:var(--background,#242b31);color:var(--text,#dfe6ec);cursor:pointer;display:inline-flex;align-items:center;gap:4px;outline:none;transition:all 0.15s ease;text-decoration:none}',
+    '.rj-btn i{pointer-events:none;font-size:10px}',
+    '.rj-btn:hover{background:rgba(255,255,255,0.08);border-color:var(--text,#fff);color:#fff}',
+    '.rj-btn.rj-run:hover{border-color:#2f8f46;color:#7dcf7d}',
+    '.rj-btn.rj-del{color:#e6867e;border-color:rgba(214,90,84,0.4)}',
+    '.rj-btn.rj-del:hover{background:rgba(214,90,84,0.2);border-color:#d65a54;color:#fff}',
+    '.rj-btn.rj-warn{background:rgba(217,144,58,0.2);border-color:#d9903a;color:#f0ad4e}',
+    '.rj-btn.rj-btn-primary{background:#24638a;border-color:#2e97c2;color:#fff}',
+    '.rj-btn.rj-btn-primary:hover{background:#2e97c2;color:#fff}',
+    /* History card */
+    '.rj-hist-card{background:rgba(0,0,0,0.2);border:1px solid var(--border,#3a444d);border-radius:8px;padding:16px 18px;margin-top:14px;box-shadow:0 3px 8px rgba(0,0,0,0.15)}',
+    '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border,#3a444d)}',
+    '.rj-hist-title{font-size:12px;font-weight:bold;color:var(--text,#e8eef3);display:flex;align-items:center;gap:6px}',
+    '.rj-hist-spark{display:flex;align-items:flex-end;height:44px;margin:8px 0 4px;padding:4px 0;background:rgba(255,255,255,0.01);border-radius:4px}',
+    '.rj-spark-bar{width:10px;margin-right:3px;flex:0 0 auto;border-radius:3px 3px 1px 1px;transition:opacity 0.15s ease}',
+    '.rj-spark-bar:hover{opacity:0.75}',
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     /* Form */
     '.rj-pathrow{white-space:nowrap;max-width:100%}',
     '#rj-form-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--text,#e8eef3);text-decoration:none;font-weight:bold}',
@@ -2720,7 +2756,11 @@ $rjdata = [
 
 &lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08g &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
+<<<<<<< HEAD
 <SHA256>55311a75e7b75c911a0494026e7d784f7d8b00ff9d1963e1cd8dbf67ceffcf3d</SHA256>
+=======
+<SHA256>da777b0ec52d00f33a80b4ae18103e361b9bad73ac0d2cfbd9eaad7e23c5d0c4</SHA256>
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
@@ -3624,9 +3664,14 @@ function rjShowHistory(job) {
           + '&lt;td&gt;' + rjHistBytes(b.bytes) + '&lt;/td&gt;'
           + '&lt;td style="width:160px"&gt;&lt;div style="height:8px;background:#2e97c2;border-radius:3px;width:' + w + '%"&gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;');
       });
+<<<<<<< HEAD
       var $dtbWrap = $('&lt;div class="rj-daily-scroll"&gt;&lt;/div&gt;');
       $dtbWrap.append($('&lt;table class="view-table" style="width:100%;margin:0"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Day&lt;/th&gt;&lt;th&gt;Runs&lt;/th&gt;&lt;th&gt;Failed&lt;/th&gt;&lt;th&gt;Avg run&lt;/th&gt;&lt;th&gt;Max run&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($dtb));
       $wrap.append($('&lt;div class="gray" style="font-size:11px;margin:12px 0 4px;font-weight:600"&gt;Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)&lt;/div&gt;'), $dtbWrap);
+=======
+      $wrap.append($('&lt;div class="gray" style="font-size:11px;margin:12px 0 4px;font-weight:600"&gt;Daily rollups (hourly detail kept 7 days, raw 24 h - retention on the Safety tab)&lt;/div&gt;'),
+        $('&lt;table class="view-table" style="width:100%;margin-bottom:12px"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Day&lt;/th&gt;&lt;th&gt;Runs&lt;/th&gt;&lt;th&gt;Failed&lt;/th&gt;&lt;th&gt;Avg run&lt;/th&gt;&lt;th&gt;Max run&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($dtb));
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     }
     /* raw per-run detail (newest first) with a failures-only filter */
     var $tb = $('&lt;tbody&gt;&lt;/tbody&gt;');
@@ -3659,9 +3704,14 @@ function rjShowHistory(job) {
     renderRaw();
     var $ff = $('&lt;label style="font-size:11px;cursor:pointer;margin-left:10px"&gt;&lt;input type="checkbox"&gt; failures only&lt;/label&gt;');
     $ff.find('input').on('change', function () { failsOnly = this.checked; renderRaw(); });
+<<<<<<< HEAD
     var $rawWrap = $('&lt;div class="rj-hist-scroll"&gt;&lt;/div&gt;');
     $rawWrap.append($('&lt;table class="view-table" style="width:100%;margin:0"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;When&lt;/th&gt;&lt;th&gt;Result&lt;/th&gt;&lt;th&gt;Duration&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Size trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($tb));
     $wrap.append($('&lt;div class="gray" style="font-size:11px;margin:10px 0 4px;font-weight:600;display:flex;align-items:center"&gt;Raw per-run detail (newest first)&lt;/div&gt;').append($ff), $rawWrap);
+=======
+    $wrap.append($('&lt;div class="gray" style="font-size:11px;margin:10px 0 4px;font-weight:600;display:flex;align-items:center"&gt;Raw per-run detail (newest first)&lt;/div&gt;').append($ff),
+      $('&lt;table class="view-table" style="width:100%"&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;When&lt;/th&gt;&lt;th&gt;Result&lt;/th&gt;&lt;th&gt;Duration&lt;/th&gt;&lt;th&gt;Errors&lt;/th&gt;&lt;th&gt;Transferred&lt;/th&gt;&lt;th&gt;Size trend&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;/table&gt;').append($tb));
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
     $p.append($wrap).show();
     $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
@@ -4299,7 +4349,11 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
+<<<<<<< HEAD
 <SHA256>63e2acfcaac8b5b0058a2b270a9f880341747a35a533aa7e57b96d3c604a8e94</SHA256>
+=======
+<SHA256>0e9250b17bd2929dcb2b10a7dd9d32a4c57e2d722e1ef9950e9702c5ca20f760</SHA256>
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
@@ -4748,10 +4802,17 @@ exit 0
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
 076c24d82f4e1ae9bdf89456c248221d12b5985d94727e0faf541229b69fcd7b  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
+<<<<<<< HEAD
 55311a75e7b75c911a0494026e7d784f7d8b00ff9d1963e1cd8dbf67ceffcf3d  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
 a968eaecd906e412bc7937cd1c8548b8a3dec915cc215e08bfc5001db3a0383c  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
 4f0f3c6ba833c223bcecd140a1848276e4a2f4c8f6c1932488648a4c6fe20d62  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
 63e2acfcaac8b5b0058a2b270a9f880341747a35a533aa7e57b96d3c604a8e94  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+=======
+da777b0ec52d00f33a80b4ae18103e361b9bad73ac0d2cfbd9eaad7e23c5d0c4  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+a968eaecd906e412bc7937cd1c8548b8a3dec915cc215e08bfc5001db3a0383c  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+4f0f3c6ba833c223bcecd140a1848276e4a2f4c8f6c1932488648a4c6fe20d62  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+0e9250b17bd2929dcb2b10a7dd9d32a4c57e2d722e1ef9950e9702c5ca20f760  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
 5831dadfedaa73c1e0f452155fd7b470b3585ecbc34e4673dc93e83d1d619364  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
 fdb6d5434dacc7ff803a0cb26eef33c26b0082799aaf0573b62bd6396881652c  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
 6679e2c10dd837bbcb459a309c67c57956c96407af6f310316f830c66202499b  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
@@ -4762,7 +4823,11 @@ fdb6d5434dacc7ff803a0cb26eef33c26b0082799aaf0573b62bd6396881652c  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
+<<<<<<< HEAD
 <SHA256>70b5d8829468066b5ed31ab3fc16d8ae8454cc406a212d43b3dc4bd94e17f4e4</SHA256>
+=======
+<SHA256>e80db9a2623181144799a1e4e261db7d00857ddaf9f18e62b4755cbe61f3b55e</SHA256>
+>>>>>>> 1e9e3b50eb4f22bc3d90ce0b96b1171bc0c65f33
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
