@@ -84,18 +84,34 @@ foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $srcRoot 'MANIFEST')
     $entries += [pscustomobject]@{ Src = ($parts[0] -replace '\\', '/'); Target = $parts[1]; Mode = $parts[2] }
 }
 
+# installed-checksums.txt is GENERATED (two-pass: a file cannot hash itself). It must be
+# the LAST manifest entry so pass 1 (the loop below) has already hashed everything else.
+# A committed placeholder keeps the manifest<->tree lint happy; its repo content is never
+# what ships. Doctor verifies the deployed plugin folder against this file.
+$checksumsSrc = 'emhttp/installed-checksums.txt'
+if ($entries.Count -gt 0 -and $entries[-1].Src -ne $checksumsSrc) { throw "$checksumsSrc must be the LAST MANIFEST entry (it lists every file above it)" }
+
 # 3. build <FILE> block + per-file manifest
 $fileBlockParts = New-Object System.Collections.ArrayList
 $manifestRows = New-Object System.Collections.ArrayList
 foreach ($e in $entries) {
     $srcPath = Join-Path $srcRoot ($e.Src.Replace('/', [IO.Path]::DirectorySeparatorChar))
     if (-not (Test-Path -LiteralPath $srcPath)) { throw "manifest src missing: $srcPath" }
-    $norm = Read-NormText $srcPath
-    # Stamp {{VERSION}} BEFORE hashing: what lands on disk is the stamped content, so the
-    # embedded <SHA256> (used by the plugin manager to decide reuse-vs-replace) must be
-    # the hash of the stamped bytes. This makes online update / over-install redeploy
-    # changed files instead of silently skipping existing destinations.
-    $norm = $norm.Replace('{{VERSION}}', $version)
+    if ($e.Src -eq $checksumsSrc) {
+        # generated from the rows already computed (MANIFEST order, this file excluded).
+        # Byte-for-byte identical to the generation in build.sh: two-space separators.
+        $cs = '# rclone-jobs installed checksums v' + $version + ' - GENERATED at build time; do not edit on the box - reinstall the plugin instead.' + "`n" +
+              '# sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)' + "`n"
+        foreach ($r in $manifestRows) { $cs += $r.Sha256 + '  ' + $r.Target + '  ' + $r.Mode + "`n" }
+        $norm = $cs
+    } else {
+        $norm = Read-NormText $srcPath
+        # Stamp {{VERSION}} BEFORE hashing: what lands on disk is the stamped content, so the
+        # embedded <SHA256> (used by the plugin manager to decide reuse-vs-replace) must be
+        # the hash of the stamped bytes. This makes online update / over-install redeploy
+        # changed files instead of silently skipping existing destinations.
+        $norm = $norm.Replace('{{VERSION}}', $version)
+    }
     $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($norm)
     $sha = Get-Sha256Bytes $bytes
     [void]$manifestRows.Add([pscustomobject]@{ Src = $e.Src; Target = $e.Target; Mode = $e.Mode; Bytes = $bytes.Length; Sha256 = $sha })

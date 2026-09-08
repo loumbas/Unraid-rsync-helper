@@ -55,6 +55,14 @@ for f in "$SRC/rclone-jobs.plg.in" "$SRC/VERSION" "$SRC/CHANGELOG.md"; do
 done
 
 # --------------------------------------------------- assemble <FILE> block --
+# installed-checksums.txt is GENERATED (a file cannot hash itself): pass 1 hashes every
+# other entry into $TMP/rows; when the loop reaches the checksums entry (it MUST be the
+# last MANIFEST line) its content is built from those rows. Byte-identical to build.ps1:
+# same header text, two-space separators, LF endings.
+CS_SRC="emhttp/installed-checksums.txt"
+lastman="$(grep -vE '^[[:space:]]*(#|$)' "$SRC/MANIFEST" | tail -1 | awk '{print $1}')"
+[ "$lastman" = "$CS_SRC" ] || fail "$CS_SRC must be the LAST MANIFEST entry (it lists every file above it)"
+
 : > "$TMP/files"
 first=1
 : > "$TMP/rows"
@@ -66,11 +74,20 @@ while IFS= read -r mline || [ -n "$mline" ]; do
   echo "$mode" | grep -Eq '^0[0-7]{3}$' || fail "bad mode: $mode"
   [ $first -eq 1 ] || printf '\n' >> "$TMP/files"
   first=0
+  if [ "$src" = "$CS_SRC" ]; then
+    { printf '# rclone-jobs installed checksums v%s - GENERATED at build time; do not edit on the box - reinstall the plugin instead.\n' "$VERSION"
+      printf '# sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)\n'
+      while read -r rsrc rtarget rmode rbytes rsha; do printf '%s  %s  %s\n' "$rsha" "$rtarget" "$rmode"; done < "$TMP/rows"
+    } > "$TMP/cs"
+    content="$TMP/cs"
+  else
+    content="$SRC/$src"
+  fi
   printf '  <FILE Name="%s" Mode="%s">\n<INLINE>\n' "$target" "$mode" >> "$TMP/files"
-  stamped_file "$SRC/$src" | xml_escape >> "$TMP/files"
-  sha=$(stamped_file "$SRC/$src" | sha256sum | cut -d' ' -f1)
+  stamped_file "$content" | xml_escape >> "$TMP/files"
+  sha=$(stamped_file "$content" | sha256sum | cut -d' ' -f1)
   printf '</INLINE>\n<SHA256>%s</SHA256>\n  </FILE>\n' "$sha" >> "$TMP/files"
-  bytes=$(stamped_file "$SRC/$src" | wc -c | tr -d ' ')
+  bytes=$(stamped_file "$content" | wc -c | tr -d ' ')
   printf '%s %s %s %s %s\n' "$src" "$target" "$mode" "$bytes" "$sha" >> "$TMP/rows"
 done < "$SRC/MANIFEST"
 
