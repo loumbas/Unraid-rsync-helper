@@ -1,3 +1,13 @@
+## 2026.09.08
+WebUI dialog legibility:
+- WebUI: path-browser and deletion-Ack dialogs now paint a fully opaque panel
+  background. webGui theme variables (--background) can carry alpha, which let
+  the page behind bleed through the modal and made the browse tree unreadable.
+  rjSolidBg() keeps the theme tint but flattens it to a solid rgb (over white
+  for light themes, over black for dark ones), with the classic dark fallback.
+- WebUI: slightly taller browse rows and a brighter expand-icon for clearer
+  hierarchy inside the picker.
+
 ## 2026.09.07l
 Run history + transferred-size trend:
 - Engine: every LIVE run end appends one json line {ts,iso,rc,secs,errors,transferred,

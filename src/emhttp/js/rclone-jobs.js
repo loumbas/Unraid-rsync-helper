@@ -25,6 +25,23 @@ function rjData() {
   return d;
 }
 
+/* opaque panel background for the self-built dialogs: webGui theme variables
+   (--background) may carry alpha, which lets page content bleed through the
+   modal and makes the browse tree unreadable. Flatten to a solid rgb: over
+   white when the theme colour is light, over black when dark. */
+function rjSolidBg() {
+  var st = getComputedStyle(document.body);
+  var v = (st.getPropertyValue('--background') || st.getPropertyValue('--background-color') || '').trim();
+  var m = v.match(/rgba?\(([^)]+)\)/);
+  if (!m) return v || '#23292e';
+  var p = m[1].split(/[\s,\/]+/).filter(function (x) { return x !== ''; }).map(parseFloat);
+  if (p.length < 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) return '#23292e';
+  var a = p.length > 3 && !isNaN(p[3]) ? p[3] : 1;
+  if (a >= 1) return 'rgb(' + p.slice(0, 3).map(Math.round).join(',') + ')';
+  var base = (p[0] + p[1] + p[2]) > 384 ? 255 : 0;
+  return 'rgb(' + p.slice(0, 3).map(function (x) { return Math.round(x * a + base * (1 - a)); }).join(',') + ')';
+}
+
 /* ---------------- schedule builder helpers (SCHEDULE stays 5-field cron) --- */
 var RJ_DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 var RJ_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -299,7 +316,7 @@ function rjAckDialog(job) {
   }
   if ($('#rj-ack-ov').length === 0) {
     var ov = $('<div id="rj-ack-ov" role="dialog" aria-modal="true"></div>').css({ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.55)', zIndex: 9998, display: 'none' });
-    var box = $('<div></div>').css({ position: 'relative', width: '440px', maxWidth: '92vw', margin: '12vh auto', background: 'var(--background,#23292e)', border: '1px solid var(--border,#5a6570)', borderRadius: '6px', color: 'var(--text,#e8e8e8)', padding: '14px', fontSize: '12px' });
+    var box = $('<div></div>').css({ position: 'relative', width: '440px', maxWidth: '92vw', margin: '12vh auto', background: rjSolidBg(), border: '1px solid var(--border,#5a6570)', borderRadius: '6px', color: 'var(--text,#e8e8e8)', padding: '14px', fontSize: '12px' });
     box.append($('<div id="rj-ack-text" style="margin:0 0 10px"></div>'));
     box.append($('<input type="text" id="rj-ack-in" autocomplete="off">').css({ width: '100%', boxSizing: 'border-box', marginBottom: '12px' }));
     box.append($('<input type="button" id="rj-ack-ok" value="Acknowledge" class="rj-btn rj-del">')).append($('<input type="button" id="rj-ack-cancel" value="Cancel">'));
@@ -676,9 +693,9 @@ $(function () {
 
   function rjBrowseBuild() {
     if (rjB.built) return;
-    /* structural colors via theme vars with dark fallbacks (light-theme safe) */
+    /* solid panel color (theme-tinted, alpha flattened) + dark fallbacks */
     var css = '#rj-browse-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:none}'
-      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:var(--background,#23292e);border:1px solid var(--border,#5a6570);border-radius:6px;color:var(--text,#e8e8e8);box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
+      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:' + rjSolidBg() + ';border:1px solid var(--border,#5a6570);border-radius:6px;color:var(--text,#e8e8e8);box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
       + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border,#444e57)}'
       + '#rj-browse-title{font-weight:bold;margin-right:auto}'
       + '.rj-b-tab{padding:3px 10px;border:1px solid var(--border,#5a6570);background:transparent;color:var(--text,#cfd6dc);cursor:pointer;border-radius:3px}'
@@ -687,10 +704,10 @@ $(function () {
       + '#rj-browse-crumbs{display:flex;gap:2px;flex-wrap:wrap;align-items:center}'
       + '.rj-b-crumb{cursor:pointer;color:#7fc7e8;text-decoration:underline}'
       + '#rj-browse-list{max-height:46vh;overflow:auto;padding:4px 0}'
-      + '.rj-b-row{padding:3px 12px;cursor:pointer;white-space:nowrap;display:flex;gap:6px}'
+      + '.rj-b-row{padding:5px 12px;cursor:pointer;white-space:nowrap;display:flex;gap:6px}'
       + '.rj-b-row:hover{background:#2e97c2;color:#fff}'
       + '.rj-b-row:hover .rj-b-ic{color:#fff}'
-      + '.rj-b-row .rj-b-ic{width:14px;color:#9aa7b2}'
+      + '.rj-b-row .rj-b-ic{width:14px;color:#c3ced8}'
       + '.rj-b-note{padding:8px 12px;color:#9aa7b2}'
       + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border,#444e57)}'
       + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:var(--text,#cfe3ef)}'

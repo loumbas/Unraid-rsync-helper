@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.07l">
+<!ENTITY version   "2026.09.08">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,16 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.08
+WebUI dialog legibility:
+- WebUI: path-browser and deletion-Ack dialogs now paint a fully opaque panel
+  background. webGui theme variables (--background) can carry alpha, which let
+  the page behind bleed through the modal and made the browse tree unreadable.
+  rjSolidBg() keeps the theme tint but flattens it to a solid rgb (over white
+  for light themes, over black for dark ones), with the classic dark fallback.
+- WebUI: slightly taller browse rows and a brighter expand-icon for clearer
+  hierarchy inside the picker.
+
 ## 2026.09.07l
 Run history + transferred-size trend:
 - Engine: every LIVE run end appends one json line {ts,iso,rc,secs,errors,transferred,
@@ -148,20 +158,6 @@ Best-practices compliance pass (checked against the Unraid plugin-dev docs) + fi
 - Doctor tab: explanatory text added - what the checks cover, the PASS/INFO/WARN/FAIL
   legend, that the run is read-only apart from saving a report copy, and that the
   fenced block at the end is a paste-ready summary for support threads.
-
-## 2026.09.07c
-- No cron knowledge needed anymore: the job form's Schedule field is now a visual
-  builder - every N minutes | hourly | daily | weekly (weekday checkboxes) |
-  monthly (day-of-month) | Custom (cron) - with a live summary showing the
-  generated expression, the next 3 run times and gotcha notes (EITHER-matching
-  when a custom expression restricts both day-of-month and day-of-week; months
-  without day 29-31 skip). Existing expressions are reverse-mapped into the
-  builder on Edit; anything exotic stays editable under Custom.
-- The jobs table Schedule column shows human text (e.g. "Every day at 03:30");
-  the raw cron expression is on hover.
-- Storage format unchanged: SCHEDULE remains a classic 5-field cron line, the
-  engine and crontab generation are untouched. The ajax validator additionally
-  range-checks each field (0-59, 0-23, 1-31, 1-12, 0-7) as defense-in-depth.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -200,7 +196,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.07l - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.08 - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -222,7 +218,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.07l"
+ENGINE_VERSION="2026.09.08"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -1743,7 +1739,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>6ebdd9d84bec937f0ea3ead9a6781cfa74727eabf327e7de6a7a84fc56f4e1e4</SHA256>
+<SHA256>b6cdd037e3d9919d0cc70688895331bdcb74364dbe9f2d92ecb73f726fc5ddd9</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -1920,7 +1916,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.07l - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.08 - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -1969,7 +1965,7 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.07l',
+    'version'    =&gt; '2026.09.08',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2012,7 +2008,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.07l"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.08"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2197,15 +2193,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.07l &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08 &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>05dca292abcb56dd9b487687014d65732c81bfe383f128b775eed68bd20fce48</SHA256>
+<SHA256>a2725f2b09b0a2ae56ea52881d33e717c97def218bf858c118d88326bf7d0717</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.07l - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.08 - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -2534,12 +2530,12 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>c38fe433a5074bd21f15ad43244d41031209f8531eb20cafe0707e0d2503c648</SHA256>
+<SHA256>ae9e8838e428223ee89942c051e917666c5d2b0df990057d282a4de643c94026</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.07l - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.08 - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -2564,6 +2560,23 @@ function rjData() {
   if (!d.quiet || typeof d.quiet !== 'object') d.quiet = { start: '23:00', end: '07:00' };
   if (d.master === undefined) d.master = 'yes';
   return d;
+}
+
+/* opaque panel background for the self-built dialogs: webGui theme variables
+   (--background) may carry alpha, which lets page content bleed through the
+   modal and makes the browse tree unreadable. Flatten to a solid rgb: over
+   white when the theme colour is light, over black when dark. */
+function rjSolidBg() {
+  var st = getComputedStyle(document.body);
+  var v = (st.getPropertyValue('--background') || st.getPropertyValue('--background-color') || '').trim();
+  var m = v.match(/rgba?\(([^)]+)\)/);
+  if (!m) return v || '#23292e';
+  var p = m[1].split(/[\s,\/]+/).filter(function (x) { return x !== ''; }).map(parseFloat);
+  if (p.length &lt; 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) return '#23292e';
+  var a = p.length &gt; 3 &amp;&amp; !isNaN(p[3]) ? p[3] : 1;
+  if (a &gt;= 1) return 'rgb(' + p.slice(0, 3).map(Math.round).join(',') + ')';
+  var base = (p[0] + p[1] + p[2]) &gt; 384 ? 255 : 0;
+  return 'rgb(' + p.slice(0, 3).map(function (x) { return Math.round(x * a + base * (1 - a)); }).join(',') + ')';
 }
 
 /* ---------------- schedule builder helpers (SCHEDULE stays 5-field cron) --- */
@@ -2840,7 +2853,7 @@ function rjAckDialog(job) {
   }
   if ($('#rj-ack-ov').length === 0) {
     var ov = $('&lt;div id="rj-ack-ov" role="dialog" aria-modal="true"&gt;&lt;/div&gt;').css({ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,.55)', zIndex: 9998, display: 'none' });
-    var box = $('&lt;div&gt;&lt;/div&gt;').css({ position: 'relative', width: '440px', maxWidth: '92vw', margin: '12vh auto', background: 'var(--background,#23292e)', border: '1px solid var(--border,#5a6570)', borderRadius: '6px', color: 'var(--text,#e8e8e8)', padding: '14px', fontSize: '12px' });
+    var box = $('&lt;div&gt;&lt;/div&gt;').css({ position: 'relative', width: '440px', maxWidth: '92vw', margin: '12vh auto', background: rjSolidBg(), border: '1px solid var(--border,#5a6570)', borderRadius: '6px', color: 'var(--text,#e8e8e8)', padding: '14px', fontSize: '12px' });
     box.append($('&lt;div id="rj-ack-text" style="margin:0 0 10px"&gt;&lt;/div&gt;'));
     box.append($('&lt;input type="text" id="rj-ack-in" autocomplete="off"&gt;').css({ width: '100%', boxSizing: 'border-box', marginBottom: '12px' }));
     box.append($('&lt;input type="button" id="rj-ack-ok" value="Acknowledge" class="rj-btn rj-del"&gt;')).append($('&lt;input type="button" id="rj-ack-cancel" value="Cancel"&gt;'));
@@ -3217,9 +3230,9 @@ $(function () {
 
   function rjBrowseBuild() {
     if (rjB.built) return;
-    /* structural colors via theme vars with dark fallbacks (light-theme safe) */
+    /* solid panel color (theme-tinted, alpha flattened) + dark fallbacks */
     var css = '#rj-browse-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:none}'
-      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:var(--background,#23292e);border:1px solid var(--border,#5a6570);border-radius:6px;color:var(--text,#e8e8e8);box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
+      + '#rj-browse{position:relative;width:560px;max-width:92vw;margin:6vh auto;background:' + rjSolidBg() + ';border:1px solid var(--border,#5a6570);border-radius:6px;color:var(--text,#e8e8e8);box-shadow:0 6px 24px rgba(0,0,0,.6);font-size:12px}'
       + '#rj-browse-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border,#444e57)}'
       + '#rj-browse-title{font-weight:bold;margin-right:auto}'
       + '.rj-b-tab{padding:3px 10px;border:1px solid var(--border,#5a6570);background:transparent;color:var(--text,#cfd6dc);cursor:pointer;border-radius:3px}'
@@ -3228,10 +3241,10 @@ $(function () {
       + '#rj-browse-crumbs{display:flex;gap:2px;flex-wrap:wrap;align-items:center}'
       + '.rj-b-crumb{cursor:pointer;color:#7fc7e8;text-decoration:underline}'
       + '#rj-browse-list{max-height:46vh;overflow:auto;padding:4px 0}'
-      + '.rj-b-row{padding:3px 12px;cursor:pointer;white-space:nowrap;display:flex;gap:6px}'
+      + '.rj-b-row{padding:5px 12px;cursor:pointer;white-space:nowrap;display:flex;gap:6px}'
       + '.rj-b-row:hover{background:#2e97c2;color:#fff}'
       + '.rj-b-row:hover .rj-b-ic{color:#fff}'
-      + '.rj-b-row .rj-b-ic{width:14px;color:#9aa7b2}'
+      + '.rj-b-row .rj-b-ic{width:14px;color:#c3ced8}'
       + '.rj-b-note{padding:8px 12px;color:#9aa7b2}'
       + '#rj-browse-foot{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border,#444e57)}'
       + '#rj-browse-cur{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;color:var(--text,#cfe3ef)}'
@@ -3399,13 +3412,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>e1218dba6954cf231d6653881c870f02c0a3cb1a8b013511e338c2946fb91a45</SHA256>
+<SHA256>4b9434d8a4e794b609f991053f34fe4db80238caeb5b9fd5a3848979af2f564d</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07l - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.08 - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -3558,13 +3571,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>2641f359d4fad9b3b718fb5f0d920357ddd4f6760d6800bf615cc6f7b89112ec</SHA256>
+<SHA256>fb2a9f8efa474f878ab5f15be73cfba209c32a1484bb1b2332a2001b41518baa</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07l - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.08 - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -3643,13 +3656,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>fddc8fb5037ea1f32b99ff6ca1530ecb3cfe90c42ec220baf0411e5c6f926d3f</SHA256>
+<SHA256>a42a3efefdbdef567c2744610c209462d87eb500eeebb114dcff47f1a25f4ced</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.07l - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.08 - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -3702,7 +3715,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>c4ef0d39a83580184416c3a7b256a75abfbbb926c3338544a74bad0a2a797b28</SHA256>
+<SHA256>f7b9367bc87170b34eb2b1232ab22f7fc58da27dbc9a9ee00e7ab345b4611ad7</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -3823,16 +3836,16 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.07l - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.08 - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-6ebdd9d84bec937f0ea3ead9a6781cfa74727eabf327e7de6a7a84fc56f4e1e4  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+b6cdd037e3d9919d0cc70688895331bdcb74364dbe9f2d92ecb73f726fc5ddd9  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-05dca292abcb56dd9b487687014d65732c81bfe383f128b775eed68bd20fce48  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-c38fe433a5074bd21f15ad43244d41031209f8531eb20cafe0707e0d2503c648  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-e1218dba6954cf231d6653881c870f02c0a3cb1a8b013511e338c2946fb91a45  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-2641f359d4fad9b3b718fb5f0d920357ddd4f6760d6800bf615cc6f7b89112ec  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-fddc8fb5037ea1f32b99ff6ca1530ecb3cfe90c42ec220baf0411e5c6f926d3f  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-c4ef0d39a83580184416c3a7b256a75abfbbb926c3338544a74bad0a2a797b28  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+a2725f2b09b0a2ae56ea52881d33e717c97def218bf858c118d88326bf7d0717  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+ae9e8838e428223ee89942c051e917666c5d2b0df990057d282a4de643c94026  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+4b9434d8a4e794b609f991053f34fe4db80238caeb5b9fd5a3848979af2f564d  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+fb2a9f8efa474f878ab5f15be73cfba209c32a1484bb1b2332a2001b41518baa  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+a42a3efefdbdef567c2744610c209462d87eb500eeebb114dcff47f1a25f4ced  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+f7b9367bc87170b34eb2b1232ab22f7fc58da27dbc9a9ee00e7ab345b4611ad7  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -3840,7 +3853,7 @@ c4ef0d39a83580184416c3a7b256a75abfbbb926c3338544a74bad0a2a797b28  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>3f761889b6ce7050a12715567dfc314614fb8989c5514fdf0be4df8b980f3fd7</SHA256>
+<SHA256>fee46a977e7b36edd5710af335ec1d50c9474ed3cf2d8f8b5adaef9ddcc4f510</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
