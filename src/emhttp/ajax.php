@@ -175,6 +175,15 @@ case 'save_job':
     $rg = []; rj_regen($rg);
     rj_out(['ok' => true, 'msg' => ($isNew ? 'Job created. ' : 'Job updated. ') . implode(' ', $rg)]);
 
+case 'toggle_job':
+    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
+    $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
+    if (!is_file($conf)) rj_out(['ok' => false, 'error' => 'job not found']);
+    $enabled = rj_str($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    rj_env_upsert($conf, ['ENABLED' => $enabled], 0600);
+    $rg = []; rj_regen($rg);
+    rj_out(['ok' => true, 'job' => $name, 'enabled' => $enabled]);
+
 case 'delete_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';

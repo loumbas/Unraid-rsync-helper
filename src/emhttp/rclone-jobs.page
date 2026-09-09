@@ -74,6 +74,37 @@ foreach ($jobs as $jj) {
     if ($rc !== null && $rc !== '' && (int)$rc !== 0 && empty($jj['status']['running'])) $nFailed++;
 }
 
+function rj_to_bytes($s) {
+    $s = trim((string)$s);
+    if (!preg_match('/^([0-9.]+)\s*([KMGTPE]?i?B)?$/i', $s, $m)) return 0;
+    $v = (float)$m[1];
+    $u = strtoupper($m[2] ?? 'B');
+    $mult = 1;
+    if (strpos($u, 'K') === 0) $mult = 1024;
+    elseif (strpos($u, 'M') === 0) $mult = 1048576;
+    elseif (strpos($u, 'G') === 0) $mult = 1073741824;
+    elseif (strpos($u, 'T') === 0) $mult = 1099511627776;
+    return (float)($v * $mult);
+}
+function rj_parse_log_bytes($logfile) {
+    if (!is_readable($logfile)) return 0;
+    $fp = @fopen($logfile, 'r');
+    if (!$fp) return 0;
+    $stat = @fstat($fp);
+    $size = $stat['size'] ?? 0;
+    if ($size > 32768) fseek($fp, $size - 32768);
+    $data = fread($fp, 32768);
+    fclose($fp);
+    if (!$data) return 0;
+    if (preg_match_all('/(?:INFO|NOTICE)\s*:\s+([0-9.]+ ?[KMGTPE]?i?B)\s*\//i', $data, $m)) {
+        return rj_to_bytes(end($m[1]));
+    }
+    if (preg_match_all('/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]?i?B)/mi', $data, $m)) {
+        return rj_to_bytes(end($m[1]));
+    }
+    return 0;
+}
+
 $bytes24 = 0;
 $now = time();
 foreach ($jobs as $name => $jj) {
@@ -83,11 +114,20 @@ foreach ($jobs as $name => $jj) {
         if ($lines) {
             foreach ($lines as $ln) {
                 $e = @json_decode($ln, true);
-                if ($e && isset($e['ts']) && ($now - (int)$e['ts']) <= 86400 && !empty($e['bytes'])) {
-                    $bytes24 += (float)$e['bytes'];
+                if ($e && isset($e['ts']) && ($now - (int)$e['ts']) <= 86400) {
+                    $b = (float)($e['bytes'] ?? 0);
+                    if ($b <= 0 && !empty($e['transferred']) && $e['transferred'] !== '0' && $e['transferred'] !== '0 B') {
+                        $b = rj_to_bytes($e['transferred']);
+                    }
+                    if ($b <= 0 && !empty($e['log'])) {
+                        $b = rj_parse_log_bytes($e['log']);
+                    }
+                    $bytes24 += $b;
                 }
             }
         }
+    } elseif (!empty($jj['status']['log']) && !empty($jj['status']['last_ok']) && ($now - (int)$jj['status']['last_ok']) <= 86400) {
+        $bytes24 += rj_parse_log_bytes($jj['status']['log']);
     }
 }
 function rj_fmt_bytes($b) {
@@ -195,6 +235,18 @@ $rjdata = [
     '#tab_rj_jobs tbody tr.rj-st-run>td:first-child{border-left:4px solid #2e97c2!important;animation:rj-border-pulse 1.6s ease-in-out infinite}',
     '@keyframes rj-border-pulse{0%,100%{border-left-color:#2e97c2}50%{border-left-color:rgba(46,151,194,0.35)}}',
     '#tab_rj_jobs tbody tr.rj-off td{opacity:0.55}',
+    /* Direct On/Off Toggle Switch */
+    '.rj-switch{position:relative;display:inline-flex;align-items:center;vertical-align:middle;cursor:pointer;margin:0}',
+    '.rj-switch input{opacity:0;width:0;height:0;position:absolute;margin:0;pointer-events:none}',
+    '.rj-slider{position:relative;display:inline-block;width:34px;height:18px;background:#323b44;transition:all 0.2s cubic-bezier(0.4,0,0.2,1);border-radius:18px;border:1px solid #485460;box-sizing:border-box}',
+    '.rj-slider:before{position:absolute;content:"";height:12px;width:12px;left:2px;bottom:2px;background:#9aa7b2;transition:all 0.2s cubic-bezier(0.4,0,0.2,1);border-radius:50%}',
+    '.rj-switch input:checked+.rj-slider{background:#2f8f46;border-color:#38a552}',
+    '.rj-switch input:checked+.rj-slider:before{transform:translateX(16px);background:#fff}',
+    '.rj-switch:hover .rj-slider{border-color:#ff8c2f}',
+    '.rj-switch.rj-busy{opacity:0.5;pointer-events:none}',
+    '.rj-switch-text{font-size:10px;margin-left:6px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;user-select:none}',
+    '.rj-switch-text.on{color:#7dcf7d}',
+    '.rj-switch-text.off{color:#8b98a3}',
     /* Badges & Chips */
     '#tab_rj_jobs .rj-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
     '#tab_rj_jobs .rj-badge.on{background:#2f8f46;color:#fff}',
@@ -388,7 +440,13 @@ $rjdata = [
             <span class="rj-chip"><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></span>
             <?php if (($c['DESC'] ?? '') !== ''): ?><br><span class="gray"><?= htmlspecialchars($c['DESC']) ?></span><?php endif; ?>
           </td>
-          <td><span class="rj-badge <?= $en === 'no' ? 'off' : 'on' ?>"><?= $en === 'no' ? 'off' : 'on' ?></span></td>
+          <td style="white-space:nowrap">
+            <label class="rj-switch" title="Click to <?= $en === 'yes' ? 'disable' : 'enable' ?> job">
+              <input type="checkbox" class="rj-toggle-en" data-job="<?= htmlspecialchars($name) ?>" <?= $en === 'yes' ? 'checked' : '' ?>>
+              <span class="rj-slider"></span>
+            </label>
+            <span class="rj-switch-text <?= $en === 'yes' ? 'on' : 'off' ?>"><?= $en === 'yes' ? 'ON' : 'OFF' ?></span>
+          </td>
           <td class="rj-sched"><?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?></td>
           <?php
             $src = $c['SRC'] ?? '';
@@ -404,9 +462,13 @@ $rjdata = [
             </div>
           </td>
           <td style="white-space:nowrap">
+            <?php
+              $trAmt = $s['transferred'] ?? '';
+              $hasTr = ($trAmt !== '' && $trAmt !== '0' && $trAmt !== '0 B');
+            ?>
             <span class="rj-rc<?= $ok ? ' ok' : (($rcTxt !== '-' && $rcTxt !== 'RUN') ? ' bad' : ($running ? ' run' : '')) ?>">
               <?php if ($ok): ?><i class="fa fa-check"></i> <?php elseif ($running): ?><i class="fa fa-refresh fa-spin"></i> <?php elseif ($rcTxt !== '-'): ?><i class="fa fa-exclamation-circle"></i> <?php endif; ?>
-              <?= htmlspecialchars($rcDisplay) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?>
+              <?= htmlspecialchars($rcDisplay) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s".($hasTr ? " · ".htmlspecialchars($trAmt) : '').")" : '' ?>
             </span>
             <br><span class="rj-lastok">last OK: <?= htmlspecialchars((string)$lastok) ?></span>
           </td>

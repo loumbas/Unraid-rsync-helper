@@ -273,8 +273,9 @@ function rjApplyStatus(jobs) {
     else if (running) iconHtml = '<i class="fa fa-refresh fa-spin"></i> ';
     else if (rcTxt !== '-' && rcTxt !== 'RUN') iconHtml = '<i class="fa fa-exclamation-circle"></i> ';
 
+    var trAmt = (j.transferred && j.transferred !== '0' && j.transferred !== '0 B') ? (' · ' + j.transferred) : '';
     $tr.find('.rj-rc')
-      .html(iconHtml + rjEsc(rcDisplay + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : '')))
+      .html(iconHtml + rjEsc(rcDisplay + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's' + trAmt + ')' : '')))
       .toggleClass('ok', ok).toggleClass('bad', !ok && !running && rcTxt !== '-' && rcTxt !== 'RUN').toggleClass('run', running);
     $tr.find('.rj-lastok').text('last OK: ' + (j.last_ok_run || 'never'));
     var d = j.dry, needAck = false;
@@ -868,6 +869,48 @@ $(function () {
 
   /* table buttons - delegated from document because live status refreshes add
      and remove the per-row Ack button after the initial page render */
+  /* toggle job on/off directly from table switch */
+  $(document).off('change.rjtoggle', '.rj-toggle-en').on('change.rjtoggle', '.rj-toggle-en', function () {
+    var $chk = $(this);
+    var job = $chk.data('job') || $chk.attr('data-job');
+    var isChecked = $chk.is(':checked');
+    var newEn = isChecked ? 'yes' : 'no';
+    var $wrap = $chk.closest('.rj-switch');
+    var $row = $chk.closest('tr');
+    var $label = $row.find('.rj-switch-text');
+
+    $wrap.addClass('rj-busy');
+    rjPost({ action: 'toggle_job', job: job, enabled: newEn }, function (res) {
+      $wrap.removeClass('rj-busy');
+      if (res && res.ok) {
+        if (D.jobs && D.jobs[job] && D.jobs[job].conf) {
+          D.jobs[job].conf.ENABLED = newEn;
+        }
+        if (newEn === 'yes') {
+          $row.removeClass('rj-off');
+          $label.text('ON').removeClass('off').addClass('on');
+          $wrap.attr('title', 'Click to disable job');
+        } else {
+          $row.addClass('rj-off');
+          $label.text('OFF').removeClass('on').addClass('off');
+          $wrap.attr('title', 'Click to enable job');
+        }
+        var nEn = 0, total = 0;
+        $('.rj-toggle-en').each(function () {
+          total++;
+          if ($(this).is(':checked')) nEn++;
+        });
+        $('button[data-filter="active"] .rj-pill-cnt').text(nEn);
+        $('.rj-card:first .rj-card-sub').text(nEn + ' of ' + total + ' active');
+        rjPanel('rj-result', 'Job "' + job + '" ' + (newEn === 'yes' ? 'enabled' : 'disabled') + '. Cron schedule updated.');
+        setTimeout(function () { $('#rj-result').fadeOut(); }, 4000);
+      } else {
+        $chk.prop('checked', !isChecked);
+        rjPanel('rj-result', 'ERROR: ' + (res && res.error ? res.error : 'Failed to toggle job'), true);
+      }
+    });
+  });
+
   $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
     var act = $(this).data('act') || $(this).attr('data-act');
     var job = $(this).data('job') || $(this).attr('data-job');

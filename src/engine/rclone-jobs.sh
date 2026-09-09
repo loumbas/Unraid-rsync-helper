@@ -594,15 +594,28 @@ ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
 CLS_EMOJI="!"; CLS_HEAD="Failed"
 
 parse_counters() { # <logfile>
-  local lf="$1" n t
+  local lf="$1" n t rbytes
   ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
   n="$(grep -oE 'with [0-9]+ error' "$lf" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)"
   [ -n "$n" ] || n="$(grep -cE ' ERROR ' "$lf" 2>/dev/null)"
   ERR_COUNT="${n:-0}"
   ERR_LAST="$(grep -E ' ERROR ' "$lf" 2>/dev/null | tail -3 | sed -E 's/^.*ERROR[ ]*:[ ]*//' | cut -c1-200 | paste -sd '|' -)"
   ERR_FILES="$(grep -E ' ERROR ' "$lf" 2>/dev/null | sed -E 's/^.*ERROR[ ]*:[ ]*//; s/[ :].*$//' | grep -E '/' | sort -u | head -5 | paste -sd '|' -)"
-  t="$(grep -E '^[[:space:]]*Transferred:' "$lf" 2>/dev/null | tail -1 \
-       | sed -E 's/^[[:space:]]*Transferred:[[:space:]]+//' | cut -d, -f1 | cut -d'/' -f1 | xargs 2>/dev/null)"
+  # 1. rclone --stats-one-line format (e.g. '2026/09/09 11:58:33 INFO  :     1.050 MiB / 1.050 MiB, 100%, 0 B/s, ETA -')
+  t="$(grep -E '(INFO|NOTICE)[[:space:]]*:[[:space:]]+[0-9.]+ ?[KMGTPE]?i?B[[:space:]]*/' "$lf" 2>/dev/null | tail -1 \
+       | sed -E 's/^.*(INFO|NOTICE)[[:space:]]*:[[:space:]]+//' | cut -d'/' -f1 | xargs 2>/dev/null)"
+  # 2. Fallback: rclone multi-line / standard stats (e.g. 'Transferred:   1.050 MiB / 1.050 MiB')
+  if [ -z "$t" ]; then
+    t="$(grep -E '^[[:space:]]*Transferred:[[:space:]]+[0-9.]+' "$lf" 2>/dev/null | tail -1 \
+         | sed -E 's/^[[:space:]]*Transferred:[[:space:]]+//' | cut -d, -f1 | cut -d'/' -f1 | cut -d'(' -f1 | xargs 2>/dev/null)"
+  fi
+  # 3. Fallback: rsync stats (e.g. 'Total transferred file size: 1,048,576 bytes')
+  if [ -z "$t" ]; then
+    rbytes="$(grep -E 'Total transferred file size:' "$lf" 2>/dev/null | tail -1 | sed -E 's/^.*:[[:space:]]*//; s/[^0-9]//g')"
+    if [ -n "$rbytes" ]; then
+      t="${rbytes} B"
+    fi
+  fi
   [ -n "$t" ] && TR="$t"
 }
 
@@ -1356,6 +1369,7 @@ cmd_status_json() { # every job's run + dry-run state as ONE json object (live U
         secs:($st.secs // null),
         run:($st.run // null),
         last_ok_run:($st.last_ok_run // null),
+        transferred:($st.transferred // null),
         dry:(if $dy==null then null else {stamp:($dy.stamp // "?"),copies:($dy.copies // 0),
           deletes:($dy.deletes // 0),fails:($dy.fails // 0),ack:($dy.ack // false),
           warnDelete:($dy.warnDelete // $warn)} end)}' 2>/dev/null \

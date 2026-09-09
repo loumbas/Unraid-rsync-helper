@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.09d">
+<!ENTITY version   "2026.09.09e">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,18 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09e
+Data Tracking &amp; Direct Job On/Off Toggle Switches:
+ - Transferred data tracking fix: parse rclone's `--stats-one-line` log lines (`INFO : &lt;size&gt; / &lt;size&gt;, ...`),
+   standard multi-line stats, and rsync stats so transferred bytes are accurately captured, recorded to
+   status and history, and reflected in the 24h Data Moved card and Last Run column.
+ - 24h Data Moved log fallback: automatically reads and tallies transfer sizes from existing run logs when
+   prior records had unparsed bytes, immediately restoring accurate metrics without requiring re-runs.
+ - Direct On/Off toggle switches: added interactive toggle switches in the table's "On" column, allowing
+   instant job activation and deactivation with real-time cron regeneration without opening the edit form.
+ - Transferred size in Last Run: display the transferred data amount directly in the Last Run status cell
+   (e.g., `OK (4s · 1.050 MiB)`).
+
 ## 2026.09.09d
 Form Left-Alignment &amp; Edit Button Reliability:
  - Strict left-alignment: all form labels, input fields, selects, and action buttons are
@@ -154,30 +166,6 @@ Form alignment regression fix (Jobs tab):
   uses. Replaced with the same white-space:nowrap pattern the multi-control rows
   (Transfers/Checkers etc.) already use - inputs align with the Name/Description
   fields again and the Browse button stays inline beside its field.
-
-## 2026.09.08c
-WebUI declutter (Jobs tab):
-- WebUI: the Add/Edit job form is collapsed by default - the title bar toggles it
-  (chevron + click/Enter), Edit and Add open it, Cancel closes it, and a box with
-  no jobs yet opens it right away. Result/preview/history panels stay outside the
-  collapsible so save and preview messages remain visible.
-- WebUI: form fields grouped under Basics / Transfer / Limits &amp; notifications
-  sub-headings.
-- WebUI: jobs table slimmed 9 -&gt; 7 columns - Engine becomes a gray chip under the
-  job name, Last run and Last OK share one cell (colored rc + gray last-OK line),
-  Enabled becomes an on/off badge, and the dry-run summary is compacted
-  ("MM-DD HH:MM +N -N !N", full text in the tooltip; needs-ack is a red badge).
-- WebUI: per-row state cue - colored left border (green last OK / red failed /
-  orange needs-ack / blue pulsing while running), disabled rows dimmed.
-- WebUI: status strip above the table: master dry-run pill (orange ON / green
-  OFF), job counts, and the SSE live indicator (safety state now visible without
-  opening the Alerts tab).
-- WebUI: small gray "next:" line under each humanized schedule in the table.
-- WebUI: Source/Destination/Script/Backup-dir inputs and their Browse button now
-  sit side-by-side instead of the button stretching full width.
-- WebUI: live refresh patches cells by class (no positional td indices) and
-  refreshes row cues; typed confirmation, run confirmations and CSRF flow
-  unchanged.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -216,7 +204,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.09d - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09e - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -238,7 +226,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.09d"
+ENGINE_VERSION="2026.09.09e"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -810,15 +798,28 @@ ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
 CLS_EMOJI="!"; CLS_HEAD="Failed"
 
 parse_counters() { # &lt;logfile&gt;
-  local lf="$1" n t
+  local lf="$1" n t rbytes
   ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
   n="$(grep -oE 'with [0-9]+ error' "$lf" 2&gt;/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)"
   [ -n "$n" ] || n="$(grep -cE ' ERROR ' "$lf" 2&gt;/dev/null)"
   ERR_COUNT="${n:-0}"
   ERR_LAST="$(grep -E ' ERROR ' "$lf" 2&gt;/dev/null | tail -3 | sed -E 's/^.*ERROR[ ]*:[ ]*//' | cut -c1-200 | paste -sd '|' -)"
   ERR_FILES="$(grep -E ' ERROR ' "$lf" 2&gt;/dev/null | sed -E 's/^.*ERROR[ ]*:[ ]*//; s/[ :].*$//' | grep -E '/' | sort -u | head -5 | paste -sd '|' -)"
-  t="$(grep -E '^[[:space:]]*Transferred:' "$lf" 2&gt;/dev/null | tail -1 \
-       | sed -E 's/^[[:space:]]*Transferred:[[:space:]]+//' | cut -d, -f1 | cut -d'/' -f1 | xargs 2&gt;/dev/null)"
+  # 1. rclone --stats-one-line format (e.g. '2026/09/09 11:58:33 INFO  :     1.050 MiB / 1.050 MiB, 100%, 0 B/s, ETA -')
+  t="$(grep -E '(INFO|NOTICE)[[:space:]]*:[[:space:]]+[0-9.]+ ?[KMGTPE]?i?B[[:space:]]*/' "$lf" 2&gt;/dev/null | tail -1 \
+       | sed -E 's/^.*(INFO|NOTICE)[[:space:]]*:[[:space:]]+//' | cut -d'/' -f1 | xargs 2&gt;/dev/null)"
+  # 2. Fallback: rclone multi-line / standard stats (e.g. 'Transferred:   1.050 MiB / 1.050 MiB')
+  if [ -z "$t" ]; then
+    t="$(grep -E '^[[:space:]]*Transferred:[[:space:]]+[0-9.]+' "$lf" 2&gt;/dev/null | tail -1 \
+         | sed -E 's/^[[:space:]]*Transferred:[[:space:]]+//' | cut -d, -f1 | cut -d'/' -f1 | cut -d'(' -f1 | xargs 2&gt;/dev/null)"
+  fi
+  # 3. Fallback: rsync stats (e.g. 'Total transferred file size: 1,048,576 bytes')
+  if [ -z "$t" ]; then
+    rbytes="$(grep -E 'Total transferred file size:' "$lf" 2&gt;/dev/null | tail -1 | sed -E 's/^.*:[[:space:]]*//; s/[^0-9]//g')"
+    if [ -n "$rbytes" ]; then
+      t="${rbytes} B"
+    fi
+  fi
   [ -n "$t" ] &amp;&amp; TR="$t"
 }
 
@@ -1572,6 +1573,7 @@ cmd_status_json() { # every job's run + dry-run state as ONE json object (live U
         secs:($st.secs // null),
         run:($st.run // null),
         last_ok_run:($st.last_ok_run // null),
+        transferred:($st.transferred // null),
         dry:(if $dy==null then null else {stamp:($dy.stamp // "?"),copies:($dy.copies // 0),
           deletes:($dy.deletes // 0),fails:($dy.fails // 0),ack:($dy.ack // false),
           warnDelete:($dy.warnDelete // $warn)} end)}' 2&gt;/dev/null \
@@ -2075,7 +2077,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>7b0a868990bd8e24a48db6337247645e9ecea2dbb6b1b92cb593aa79ee3f4138</SHA256>
+<SHA256>52ce3482e04210b38a8d467817fce18680d9dfd36f127d7d9c55849da9721967</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2252,7 +2254,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.09d - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09e - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2323,6 +2325,37 @@ foreach ($jobs as $jj) {
     if ($rc !== null &amp;&amp; $rc !== '' &amp;&amp; (int)$rc !== 0 &amp;&amp; empty($jj['status']['running'])) $nFailed++;
 }
 
+function rj_to_bytes($s) {
+    $s = trim((string)$s);
+    if (!preg_match('/^([0-9.]+)\s*([KMGTPE]?i?B)?$/i', $s, $m)) return 0;
+    $v = (float)$m[1];
+    $u = strtoupper($m[2] ?? 'B');
+    $mult = 1;
+    if (strpos($u, 'K') === 0) $mult = 1024;
+    elseif (strpos($u, 'M') === 0) $mult = 1048576;
+    elseif (strpos($u, 'G') === 0) $mult = 1073741824;
+    elseif (strpos($u, 'T') === 0) $mult = 1099511627776;
+    return (float)($v * $mult);
+}
+function rj_parse_log_bytes($logfile) {
+    if (!is_readable($logfile)) return 0;
+    $fp = @fopen($logfile, 'r');
+    if (!$fp) return 0;
+    $stat = @fstat($fp);
+    $size = $stat['size'] ?? 0;
+    if ($size &gt; 32768) fseek($fp, $size - 32768);
+    $data = fread($fp, 32768);
+    fclose($fp);
+    if (!$data) return 0;
+    if (preg_match_all('/(?:INFO|NOTICE)\s*:\s+([0-9.]+ ?[KMGTPE]?i?B)\s*\//i', $data, $m)) {
+        return rj_to_bytes(end($m[1]));
+    }
+    if (preg_match_all('/^\s*Transferred:\s+([0-9.]+ ?[KMGTPE]?i?B)/mi', $data, $m)) {
+        return rj_to_bytes(end($m[1]));
+    }
+    return 0;
+}
+
 $bytes24 = 0;
 $now = time();
 foreach ($jobs as $name =&gt; $jj) {
@@ -2332,11 +2365,20 @@ foreach ($jobs as $name =&gt; $jj) {
         if ($lines) {
             foreach ($lines as $ln) {
                 $e = @json_decode($ln, true);
-                if ($e &amp;&amp; isset($e['ts']) &amp;&amp; ($now - (int)$e['ts']) &lt;= 86400 &amp;&amp; !empty($e['bytes'])) {
-                    $bytes24 += (float)$e['bytes'];
+                if ($e &amp;&amp; isset($e['ts']) &amp;&amp; ($now - (int)$e['ts']) &lt;= 86400) {
+                    $b = (float)($e['bytes'] ?? 0);
+                    if ($b &lt;= 0 &amp;&amp; !empty($e['transferred']) &amp;&amp; $e['transferred'] !== '0' &amp;&amp; $e['transferred'] !== '0 B') {
+                        $b = rj_to_bytes($e['transferred']);
+                    }
+                    if ($b &lt;= 0 &amp;&amp; !empty($e['log'])) {
+                        $b = rj_parse_log_bytes($e['log']);
+                    }
+                    $bytes24 += $b;
                 }
             }
         }
+    } elseif (!empty($jj['status']['log']) &amp;&amp; !empty($jj['status']['last_ok']) &amp;&amp; ($now - (int)$jj['status']['last_ok']) &lt;= 86400) {
+        $bytes24 += rj_parse_log_bytes($jj['status']['log']);
     }
 }
 function rj_fmt_bytes($b) {
@@ -2366,7 +2408,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.09d',
+    'version'    =&gt; '2026.09.09e',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2444,6 +2486,18 @@ $rjdata = [
     '#tab_rj_jobs tbody tr.rj-st-run&gt;td:first-child{border-left:4px solid #2e97c2!important;animation:rj-border-pulse 1.6s ease-in-out infinite}',
     '@keyframes rj-border-pulse{0%,100%{border-left-color:#2e97c2}50%{border-left-color:rgba(46,151,194,0.35)}}',
     '#tab_rj_jobs tbody tr.rj-off td{opacity:0.55}',
+    /* Direct On/Off Toggle Switch */
+    '.rj-switch{position:relative;display:inline-flex;align-items:center;vertical-align:middle;cursor:pointer;margin:0}',
+    '.rj-switch input{opacity:0;width:0;height:0;position:absolute;margin:0;pointer-events:none}',
+    '.rj-slider{position:relative;display:inline-block;width:34px;height:18px;background:#323b44;transition:all 0.2s cubic-bezier(0.4,0,0.2,1);border-radius:18px;border:1px solid #485460;box-sizing:border-box}',
+    '.rj-slider:before{position:absolute;content:"";height:12px;width:12px;left:2px;bottom:2px;background:#9aa7b2;transition:all 0.2s cubic-bezier(0.4,0,0.2,1);border-radius:50%}',
+    '.rj-switch input:checked+.rj-slider{background:#2f8f46;border-color:#38a552}',
+    '.rj-switch input:checked+.rj-slider:before{transform:translateX(16px);background:#fff}',
+    '.rj-switch:hover .rj-slider{border-color:#ff8c2f}',
+    '.rj-switch.rj-busy{opacity:0.5;pointer-events:none}',
+    '.rj-switch-text{font-size:10px;margin-left:6px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;user-select:none}',
+    '.rj-switch-text.on{color:#7dcf7d}',
+    '.rj-switch-text.off{color:#8b98a3}',
     /* Badges &amp; Chips */
     '#tab_rj_jobs .rj-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
     '#tab_rj_jobs .rj-badge.on{background:#2f8f46;color:#fff}',
@@ -2535,7 +2589,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09d"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09e"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2637,7 +2691,13 @@ $rjdata = [
             &lt;span class="rj-chip"&gt;&lt;?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?&gt;&lt;/span&gt;
             &lt;?php if (($c['DESC'] ?? '') !== ''): ?&gt;&lt;br&gt;&lt;span class="gray"&gt;&lt;?= htmlspecialchars($c['DESC']) ?&gt;&lt;/span&gt;&lt;?php endif; ?&gt;
           &lt;/td&gt;
-          &lt;td&gt;&lt;span class="rj-badge &lt;?= $en === 'no' ? 'off' : 'on' ?&gt;"&gt;&lt;?= $en === 'no' ? 'off' : 'on' ?&gt;&lt;/span&gt;&lt;/td&gt;
+          &lt;td style="white-space:nowrap"&gt;
+            &lt;label class="rj-switch" title="Click to &lt;?= $en === 'yes' ? 'disable' : 'enable' ?&gt; job"&gt;
+              &lt;input type="checkbox" class="rj-toggle-en" data-job="&lt;?= htmlspecialchars($name) ?&gt;" &lt;?= $en === 'yes' ? 'checked' : '' ?&gt;&gt;
+              &lt;span class="rj-slider"&gt;&lt;/span&gt;
+            &lt;/label&gt;
+            &lt;span class="rj-switch-text &lt;?= $en === 'yes' ? 'on' : 'off' ?&gt;"&gt;&lt;?= $en === 'yes' ? 'ON' : 'OFF' ?&gt;&lt;/span&gt;
+          &lt;/td&gt;
           &lt;td class="rj-sched"&gt;&lt;?= htmlspecialchars($c['SCHEDULE'] ?? '(none)') ?&gt;&lt;/td&gt;
           &lt;?php
             $src = $c['SRC'] ?? '';
@@ -2653,9 +2713,13 @@ $rjdata = [
             &lt;/div&gt;
           &lt;/td&gt;
           &lt;td style="white-space:nowrap"&gt;
+            &lt;?php
+              $trAmt = $s['transferred'] ?? '';
+              $hasTr = ($trAmt !== '' &amp;&amp; $trAmt !== '0' &amp;&amp; $trAmt !== '0 B');
+            ?&gt;
             &lt;span class="rj-rc&lt;?= $ok ? ' ok' : (($rcTxt !== '-' &amp;&amp; $rcTxt !== 'RUN') ? ' bad' : ($running ? ' run' : '')) ?&gt;"&gt;
               &lt;?php if ($ok): ?&gt;&lt;i class="fa fa-check"&gt;&lt;/i&gt; &lt;?php elseif ($running): ?&gt;&lt;i class="fa fa-refresh fa-spin"&gt;&lt;/i&gt; &lt;?php elseif ($rcTxt !== '-'): ?&gt;&lt;i class="fa fa-exclamation-circle"&gt;&lt;/i&gt; &lt;?php endif; ?&gt;
-              &lt;?= htmlspecialchars($rcDisplay) ?&gt;&lt;?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s)" : '' ?&gt;
+              &lt;?= htmlspecialchars($rcDisplay) ?&gt;&lt;?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s".($hasTr ? " · ".htmlspecialchars($trAmt) : '').")" : '' ?&gt;
             &lt;/span&gt;
             &lt;br&gt;&lt;span class="rj-lastok"&gt;last OK: &lt;?= htmlspecialchars((string)$lastok) ?&gt;&lt;/span&gt;
           &lt;/td&gt;
@@ -2844,15 +2908,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09d &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09e &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>c05a4aa4840ee3922f450cd9d48ebfeff90b0bd50815f5ed6e1fffe2f93eb2f1</SHA256>
+<SHA256>d14fd2790aedc2ab28b77afd1c477dee1c9d7be66ce570c42a3522fed3c67e00</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09d - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09e - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3027,6 +3091,15 @@ case 'save_job':
        a successful save (the engine task keeps running across the page reload). */
     $rg = []; rj_regen($rg);
     rj_out(['ok' =&gt; true, 'msg' =&gt; ($isNew ? 'Job created. ' : 'Job updated. ') . implode(' ', $rg)]);
+
+case 'toggle_job':
+    if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
+    $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
+    if (!is_file($conf)) rj_out(['ok' =&gt; false, 'error' =&gt; 'job not found']);
+    $enabled = rj_str($_POST['enabled'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    rj_env_upsert($conf, ['ENABLED' =&gt; $enabled], 0600);
+    $rg = []; rj_regen($rg);
+    rj_out(['ok' =&gt; true, 'job' =&gt; $name, 'enabled' =&gt; $enabled]);
 
 case 'delete_job':
     if (!rj_name_ok($name)) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid job name']);
@@ -3209,13 +3282,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>bdc47e47dad8ca9718238691230bb02d46b8da44845d31141fc4322c63e12cdb</SHA256>
+<SHA256>6fe8447ce563faeb5ef93c2c3911b75a9a52eb9da27ae8e8f2851a94dbbc37ec</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09d - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09e - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3323,12 +3396,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>ddb8844993912f766a5fadae462a64bd380bed96339ffbb271914d0b3728d812</SHA256>
+<SHA256>77ad2296faa9630893cbd05c4b60631757851018baa9c693c6f553170f8e487b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.09d - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09e - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -3603,8 +3676,9 @@ function rjApplyStatus(jobs) {
     else if (running) iconHtml = '&lt;i class="fa fa-refresh fa-spin"&gt;&lt;/i&gt; ';
     else if (rcTxt !== '-' &amp;&amp; rcTxt !== 'RUN') iconHtml = '&lt;i class="fa fa-exclamation-circle"&gt;&lt;/i&gt; ';
 
+    var trAmt = (j.transferred &amp;&amp; j.transferred !== '0' &amp;&amp; j.transferred !== '0 B') ? (' · ' + j.transferred) : '';
     $tr.find('.rj-rc')
-      .html(iconHtml + rjEsc(rcDisplay + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : '')))
+      .html(iconHtml + rjEsc(rcDisplay + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's' + trAmt + ')' : '')))
       .toggleClass('ok', ok).toggleClass('bad', !ok &amp;&amp; !running &amp;&amp; rcTxt !== '-' &amp;&amp; rcTxt !== 'RUN').toggleClass('run', running);
     $tr.find('.rj-lastok').text('last OK: ' + (j.last_ok_run || 'never'));
     var d = j.dry, needAck = false;
@@ -4198,6 +4272,48 @@ $(function () {
 
   /* table buttons - delegated from document because live status refreshes add
      and remove the per-row Ack button after the initial page render */
+  /* toggle job on/off directly from table switch */
+  $(document).off('change.rjtoggle', '.rj-toggle-en').on('change.rjtoggle', '.rj-toggle-en', function () {
+    var $chk = $(this);
+    var job = $chk.data('job') || $chk.attr('data-job');
+    var isChecked = $chk.is(':checked');
+    var newEn = isChecked ? 'yes' : 'no';
+    var $wrap = $chk.closest('.rj-switch');
+    var $row = $chk.closest('tr');
+    var $label = $row.find('.rj-switch-text');
+
+    $wrap.addClass('rj-busy');
+    rjPost({ action: 'toggle_job', job: job, enabled: newEn }, function (res) {
+      $wrap.removeClass('rj-busy');
+      if (res &amp;&amp; res.ok) {
+        if (D.jobs &amp;&amp; D.jobs[job] &amp;&amp; D.jobs[job].conf) {
+          D.jobs[job].conf.ENABLED = newEn;
+        }
+        if (newEn === 'yes') {
+          $row.removeClass('rj-off');
+          $label.text('ON').removeClass('off').addClass('on');
+          $wrap.attr('title', 'Click to disable job');
+        } else {
+          $row.addClass('rj-off');
+          $label.text('OFF').removeClass('on').addClass('off');
+          $wrap.attr('title', 'Click to enable job');
+        }
+        var nEn = 0, total = 0;
+        $('.rj-toggle-en').each(function () {
+          total++;
+          if ($(this).is(':checked')) nEn++;
+        });
+        $('button[data-filter="active"] .rj-pill-cnt').text(nEn);
+        $('.rj-card:first .rj-card-sub').text(nEn + ' of ' + total + ' active');
+        rjPanel('rj-result', 'Job "' + job + '" ' + (newEn === 'yes' ? 'enabled' : 'disabled') + '. Cron schedule updated.');
+        setTimeout(function () { $('#rj-result').fadeOut(); }, 4000);
+      } else {
+        $chk.prop('checked', !isChecked);
+        rjPanel('rj-result', 'ERROR: ' + (res &amp;&amp; res.error ? res.error : 'Failed to toggle job'), true);
+      }
+    });
+  });
+
   $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
     var act = $(this).data('act') || $(this).attr('data-act');
     var job = $(this).data('job') || $(this).attr('data-job');
@@ -4563,13 +4679,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>7bd9f3a8e60b1d06614fca302f6ddccd992322c1f18315a1f0834fe4a8c21514</SHA256>
+<SHA256>ded202a7f68364827a139fb9258b6a3c44f54e68580b82b1dd6cb41a454bbbb1</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09d - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09e - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -4728,13 +4844,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>6d539927afef41a1052db32802a44f6c146b9a5b67aa2f05318d823bad92e5e8</SHA256>
+<SHA256>309c52ebca0fa364ffb47f06f120432c3137ce79ca964c7942a6bd639d11cb13</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09d - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09e - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -4813,13 +4929,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>d9b8c741cbc3f799e398c2ab9f9551840e4e07d38e2a30f6123673abad72c36e</SHA256>
+<SHA256>183c3c6d3f8e043949194ded1b0ea3e7d6e48ad488a7b258a94e3830f67db140</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09d - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09e - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -4887,7 +5003,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>6fb3c1b0c0974f8f9692d0efa5f92de5ba0fa44d1f8a7e47d27fe3d9edc7ee23</SHA256>
+<SHA256>e84830516344df7c5c76b615b94e106ab6e79562f9490009d791ff2fbd3382a0</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -5008,17 +5124,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.09d - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09e - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-7b0a868990bd8e24a48db6337247645e9ecea2dbb6b1b92cb593aa79ee3f4138  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+52ce3482e04210b38a8d467817fce18680d9dfd36f127d7d9c55849da9721967  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-c05a4aa4840ee3922f450cd9d48ebfeff90b0bd50815f5ed6e1fffe2f93eb2f1  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-bdc47e47dad8ca9718238691230bb02d46b8da44845d31141fc4322c63e12cdb  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-ddb8844993912f766a5fadae462a64bd380bed96339ffbb271914d0b3728d812  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-7bd9f3a8e60b1d06614fca302f6ddccd992322c1f18315a1f0834fe4a8c21514  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-6d539927afef41a1052db32802a44f6c146b9a5b67aa2f05318d823bad92e5e8  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-d9b8c741cbc3f799e398c2ab9f9551840e4e07d38e2a30f6123673abad72c36e  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-6fb3c1b0c0974f8f9692d0efa5f92de5ba0fa44d1f8a7e47d27fe3d9edc7ee23  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+d14fd2790aedc2ab28b77afd1c477dee1c9d7be66ce570c42a3522fed3c67e00  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+6fe8447ce563faeb5ef93c2c3911b75a9a52eb9da27ae8e8f2851a94dbbc37ec  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+77ad2296faa9630893cbd05c4b60631757851018baa9c693c6f553170f8e487b  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+ded202a7f68364827a139fb9258b6a3c44f54e68580b82b1dd6cb41a454bbbb1  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+309c52ebca0fa364ffb47f06f120432c3137ce79ca964c7942a6bd639d11cb13  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+183c3c6d3f8e043949194ded1b0ea3e7d6e48ad488a7b258a94e3830f67db140  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+e84830516344df7c5c76b615b94e106ab6e79562f9490009d791ff2fbd3382a0  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -5026,7 +5142,7 @@ d9b8c741cbc3f799e398c2ab9f9551840e4e07d38e2a30f6123673abad72c36e  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>7012a01caca9885402f3ac1b31f1ee2abe7ffb02040ae64f1a4d9f514f55272c</SHA256>
+<SHA256>375df93a25ce00056cb1d9d3680c31dea1d0440ebff3b7b4dc9cbde1f0db63f1</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

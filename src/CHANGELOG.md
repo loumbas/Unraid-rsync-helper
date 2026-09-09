@@ -1,3 +1,15 @@
+## 2026.09.09e
+Data Tracking & Direct Job On/Off Toggle Switches:
+ - Transferred data tracking fix: parse rclone's `--stats-one-line` log lines (`INFO : <size> / <size>, ...`),
+   standard multi-line stats, and rsync stats so transferred bytes are accurately captured, recorded to
+   status and history, and reflected in the 24h Data Moved card and Last Run column.
+ - 24h Data Moved log fallback: automatically reads and tallies transfer sizes from existing run logs when
+   prior records had unparsed bytes, immediately restoring accurate metrics without requiring re-runs.
+ - Direct On/Off toggle switches: added interactive toggle switches in the table's "On" column, allowing
+   instant job activation and deactivation with real-time cron regeneration without opening the edit form.
+ - Transferred size in Last Run: display the transferred data amount directly in the Last Run status cell
+   (e.g., `OK (4s · 1.050 MiB)`).
+
 ## 2026.09.09d
 Form Left-Alignment & Edit Button Reliability:
  - Strict left-alignment: all form labels, input fields, selects, and action buttons are
