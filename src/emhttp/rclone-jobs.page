@@ -325,7 +325,8 @@ $rjdata = [
     '#rj-btn-add-top{height:30px!important;line-height:28px!important;padding:0 14px!important;font-size:12px!important;font-weight:600!important;border:1px solid #ff8c2f!important;border-radius:6px!important;background:#20262d!important;color:#ff8c2f!important;cursor:pointer!important;text-transform:none!important;display:inline-flex!important;align-items:center!important;gap:5px!important;margin:0!important;transition:all 0.15s ease!important}',
     '#rj-btn-add-top:hover{background:#ff8c2f!important;color:#111!important}',
     /* Table Styling - Elevated Card Rows */
-    '#tab_rj_jobs table.rclone-jobs{width:100%;border-collapse:separate;border-spacing:0 4px;margin-top:6px}',
+    '#tab_rj_jobs table.rclone-jobs{width:100%;min-width:760px;border-collapse:separate;border-spacing:0 4px;margin:0}',
+    '#rj-result-pre,#rj-preview-pre{white-space:pre-wrap!important;word-break:break-word!important;max-width:100%}',
     '#tab_rj_jobs table.rclone-jobs th{padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#8b98a3;border:none;background:transparent;font-weight:600}',
     '#tab_rj_jobs table.rclone-jobs tbody tr td{background:#20262d!important;padding:12px 14px;border:none;border-top:1px solid #2f3842!important;border-bottom:1px solid #2f3842!important;vertical-align:middle;transition:background 0.15s ease}',
     '#tab_rj_jobs table.rclone-jobs tbody tr:hover td{background:#262f38!important}',
@@ -471,7 +472,12 @@ $rjdata = [
     '.rj-form-actions #rj-form-test{border:1px solid #ff8c2f!important;background:#20262d!important;color:#ff8c2f!important}',
     '.rj-form-actions #rj-form-test:hover{background:rgba(255,140,47,0.15)!important}',
     '.rj-form-actions #rj-form-cancel{border:1px solid #3e4a56!important;background:transparent!important;color:#9aa7b2!important}',
-    '.rj-form-actions #rj-form-cancel:hover{border-color:#8b98a3!important;color:#e8eef3!important}'
+    '.rj-form-actions #rj-form-cancel:hover{border-color:#8b98a3!important;color:#e8eef3!important}',
+    /* Responsive Adaptations */
+    '.rj-table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:6px;border-radius:8px}',
+    '@media (max-width:860px){.rj-chart-body{gap:16px}.rj-chart-main{flex:1 1 100%!important;min-height:140px}.rj-chart-summary{flex:1 1 100%!important;border-left:none!important;border-top:1px solid #2f3842!important;padding-left:0!important;padding-top:16px!important;display:grid!important;grid-template-columns:1fr 1fr;gap:10px 16px}.rj-sum-title{grid-column:1 / -1;margin-bottom:0}}',
+    '@media (max-width:768px){#rj-jobform dl,#tab_rj_alerts dl{flex-direction:column!important;align-items:flex-start!important;max-width:100%!important}#rj-jobform dt,#tab_rj_alerts dt{width:100%!important;min-width:100%!important;max-width:100%!important;margin-bottom:4px!important}#rj-jobform dd,#tab_rj_alerts dd{width:100%!important;max-width:100%!important}#rj-jobform dd.rj-pathrow{width:100%!important;max-width:100%!important}#rj-jobform dd.rj-pathrow input[type=text]{width:100%!important;max-width:calc(100% - 90px)!important}#rj-form-wrap blockquote.inline_help,#rj-jobform blockquote.inline_help,#tab_rj_jobs blockquote.inline_help,#tab_rj_alerts blockquote.inline_help{margin:4px 0 10px 0!important;width:100%!important;max-width:100%!important}#rj-sched-summary,#rj-ov-note{margin:4px 0 6px 0!important;max-width:100%!important}.rj-form-card{padding:12px 14px!important}#rj-form-wrap{padding:14px 14px!important}.rj-form-actions{flex-wrap:wrap;gap:8px}.rj-toolbar{flex-direction:column;align-items:stretch;gap:10px}.rj-tb-search{max-width:100%!important;flex:1 1 100%!important}.rj-tb-right{width:100%!important;justify-content:space-between!important}}',
+    '@media (max-width:520px){.rj-tb-right{flex-direction:column;align-items:stretch;gap:8px}.rj-tb-pills{justify-content:center;width:100%}.rj-filter-pill{flex:1;justify-content:center}#rj-btn-add-top{width:100%!important;justify-content:center!important}.rj-chart-card{padding:12px 14px!important}.rj-chart-summary{grid-template-columns:1fr}.rj-chart-y-axis{min-width:36px!important;font-size:9px!important;padding-right:6px}.rj-chart-x-lbl{font-size:9px!important}.rj-chart-bars-cols{gap:2px!important;padding:0}.rj-cards{grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 16px}.rj-card{padding:10px 12px!important;min-height:70px}.rj-card-val{font-size:15px!important}.rj-card-title{font-size:9px!important;margin-bottom:4px}ul#rj-tabs>li>a{padding:7px 14px!important;font-size:11px!important}}'
   ].join('\n');
   var s = document.createElement('style');
   s.type = 'text/css';
@@ -534,6 +540,7 @@ $rjdata = [
       </div>
     </div>
 
+    <div class="rj-table-wrap">
     <table class="rclone-jobs view-table sortable">
       <thead><tr>
         <th>Job</th><th>On</th><th>Schedule</th>
@@ -647,6 +654,7 @@ $rjdata = [
       <?php endforeach; ?>
       </tbody>
     </table>
+    </div>
     <div id="rj-result" style="display:none;margin-top:10px"><pre id="rj-result-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview-ctl" style="display:none;margin-top:6px"><input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"></div>

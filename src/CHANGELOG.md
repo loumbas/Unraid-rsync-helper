@@ -1,3 +1,11 @@
+## 2026.09.09j
+Responsive UI Layout Across Mobile, Tablet and Desktop Viewports:
+ - Responsive table scrolling: wrapped the jobs table in `.rj-table-wrap` with smooth horizontal touch-scrolling (`min-width: 760px`), preventing table columns and action buttons from being crushed on mobile or forcing the Unraid page to scroll.
+ - Adaptive KPI metric grid: dynamic 2x2 grid layout on screens below 520px with proportional typography and padding for touchscreens.
+ - Responsive Hourly Transfer Bar: stacks the 16-hour transfer summary neatly beneath the bar chart as a 2-column grid on viewports below 860px.
+ - Mobile-friendly job editor & alerts form: dl rows cleanly stack dt on top and dd full-width on screens below 768px, eliminating the fixed 160px gap and ensuring input fields, helper callout boxes, and action buttons fit within narrow screens.
+ - Responsive fleet toolbar: search bar and filter pills adapt gracefully, stacking buttons into tap-friendly touch targets on mobile.
+
 ## 2026.09.09i
 UI Polish: Action Button Icons, Inline History Drawer, Filter Pills & Form Cards:
  - FontAwesome action buttons: enhanced row buttons with crisp FontAwesome icons (`<i class="fa fa-flask"></i> Dry`,
