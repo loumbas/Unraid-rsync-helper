@@ -703,8 +703,11 @@ $(function () {
   /* inline form placement: attaching form directly below target job row or at top of table */
   function rjAttachForm(jobName) {
     var $wrap = $('#rj-form-wrap');
+    // Safely park in bottom slot first so it is never destroyed by remove()
+    $('#rj-form-slot-bottom').append($wrap);
     $('#rj-inline-form-tr').remove();
     $('.rj-row-editing').removeClass('rj-row-editing');
+
     if (jobName) {
       var $row = $('#tab_rj_jobs tbody tr[data-job="' + jobName + '"]');
       if ($row.length) {
@@ -712,6 +715,7 @@ $(function () {
         var $tr = $('<tr id="rj-inline-form-tr" class="rj-inline-form-tr"><td colspan="7"></td></tr>');
         $row.after($tr);
         $tr.find('td').append($wrap);
+        $('#rj-form-slot-bottom').hide();
         return;
       }
     }
@@ -720,18 +724,21 @@ $(function () {
       var $tr = $('<tr id="rj-inline-form-tr" class="rj-inline-form-tr"><td colspan="7"></td></tr>');
       $tbody.prepend($tr);
       $tr.find('td').append($wrap);
+      $('#rj-form-slot-bottom').hide();
       return;
     }
-    $('#rj-form-slot-bottom').append($wrap);
+    $('#rj-form-slot-bottom').append($wrap).show();
   }
 
   function rjCloseForm() {
-    $('#rj-form-wrap').hide();
+    var $wrap = $('#rj-form-wrap');
+    $wrap.hide();
+    $('#rj-form-slot-bottom').append($wrap).show();
     $('#rj-inline-form-tr').remove();
     $('.rj-row-editing').removeClass('rj-row-editing');
-    $('#rj-form-slot-bottom').append($('#rj-form-wrap'));
     $('#rj-form-chev').attr('class', 'fa fa-chevron-down');
     $('#rj-form-toggle').attr('aria-expanded', 'false');
+    $('#rj-form-title-accordion').text('Add job');
     $('#rj-result').hide();
   }
 
@@ -862,9 +869,16 @@ $(function () {
   /* table buttons - delegated from document because live status refreshes add
      and remove the per-row Ack button after the initial page render */
   $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
-    var act = $(this).data('act'), job = $(this).data('job');
+    var act = $(this).data('act') || $(this).attr('data-act');
+    var job = $(this).data('job') || $(this).attr('data-job');
     if (act === 'edit') {
-      var j = D.jobs[job]; if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
+      var isEditingThis = $('#rj-form-wrap').is(':visible') && $('.rj-row-editing').data('job') === job;
+      if (isEditingThis) {
+        rjCloseForm();
+        return;
+      }
+      var j = D.jobs[job];
+      if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
       return;
     }
     if (act === 'del') {

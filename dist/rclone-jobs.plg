@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.09c">
+<!ENTITY version   "2026.09.09d">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,16 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09d
+Form Left-Alignment &amp; Edit Button Reliability:
+ - Strict left-alignment: all form labels, input fields, selects, and action buttons are
+   strictly left-aligned with clean horizontal flow, eliminating Unraid's 40% centered gap.
+ - Preserved multi-field controls: inline controls (Transfers/Checkers, Schedules, and Delete caps)
+   now stay on a single horizontal row without vertical stacking or centering.
+ - Edit button toggle &amp; DOM preservation: safely park `#rj-form-wrap` before detachment,
+   preventing accidental DOM deletion and allowing repeat clicks on "Edit" to toggle the form.
+ - Duplicate accordion cleanup: hides the redundant bottom accordion header while an inline form is active.
+
 ## 2026.09.09c
 Inline Job Editing &amp; SSE Daemon Health Connection fix:
  - Inline edit expansion: clicking "Edit" attaches the configuration card directly
@@ -168,21 +178,6 @@ WebUI declutter (Jobs tab):
 - WebUI: live refresh patches cells by class (no positional td indices) and
   refreshes row cues; typed confirmation, run confirmations and CSRF flow
   unchanged.
-
-## 2026.09.08b
-Job log opens in its own live window:
-- WebUI: the per-row Log button now opens a dedicated popup window instead of
-  the result panel (named window - repeat clicks reuse it; a blocked popup
-  reports back in the result panel).
-- New shipped page emhttp/log.php: read-only live tail of one job. Accepts only
-  ?job=&lt;valid-name&gt;, content always via the ajax tail_log action (paths only
-  ever from the validated status file, engine redaction unchanged). Polls every
-  2 s while the job runs, slows to 15 s when idle (catches a run started in the
-  main tab), pauses entirely in hidden tabs; Refresh button, auto-scroll
-  checkbox that respects a user scrolled up, status chip
-  running/finished-rc/idle/error.
-- Engine tail-log: JSON gains running/rc/ts from the status file it already
-  reads, so the window knows when to stop fast-polling.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -221,7 +216,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.09c - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09d - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -243,7 +238,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.09c"
+ENGINE_VERSION="2026.09.09d"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -2080,7 +2075,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>2a9f3390d0d5d6a2603652f26e11f6847a661b1c45655d01a6e97dd5342d8b87</SHA256>
+<SHA256>7b0a868990bd8e24a48db6337247645e9ecea2dbb6b1b92cb593aa79ee3f4138</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2257,7 +2252,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.09c - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09d - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2371,7 +2366,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.09c',
+    'version'    =&gt; '2026.09.09d',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2507,18 +2502,24 @@ $rjdata = [
     '#rj-form-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:#e8eef3;text-decoration:none;font-weight:600;font-size:13px;padding:8px 14px;background:#20262d;border:1px solid #333d47;border-radius:6px;transition:all 0.15s ease}',
     '#rj-form-toggle:hover{border-color:#ff8c2f;color:#ff8c2f}',
     '#rj-form-toggle i{color:#93a0ab}',
-    '.rj-fsec{font-size:11px!important;font-weight:700!important;letter-spacing:1px!important;text-transform:uppercase!important;color:#ff8c2f!important;border-bottom:1px solid #2e3740!important;padding:10px 0 6px!important;margin:14px 0 10px!important;display:flex!important;align-items:center!important;gap:6px!important}',
-    '#rj-jobform dl{display:flex!important;align-items:center!important;margin:8px 0!important;flex-wrap:wrap!important;clear:both!important}',
-    '#rj-jobform dt{width:160px!important;min-width:160px!important;float:none!important;font-weight:600!important;color:#c0ccd6!important;font-size:12px!important;padding:0!important;margin:0!important}',
-    '#rj-jobform dd{margin:0!important;float:none!important;flex:1 1 auto!important;display:flex!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important}',
-    '#rj-jobform input[type=text],#rj-jobform select{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 10px!important;height:30px!important;font-size:12px!important;box-sizing:border-box!important}',
+    '.rj-fsec{font-size:11px!important;font-weight:700!important;letter-spacing:1px!important;text-transform:uppercase!important;color:#ff8c2f!important;border-bottom:1px solid #2e3740!important;padding:10px 0 6px!important;margin:16px 0 12px!important;display:flex!important;align-items:center!important;gap:6px!important;text-align:left!important}',
+    '#rj-jobform{text-align:left!important}',
+    '#rj-jobform dl{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;max-width:850px!important;margin:6px 0!important;padding:0!important;float:none!important;clear:both!important;text-align:left!important}',
+    '#rj-jobform dt{width:160px!important;min-width:160px!important;max-width:160px!important;float:none!important;text-align:left!important;font-weight:600!important;color:#c0ccd6!important;font-size:12px!important;padding:0!important;margin:0!important}',
+    '#rj-jobform dd{width:auto!important;flex:1 1 auto!important;float:none!important;text-align:left!important;display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;margin:0!important;padding:0!important}',
+    '#rj-jobform dd.rj-inline{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;white-space:nowrap!important;flex-wrap:nowrap!important}',
+    '#rj-jobform dd.rj-inline select,#rj-jobform dd.rj-inline input{margin:0!important;text-align:left!important}',
+    '#rj-jobform dd.rj-inline span{display:inline-flex!important;align-items:center!important;gap:4px!important}',
+    '#rj-jobform dd.rj-pathrow{width:100%!important;max-width:650px!important;display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important}',
+    '#rj-jobform dd.rj-pathrow input[type=text]{flex:1 1 auto!important;max-width:440px!important}',
+    '#rj-jobform input[type=text],#rj-jobform select{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 10px!important;height:30px!important;font-size:12px!important;box-sizing:border-box!important;text-align:left!important;margin:0!important}',
     '#rj-jobform input[type=text]:focus,#rj-jobform select:focus{border-color:#ff8c2f!important;box-shadow:0 0 0 1px #ff8c2f!important;outline:none!important}',
-    '#rj-jobform input[type=number]{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 8px!important;height:30px!important;font-size:12px!important;box-sizing:border-box!important}',
+    '#rj-jobform input[type=number]{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 8px!important;height:30px!important;width:70px!important;font-size:12px!important;box-sizing:border-box!important;text-align:left!important;margin:0!important}',
     '#rj-jobform input[type=number]:focus{border-color:#ff8c2f!important;outline:none!important}',
-    '#rj-jobform blockquote.inline_help{margin:4px 0 8px 160px!important;padding:5px 12px!important;font-size:11px!important;color:#8b98a3!important;border-left:2px solid #ff8c2f!important;background:rgba(0,0,0,0.25)!important;border-radius:0 4px 4px 0!important;clear:both!important}',
+    '#rj-jobform blockquote.inline_help{margin:4px 0 8px 160px!important;padding:5px 12px!important;max-width:650px!important;font-size:11px!important;color:#8b98a3!important;border-left:2px solid #ff8c2f!important;background:rgba(0,0,0,0.25)!important;border-radius:0 4px 4px 0!important;clear:both!important;text-align:left!important}',
     '#rj-jobform .rj-browse-btn{height:28px!important;line-height:26px!important;padding:0 12px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#20262d!important;color:#ff8c2f!important;cursor:pointer!important;transition:all 0.15s ease!important}',
     '#rj-jobform .rj-browse-btn:hover{background:#ff8c2f!important;color:#111!important}',
-    '.rj-form-actions{display:flex!important;align-items:center!important;gap:10px!important;margin-top:20px!important;padding-top:14px!important;border-top:1px solid #2e3740!important}',
+    '.rj-form-actions{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;margin-top:20px!important;margin-left:160px!important;padding-top:14px!important;border-top:1px solid #2e3740!important}',
     '.rj-form-actions input[type=submit],.rj-form-actions input[type=button]{height:32px!important;line-height:30px!important;padding:0 18px!important;font-size:12px!important;font-weight:600!important;text-transform:none!important;border-radius:5px!important;cursor:pointer!important;transition:all 0.15s ease!important}',
     '.rj-form-actions input[type=submit]{border:1px solid #ff8c2f!important;background:#ff8c2f!important;color:#111!important;font-weight:700!important}',
     '.rj-form-actions input[type=submit]:hover{background:#ffa75e!important;border-color:#ffa75e!important}',
@@ -2534,7 +2535,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09c"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09d"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2843,15 +2844,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09c &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09d &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>75948990c6822044e56e468d1847f69a156281bb6569b3321d507f185983606e</SHA256>
+<SHA256>c05a4aa4840ee3922f450cd9d48ebfeff90b0bd50815f5ed6e1fffe2f93eb2f1</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09c - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09d - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3208,13 +3209,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>f84396e0084a21b1fe89a625221afb133b69355956b7f45ecdce3d761fb29cd3</SHA256>
+<SHA256>bdc47e47dad8ca9718238691230bb02d46b8da44845d31141fc4322c63e12cdb</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09c - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09d - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3322,12 +3323,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>8a20fc4e83d1bdfe00fd8ac452ac5b4e3a545ec50909e858da7562c40e6a9184</SHA256>
+<SHA256>ddb8844993912f766a5fadae462a64bd380bed96339ffbb271914d0b3728d812</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.09c - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09d - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -4032,8 +4033,11 @@ $(function () {
   /* inline form placement: attaching form directly below target job row or at top of table */
   function rjAttachForm(jobName) {
     var $wrap = $('#rj-form-wrap');
+    // Safely park in bottom slot first so it is never destroyed by remove()
+    $('#rj-form-slot-bottom').append($wrap);
     $('#rj-inline-form-tr').remove();
     $('.rj-row-editing').removeClass('rj-row-editing');
+
     if (jobName) {
       var $row = $('#tab_rj_jobs tbody tr[data-job="' + jobName + '"]');
       if ($row.length) {
@@ -4041,6 +4045,7 @@ $(function () {
         var $tr = $('&lt;tr id="rj-inline-form-tr" class="rj-inline-form-tr"&gt;&lt;td colspan="7"&gt;&lt;/td&gt;&lt;/tr&gt;');
         $row.after($tr);
         $tr.find('td').append($wrap);
+        $('#rj-form-slot-bottom').hide();
         return;
       }
     }
@@ -4049,18 +4054,21 @@ $(function () {
       var $tr = $('&lt;tr id="rj-inline-form-tr" class="rj-inline-form-tr"&gt;&lt;td colspan="7"&gt;&lt;/td&gt;&lt;/tr&gt;');
       $tbody.prepend($tr);
       $tr.find('td').append($wrap);
+      $('#rj-form-slot-bottom').hide();
       return;
     }
-    $('#rj-form-slot-bottom').append($wrap);
+    $('#rj-form-slot-bottom').append($wrap).show();
   }
 
   function rjCloseForm() {
-    $('#rj-form-wrap').hide();
+    var $wrap = $('#rj-form-wrap');
+    $wrap.hide();
+    $('#rj-form-slot-bottom').append($wrap).show();
     $('#rj-inline-form-tr').remove();
     $('.rj-row-editing').removeClass('rj-row-editing');
-    $('#rj-form-slot-bottom').append($('#rj-form-wrap'));
     $('#rj-form-chev').attr('class', 'fa fa-chevron-down');
     $('#rj-form-toggle').attr('aria-expanded', 'false');
+    $('#rj-form-title-accordion').text('Add job');
     $('#rj-result').hide();
   }
 
@@ -4191,9 +4199,16 @@ $(function () {
   /* table buttons - delegated from document because live status refreshes add
      and remove the per-row Ack button after the initial page render */
   $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
-    var act = $(this).data('act'), job = $(this).data('job');
+    var act = $(this).data('act') || $(this).attr('data-act');
+    var job = $(this).data('job') || $(this).attr('data-job');
     if (act === 'edit') {
-      var j = D.jobs[job]; if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
+      var isEditingThis = $('#rj-form-wrap').is(':visible') &amp;&amp; $('.rj-row-editing').data('job') === job;
+      if (isEditingThis) {
+        rjCloseForm();
+        return;
+      }
+      var j = D.jobs[job];
+      if (j) showForm('Edit job: ' + job, Object.assign({ name: job }, j));
       return;
     }
     if (act === 'del') {
@@ -4548,13 +4563,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>84d202b6d90457c6479711ca946d055400f3862b1cacc1e5683ce6c206319527</SHA256>
+<SHA256>7bd9f3a8e60b1d06614fca302f6ddccd992322c1f18315a1f0834fe4a8c21514</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09c - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09d - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -4713,13 +4728,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>66f514a7fe679e651d1ec7cdf3e837a1b3cb5e17d5711ea067e204eb62829757</SHA256>
+<SHA256>6d539927afef41a1052db32802a44f6c146b9a5b67aa2f05318d823bad92e5e8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09c - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09d - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -4798,13 +4813,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>d14131c20f5748100ad75d9b78adc994005f4b975d22df5a272cf3681a41b381</SHA256>
+<SHA256>d9b8c741cbc3f799e398c2ab9f9551840e4e07d38e2a30f6123673abad72c36e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09c - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09d - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -4872,7 +4887,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>bda9ee64f9915f399d5c91ae5a3914aa031fba2cf76f779a27376e0772bb8b06</SHA256>
+<SHA256>6fb3c1b0c0974f8f9692d0efa5f92de5ba0fa44d1f8a7e47d27fe3d9edc7ee23</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -4993,17 +5008,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.09c - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09d - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-2a9f3390d0d5d6a2603652f26e11f6847a661b1c45655d01a6e97dd5342d8b87  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+7b0a868990bd8e24a48db6337247645e9ecea2dbb6b1b92cb593aa79ee3f4138  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-75948990c6822044e56e468d1847f69a156281bb6569b3321d507f185983606e  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-f84396e0084a21b1fe89a625221afb133b69355956b7f45ecdce3d761fb29cd3  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-8a20fc4e83d1bdfe00fd8ac452ac5b4e3a545ec50909e858da7562c40e6a9184  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-84d202b6d90457c6479711ca946d055400f3862b1cacc1e5683ce6c206319527  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-66f514a7fe679e651d1ec7cdf3e837a1b3cb5e17d5711ea067e204eb62829757  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-d14131c20f5748100ad75d9b78adc994005f4b975d22df5a272cf3681a41b381  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-bda9ee64f9915f399d5c91ae5a3914aa031fba2cf76f779a27376e0772bb8b06  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+c05a4aa4840ee3922f450cd9d48ebfeff90b0bd50815f5ed6e1fffe2f93eb2f1  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+bdc47e47dad8ca9718238691230bb02d46b8da44845d31141fc4322c63e12cdb  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+ddb8844993912f766a5fadae462a64bd380bed96339ffbb271914d0b3728d812  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+7bd9f3a8e60b1d06614fca302f6ddccd992322c1f18315a1f0834fe4a8c21514  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+6d539927afef41a1052db32802a44f6c146b9a5b67aa2f05318d823bad92e5e8  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+d9b8c741cbc3f799e398c2ab9f9551840e4e07d38e2a30f6123673abad72c36e  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+6fb3c1b0c0974f8f9692d0efa5f92de5ba0fa44d1f8a7e47d27fe3d9edc7ee23  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -5011,7 +5026,7 @@ bda9ee64f9915f399d5c91ae5a3914aa031fba2cf76f779a27376e0772bb8b06  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>544ba1d633d952e9400db55dbcd99e36beeff207ddd3ae8d2e353d78647df74a</SHA256>
+<SHA256>7012a01caca9885402f3ac1b31f1ee2abe7ffb02040ae64f1a4d9f514f55272c</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

@@ -1,3 +1,13 @@
+## 2026.09.09d
+Form Left-Alignment & Edit Button Reliability:
+ - Strict left-alignment: all form labels, input fields, selects, and action buttons are
+   strictly left-aligned with clean horizontal flow, eliminating Unraid's 40% centered gap.
+ - Preserved multi-field controls: inline controls (Transfers/Checkers, Schedules, and Delete caps)
+   now stay on a single horizontal row without vertical stacking or centering.
+ - Edit button toggle & DOM preservation: safely park `#rj-form-wrap` before detachment,
+   preventing accidental DOM deletion and allowing repeat clicks on "Edit" to toggle the form.
+ - Duplicate accordion cleanup: hides the redundant bottom accordion header while an inline form is active.
+
 ## 2026.09.09c
 Inline Job Editing & SSE Daemon Health Connection fix:
  - Inline edit expansion: clicking "Edit" attaches the configuration card directly
