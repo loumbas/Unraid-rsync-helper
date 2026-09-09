@@ -328,6 +328,10 @@ function rjLiveStart() {
   if (typeof EventSource === 'undefined') { rjLiveFallback(); return; }
   rjLiveInd('init');
   try { rjLive.es = new EventSource('/sub/' + 'rclone-jobs'); } catch (e) { rjLiveFallback(); return; }
+  rjLive.es.onopen = function () {
+    rjLive.errs = 0;
+    rjLiveInd('on');
+  };
   rjLive.es.onmessage = function () {
     rjLive.errs = 0;
     rjLiveInd('on');
@@ -696,30 +700,69 @@ $(function () {
   }
   $('#f_src, #f_dst').off('.rjov').on('input.rjov change.rjov', rjOvHint);
   $('#f_engine').off('.rjov').on('change.rjov', rjOvHint);
-
-  /* the job form starts collapsed so the Jobs table is the landing view;
-     the title bar toggles it, Edit/Add opens it, Cancel closes it, and a box
-     with no jobs yet opens it right away (first-use guidance) */
-  function rjSetFormOpen(open) {
-    $('#rj-form-wrap').toggle(!!open);
-    $('#rj-form-chev').attr('class', 'fa ' + (open ? 'fa-chevron-up' : 'fa-chevron-down'));
-    $('#rj-form-toggle').attr('aria-expanded', open ? 'true' : 'false');
+  /* inline form placement: attaching form directly below target job row or at top of table */
+  function rjAttachForm(jobName) {
+    var $wrap = $('#rj-form-wrap');
+    $('#rj-inline-form-tr').remove();
+    $('.rj-row-editing').removeClass('rj-row-editing');
+    if (jobName) {
+      var $row = $('#tab_rj_jobs tbody tr[data-job="' + jobName + '"]');
+      if ($row.length) {
+        $row.addClass('rj-row-editing');
+        var $tr = $('<tr id="rj-inline-form-tr" class="rj-inline-form-tr"><td colspan="7"></td></tr>');
+        $row.after($tr);
+        $tr.find('td').append($wrap);
+        return;
+      }
+    }
+    var $tbody = $('#tab_rj_jobs table.rclone-jobs tbody');
+    if ($tbody.length && $('#tab_rj_jobs tbody tr[data-job]').length) {
+      var $tr = $('<tr id="rj-inline-form-tr" class="rj-inline-form-tr"><td colspan="7"></td></tr>');
+      $tbody.prepend($tr);
+      $tr.find('td').append($wrap);
+      return;
+    }
+    $('#rj-form-slot-bottom').append($wrap);
   }
+
+  function rjCloseForm() {
+    $('#rj-form-wrap').hide();
+    $('#rj-inline-form-tr').remove();
+    $('.rj-row-editing').removeClass('rj-row-editing');
+    $('#rj-form-slot-bottom').append($('#rj-form-wrap'));
+    $('#rj-form-chev').attr('class', 'fa fa-chevron-down');
+    $('#rj-form-toggle').attr('aria-expanded', 'false');
+    $('#rj-result').hide();
+  }
+
+  function rjSetFormOpen(open) {
+    if (!open) {
+      rjCloseForm();
+    } else {
+      $('#rj-form-wrap').show();
+      $('#rj-form-chev').attr('class', 'fa fa-chevron-up');
+      $('#rj-form-toggle').attr('aria-expanded', 'true');
+    }
+  }
+
   $('#rj-form-toggle').off('.rjform').on('click.rjform', function () {
-    rjSetFormOpen(!$('#rj-form-wrap').is(':visible'));
+    if ($('#rj-form-wrap').is(':visible') && $('#rj-inline-form-tr').length === 0) {
+      rjCloseForm();
+    } else {
+      showForm('Add job', null);
+    }
   }).on('keydown.rjform', function (ev) {
-    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); rjSetFormOpen(!$('#rj-form-wrap').is(':visible')); }
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); $(this).trigger('click'); }
   });
+
   $('#rj-btn-add-top').off('.rjadd').on('click.rjadd', function () {
     showForm('Add job', null);
-    rjSetFormOpen(true);
-    var $w = $('#rj-form-wrap');
-    if ($w.length) $('html, body').animate({ scrollTop: $w.offset().top - 60 }, 200);
   });
-  if (!Object.keys(D.jobs).length) rjSetFormOpen(true);
+  if (!Object.keys(D.jobs).length) showForm('Add job', null);
 
   function showForm(title, j) {
     $('#rj-form-title').text(title);
+    $('#rj-form-title-accordion').text(title);
     $('#f_orig').val(j ? j.name : '');
     $('#f_name').val(j ? j.name : '').prop('disabled', !!j);
     $('#f_desc').val(j && j.conf.DESC ? j.conf.DESC : '');
@@ -741,14 +784,14 @@ $(function () {
     $('#f_backupdir').val(j && j.conf.BACKUPDIR ? j.conf.BACKUPDIR : '');
     engRows();
     rjOvHint();
+    rjAttachForm(j ? j.name : null);
     rjSetFormOpen(true);
-    $('#rj-form-title')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    var el = $('#rj-inline-form-tr').length ? $('#rj-inline-form-tr')[0] : $('#rj-form-wrap')[0];
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  $('#rj-form-cancel').off('.rclonejobs').on('click.rclonejobs', function () {
-    showForm('Add job', null);
-    rjSetFormOpen(false);
-    $('#rj-result').hide();
+  $('#rj-form-cancel, #rj-form-close').off('.rclonejobs').on('click.rclonejobs', function () {
+    rjCloseForm();
   });
 
   /* In-form Test (Dry-run) button */

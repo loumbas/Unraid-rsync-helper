@@ -1,3 +1,15 @@
+## 2026.09.09c
+Inline Job Editing & SSE Daemon Health Connection fix:
+ - Inline edit expansion: clicking "Edit" attaches the configuration card directly
+   beneath the active job row with highlighted table row accent, keeping the user
+   in context rather than jumping down below the table.
+ - Inline "Add New Job": clicking "+ Add New Job" attaches the form card right at the
+   top of the jobs table.
+ - Modernized form card design: styled `#rj-form-wrap` with elevated card background,
+   card header with close button, aligned flex field rows, and styled primary/secondary buttons.
+ - Daemon Health onopen fix: added missing `EventSource.onopen` handler so the Daemon Health
+   indicator immediately transitions to active green `● Live SSE` upon connection.
+
 ## 2026.09.09b
 Visual enhancement & layout polish matching design mockup:
  - Elevated KPI cards: explicit contrast background (#20262d) and crisp borders (#333d47)

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.09b">
+<!ENTITY version   "2026.09.09c">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,18 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09c
+Inline Job Editing &amp; SSE Daemon Health Connection fix:
+ - Inline edit expansion: clicking "Edit" attaches the configuration card directly
+   beneath the active job row with highlighted table row accent, keeping the user
+   in context rather than jumping down below the table.
+ - Inline "Add New Job": clicking "+ Add New Job" attaches the form card right at the
+   top of the jobs table.
+ - Modernized form card design: styled `#rj-form-wrap` with elevated card background,
+   card header with close button, aligned flex field rows, and styled primary/secondary buttons.
+ - Daemon Health onopen fix: added missing `EventSource.onopen` handler so the Daemon Health
+   indicator immediately transitions to active green `● Live SSE` upon connection.
+
 ## 2026.09.09b
 Visual enhancement &amp; layout polish matching design mockup:
  - Elevated KPI cards: explicit contrast background (#20262d) and crisp borders (#333d47)
@@ -171,16 +183,6 @@ Job log opens in its own live window:
   running/finished-rc/idle/error.
 - Engine tail-log: JSON gains running/rc/ts from the status file it already
   reads, so the window knows when to stop fast-polling.
-
-## 2026.09.08a
-Dialog opacity fix, take 2 (the 2026.09.08 fix was a no-op on the test box):
-- WebUI: rjSolidBg() now resolves --background through a throwaway probe element so
-  the browser itself normalizes the value to rgb()/rgba(). The previous string
-  parser only understood rgb()/rgba(); the theme's actual value (transparent or a
-  non-rgb form) passed through untouched, so the modal stayed translucent.
-- WebUI: a probe result that is missing or fully transparent falls back to the
-  classic panel color chosen from the real page luminance (#f4f4f4 light pages,
-  #23292e dark) - rjSolidBg() can never return a transparent color now.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -219,7 +221,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.09b - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09c - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -241,7 +243,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.09b"
+ENGINE_VERSION="2026.09.09c"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -2078,7 +2080,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>792226d11788f05649c093463f294175ce60b00e62ffa1a94ac66ad010631204</SHA256>
+<SHA256>2a9f3390d0d5d6a2603652f26e11f6847a661b1c45655d01a6e97dd5342d8b87</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2255,7 +2257,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.09b - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09c - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2369,7 +2371,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.09b',
+    'version'    =&gt; '2026.09.09c',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2492,12 +2494,38 @@ $rjdata = [
     '.rj-hist-scroll th{position:sticky!important;top:0;background:#20262d!important;z-index:2;box-shadow:0 1px 0 #333d47!important}',
     '.rj-daily-scroll{max-height:220px;overflow-y:auto;border:1px solid #333d47!important;border-radius:6px;margin-top:6px}',
     '.rj-daily-scroll th{position:sticky!important;top:0;background:#20262d!important;z-index:2;box-shadow:0 1px 0 #333d47!important}',
-    /* Form */
+    /* Form &amp; Inline Edit Card */
     '.rj-pathrow{white-space:nowrap;max-width:100%}',
+    '#tab_rj_jobs table.rclone-jobs tbody tr.rj-inline-form-tr td{background:transparent!important;padding:4px 0 12px!important;border:none!important}',
+    '#tab_rj_jobs tbody tr.rj-row-editing td{background:#27303a!important;border-bottom-color:#ff8c2f!important}',
+    '#rj-form-wrap{background:#181d24!important;border:1px solid #333d47!important;border-radius:8px!important;padding:18px 22px!important;margin:6px 0 14px!important;box-shadow:0 8px 24px rgba(0,0,0,0.45)!important;box-sizing:border-box!important}',
+    '.rj-form-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid #2e3740}',
+    '.rj-form-title-badge{font-size:14px;font-weight:700;color:#e8eef3;display:flex;align-items:center;gap:8px}',
+    '.rj-form-title-badge i{color:#ff8c2f;font-size:14px}',
+    '.rj-form-close-x{background:transparent;border:none;color:#8b98a3;font-size:20px;cursor:pointer;line-height:1;padding:0 6px}',
+    '.rj-form-close-x:hover{color:#ff8c2f}',
     '#rj-form-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:#e8eef3;text-decoration:none;font-weight:600;font-size:13px;padding:8px 14px;background:#20262d;border:1px solid #333d47;border-radius:6px;transition:all 0.15s ease}',
     '#rj-form-toggle:hover{border-color:#ff8c2f;color:#ff8c2f}',
     '#rj-form-toggle i{color:#93a0ab}',
-    '.rj-fsec{margin:16px 0 2px;padding-top:10px;border-top:1px solid #333d47;font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#8b98a3}'
+    '.rj-fsec{font-size:11px!important;font-weight:700!important;letter-spacing:1px!important;text-transform:uppercase!important;color:#ff8c2f!important;border-bottom:1px solid #2e3740!important;padding:10px 0 6px!important;margin:14px 0 10px!important;display:flex!important;align-items:center!important;gap:6px!important}',
+    '#rj-jobform dl{display:flex!important;align-items:center!important;margin:8px 0!important;flex-wrap:wrap!important;clear:both!important}',
+    '#rj-jobform dt{width:160px!important;min-width:160px!important;float:none!important;font-weight:600!important;color:#c0ccd6!important;font-size:12px!important;padding:0!important;margin:0!important}',
+    '#rj-jobform dd{margin:0!important;float:none!important;flex:1 1 auto!important;display:flex!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important}',
+    '#rj-jobform input[type=text],#rj-jobform select{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 10px!important;height:30px!important;font-size:12px!important;box-sizing:border-box!important}',
+    '#rj-jobform input[type=text]:focus,#rj-jobform select:focus{border-color:#ff8c2f!important;box-shadow:0 0 0 1px #ff8c2f!important;outline:none!important}',
+    '#rj-jobform input[type=number]{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 8px!important;height:30px!important;font-size:12px!important;box-sizing:border-box!important}',
+    '#rj-jobform input[type=number]:focus{border-color:#ff8c2f!important;outline:none!important}',
+    '#rj-jobform blockquote.inline_help{margin:4px 0 8px 160px!important;padding:5px 12px!important;font-size:11px!important;color:#8b98a3!important;border-left:2px solid #ff8c2f!important;background:rgba(0,0,0,0.25)!important;border-radius:0 4px 4px 0!important;clear:both!important}',
+    '#rj-jobform .rj-browse-btn{height:28px!important;line-height:26px!important;padding:0 12px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#20262d!important;color:#ff8c2f!important;cursor:pointer!important;transition:all 0.15s ease!important}',
+    '#rj-jobform .rj-browse-btn:hover{background:#ff8c2f!important;color:#111!important}',
+    '.rj-form-actions{display:flex!important;align-items:center!important;gap:10px!important;margin-top:20px!important;padding-top:14px!important;border-top:1px solid #2e3740!important}',
+    '.rj-form-actions input[type=submit],.rj-form-actions input[type=button]{height:32px!important;line-height:30px!important;padding:0 18px!important;font-size:12px!important;font-weight:600!important;text-transform:none!important;border-radius:5px!important;cursor:pointer!important;transition:all 0.15s ease!important}',
+    '.rj-form-actions input[type=submit]{border:1px solid #ff8c2f!important;background:#ff8c2f!important;color:#111!important;font-weight:700!important}',
+    '.rj-form-actions input[type=submit]:hover{background:#ffa75e!important;border-color:#ffa75e!important}',
+    '.rj-form-actions #rj-form-test{border:1px solid #ff8c2f!important;background:#20262d!important;color:#ff8c2f!important}',
+    '.rj-form-actions #rj-form-test:hover{background:rgba(255,140,47,0.15)!important}',
+    '.rj-form-actions #rj-form-cancel{border:1px solid #3e4a56!important;background:transparent!important;color:#9aa7b2!important}',
+    '.rj-form-actions #rj-form-cancel:hover{border-color:#8b98a3!important;color:#e8eef3!important}'
   ].join('\n');
   var s = document.createElement('style');
   s.type = 'text/css';
@@ -2506,7 +2534,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09b"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09c"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2668,75 +2696,84 @@ $rjdata = [
     &lt;div id="rj-preview-ctl" style="display:none;margin-top:6px"&gt;&lt;input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"&gt;&lt;/div&gt;
     &lt;div id="rj-history" style="display:none;margin-top:12px"&gt;&lt;/div&gt;
 
-    &lt;div class="title" style="margin-top:14px"&gt;
-      &lt;a id="rj-form-toggle" tabindex="0" role="button" aria-expanded="false"&gt;&lt;i id="rj-form-chev" class='fa fa-chevron-down'&gt;&lt;/i&gt;&lt;i class='fa fa-wrench title'&gt;&lt;/i&gt;&lt;span id="rj-form-title"&gt;Add job&lt;/span&gt;&lt;/a&gt;
-    &lt;/div&gt;
-    &lt;div id="rj-form-wrap" style="display:none"&gt;
-    &lt;p&gt;&lt;/p&gt;
-    &lt;form id="rj-jobform" autocomplete="off"&gt;
-        &lt;input type="hidden" id="f_orig" value=""&gt;
-        &lt;div class="rj-fsec"&gt;Basics&lt;/div&gt;
-        &lt;dl&gt;&lt;dt&gt;Name:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Unique job id - letters, digits, dash and underscore, max 40 characters. It names the config file and the schedule entry, so it cannot be changed afterwards; to rename a job create a new one and delete the old.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Description:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_desc" maxlength="120"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Free-text label shown under the job name in the jobs table.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Enabled:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_enabled"&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Schedule:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;
-          &lt;select id="f_sched_freq"&gt;
-            &lt;option value="minutely"&gt;Every&lt;/option&gt;
-            &lt;option value="hourly"&gt;Hourly at minute&lt;/option&gt;
-            &lt;option value="daily" selected&gt;Daily at&lt;/option&gt;
-            &lt;option value="weekly"&gt;Weekly on&lt;/option&gt;
-            &lt;option value="monthly"&gt;Monthly on day&lt;/option&gt;
-            &lt;option value="custom"&gt;Custom (cron)&lt;/option&gt;
-          &lt;/select&gt;
-          &lt;span id="f_s_minutely" style="display:none"&gt;&lt;select id="f_sched_nmin"&gt;&lt;/select&gt; minutes&lt;/span&gt;
-          &lt;span id="f_s_dom" style="display:none"&gt;&lt;select id="f_sched_dom"&gt;&lt;/select&gt;&lt;/span&gt;
-          &lt;span id="f_s_weekday" class="rj-wd" style="display:none"&gt;&lt;/span&gt;
-          &lt;span id="f_s_clock" style="display:none"&gt;&lt;span id="f_s_at" style="display:none"&gt;at&lt;/span&gt; &lt;select id="f_sched_hour"&gt;&lt;/select&gt;:&lt;select id="f_sched_min"&gt;&lt;/select&gt;&lt;/span&gt;
-          &lt;span id="f_s_hourly" style="display:none"&gt;&lt;select id="f_sched_hmin"&gt;&lt;/select&gt;&lt;/span&gt;
-        &lt;/dd&gt;&lt;/dl&gt;
-        &lt;dl id="dl_f_schedule" style="display:none"&gt;&lt;dt&gt;Cron expression:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;p id="rj-sched-summary"&gt;&lt;/p&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. &lt;em&gt;Custom (cron)&lt;/em&gt; accepts the classic five fields &lt;em&gt;minute hour day-of-month month day-of-week&lt;/em&gt; (numbers, &lt;em&gt;*&lt;/em&gt; and &lt;em&gt;,&lt;/em&gt; &lt;em&gt;-&lt;/em&gt; &lt;em&gt;/&lt;/em&gt; only), e.g. &lt;em&gt;0 5 * * 6&lt;/em&gt; = Saturday 05:00.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;div class="rj-fsec"&gt;Transfer&lt;/div&gt;
-        &lt;dl&gt;&lt;dt&gt;Engine:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_engine"&gt;&lt;option value="rclone"&gt;rclone&lt;/option&gt;&lt;option value="rsync"&gt;rsync&lt;/option&gt;&lt;option value="custom"&gt;custom script&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;rclone&lt;/em&gt; uses the rclone plugin's own remotes (same config, never modified). &lt;em&gt;rsync&lt;/em&gt; is for local/remote paths with mount-guard protection. &lt;em&gt;custom script&lt;/em&gt; runs your own executable instead - the transfer settings below do not apply to it.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;div class="rj-eng"&gt;
-        &lt;dl&gt;&lt;dt&gt;Mode (rclone):&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_mode"&gt;&lt;option value="sync"&gt;sync&lt;/option&gt;&lt;option value="copy"&gt;copy&lt;/option&gt;&lt;option value="check"&gt;check&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;sync&lt;/em&gt; makes destination identical to source (may delete). &lt;em&gt;copy&lt;/em&gt; only adds/updates, never deletes. &lt;em&gt;check&lt;/em&gt; only compares and reports differences.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Source:&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_src" class="variable rj-path" list="rj-paths-dl" placeholder="/mnt/user/data or remote:bucket/folder"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Folder on this server (shares, array disks, mounts) or an rclone remote path like &lt;em&gt;gdrive:Data&lt;/em&gt;. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Destination:&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_dst" class="variable rj-path" list="rj-paths-dl" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.&lt;/p&gt;&lt;/blockquote&gt;
+    &lt;div id="rj-form-slot-bottom"&gt;
+      &lt;div class="title" style="margin-top:20px"&gt;
+        &lt;a id="rj-form-toggle" tabindex="0" role="button" aria-expanded="false"&gt;&lt;i id="rj-form-chev" class='fa fa-chevron-down'&gt;&lt;/i&gt;&lt;i class='fa fa-wrench'&gt;&lt;/i&gt;&lt;span id="rj-form-title-accordion"&gt;Add job&lt;/span&gt;&lt;/a&gt;
+      &lt;/div&gt;
+      &lt;div id="rj-form-wrap" style="display:none"&gt;
+        &lt;div class="rj-form-header"&gt;
+          &lt;div class="rj-form-title-badge"&gt;
+            &lt;i class="fa fa-sliders"&gt;&lt;/i&gt;
+            &lt;span id="rj-form-title"&gt;Add job&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;button type="button" id="rj-form-close" class="rj-form-close-x" title="Close form"&gt;&amp;times;&lt;/button&gt;
         &lt;/div&gt;
-        &lt;p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"&gt;&lt;/p&gt;
-        &lt;div class="rj-custom" style="display:none"&gt;
-        &lt;dl&gt;&lt;dt&gt;Script:&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Absolute path of an executable script; Browse... shows &lt;em&gt;.sh&lt;/em&gt; files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;/div&gt;
-        &lt;div class="rj-fsec"&gt;Limits &amp;amp; notifications&lt;/div&gt;
-        &lt;dl&gt;&lt;dt&gt;Per-job dry-run:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;While &lt;em&gt;yes&lt;/em&gt;, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Notify:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_notify"&gt;&lt;option value="always"&gt;always (OK + problems)&lt;/option&gt;&lt;option value="failures"&gt;failures &amp;amp; warnings only&lt;/option&gt;&lt;option value="off"&gt;off (silent)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;When this job sends Unraid notifications: &lt;em&gt;always&lt;/em&gt; = an OK notice after each successful run plus notices for any problem; &lt;em&gt;failures&lt;/em&gt; = only failures, gate blocks, overlaps and watchdog findings; &lt;em&gt;off&lt;/em&gt; = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &amp;rarr; Notification Settings.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;div class="rj-eng"&gt;
-        &lt;dl&gt;&lt;dt&gt;Transfers / Checkers:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Bandwidth limit:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_bwlimit" class="rj-size" size="10" placeholder="off"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone syntax, e.g. &lt;em&gt;10M&lt;/em&gt; (10 MByte/s) or &lt;em&gt;off&lt;/em&gt; for unlimited. Only affects the rclone engine.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Max deletes / Warn deletes:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;Sync modes only. &lt;em&gt;Max deletes&lt;/em&gt; is a hard cap - rclone aborts rather than deleting more. &lt;em&gt;Warn deletes&lt;/em&gt; makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;dl&gt;&lt;dt&gt;Backup dir (optional):&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"&gt;&lt;/dd&gt;&lt;/dl&gt;
-        &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone &lt;em&gt;--backup-dir&lt;/em&gt;: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like &lt;em&gt;gdrive:trash&lt;/em&gt; or a subfolder of the storage folder work well; leave empty to disable.&lt;/p&gt;&lt;/blockquote&gt;
-        &lt;/div&gt;
-      &lt;dl&gt;
-        &lt;dt&gt;&amp;nbsp;&lt;/dt&gt;
-        &lt;dd&gt;&lt;input type="submit" value="Save job" class="rj-btn"&gt; &lt;input type="button" id="rj-form-test" value="Test (Dry-run)" class="rj-btn"&gt; &lt;input type="button" id="rj-form-cancel" value="Cancel"&gt;&lt;/dd&gt;
-      &lt;/dl&gt;
-      &lt;datalist id="rj-paths-dl"&gt;&lt;/datalist&gt;
-      &lt;/form&gt;
+        &lt;form id="rj-jobform" autocomplete="off"&gt;
+          &lt;input type="hidden" id="f_orig" value=""&gt;
+          &lt;div class="rj-fsec"&gt;&lt;i class="fa fa-info-circle"&gt;&lt;/i&gt; Basics&lt;/div&gt;
+          &lt;dl&gt;&lt;dt&gt;Name:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Unique job id - letters, digits, dash and underscore, max 40 characters. It names the config file and the schedule entry, so it cannot be changed afterwards; to rename a job create a new one and delete the old.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Description:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_desc" maxlength="120"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Free-text label shown under the job name in the jobs table.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Enabled:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_enabled"&gt;&lt;option value="yes"&gt;yes&lt;/option&gt;&lt;option value="no"&gt;no&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Schedule:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;
+            &lt;select id="f_sched_freq"&gt;
+              &lt;option value="minutely"&gt;Every&lt;/option&gt;
+              &lt;option value="hourly"&gt;Hourly at minute&lt;/option&gt;
+              &lt;option value="daily" selected&gt;Daily at&lt;/option&gt;
+              &lt;option value="weekly"&gt;Weekly on&lt;/option&gt;
+              &lt;option value="monthly"&gt;Monthly on day&lt;/option&gt;
+              &lt;option value="custom"&gt;Custom (cron)&lt;/option&gt;
+            &lt;/select&gt;
+            &lt;span id="f_s_minutely" style="display:none"&gt;&lt;select id="f_sched_nmin"&gt;&lt;/select&gt; minutes&lt;/span&gt;
+            &lt;span id="f_s_dom" style="display:none"&gt;&lt;select id="f_sched_dom"&gt;&lt;/select&gt;&lt;/span&gt;
+            &lt;span id="f_s_weekday" class="rj-wd" style="display:none"&gt;&lt;/span&gt;
+            &lt;span id="f_s_clock" style="display:none"&gt;&lt;span id="f_s_at" style="display:none"&gt;at&lt;/span&gt; &lt;select id="f_sched_hour"&gt;&lt;/select&gt;:&lt;select id="f_sched_min"&gt;&lt;/select&gt;&lt;/span&gt;
+            &lt;span id="f_s_hourly" style="display:none"&gt;&lt;select id="f_sched_hmin"&gt;&lt;/select&gt;&lt;/span&gt;
+          &lt;/dd&gt;&lt;/dl&gt;
+          &lt;dl id="dl_f_schedule" style="display:none"&gt;&lt;dt&gt;Cron expression:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;p id="rj-sched-summary"&gt;&lt;/p&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. &lt;em&gt;Custom (cron)&lt;/em&gt; accepts the classic five fields &lt;em&gt;minute hour day-of-month month day-of-week&lt;/em&gt; (numbers, &lt;em&gt;*&lt;/em&gt; and &lt;em&gt;,&lt;/em&gt; &lt;em&gt;-&lt;/em&gt; &lt;em&gt;/&lt;/em&gt; only), e.g. &lt;em&gt;0 5 * * 6&lt;/em&gt; = Saturday 05:00.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;div class="rj-fsec"&gt;&lt;i class="fa fa-exchange"&gt;&lt;/i&gt; Transfer&lt;/div&gt;
+          &lt;dl&gt;&lt;dt&gt;Engine:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_engine"&gt;&lt;option value="rclone"&gt;rclone&lt;/option&gt;&lt;option value="rsync"&gt;rsync&lt;/option&gt;&lt;option value="custom"&gt;custom script&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;rclone&lt;/em&gt; uses the rclone plugin's own remotes (same config, never modified). &lt;em&gt;rsync&lt;/em&gt; is for local/remote paths with mount-guard protection. &lt;em&gt;custom script&lt;/em&gt; runs your own executable instead - the transfer settings below do not apply to it.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;div class="rj-eng"&gt;
+          &lt;dl&gt;&lt;dt&gt;Mode (rclone):&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_mode"&gt;&lt;option value="sync"&gt;sync&lt;/option&gt;&lt;option value="copy"&gt;copy&lt;/option&gt;&lt;option value="check"&gt;check&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;&lt;em&gt;sync&lt;/em&gt; makes destination identical to source (may delete). &lt;em&gt;copy&lt;/em&gt; only adds/updates, never deletes. &lt;em&gt;check&lt;/em&gt; only compares and reports differences.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Source:&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_src" class="variable rj-path" list="rj-paths-dl" placeholder="/mnt/user/data or remote:bucket/folder"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Folder on this server (shares, array disks, mounts) or an rclone remote path like &lt;em&gt;gdrive:Data&lt;/em&gt;. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Destination:&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_dst" class="variable rj-path" list="rj-paths-dl" placeholder="remote:backup/folder or /mnt/disk2/mirror"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;/div&gt;
+          &lt;p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"&gt;&lt;/p&gt;
+          &lt;div class="rj-custom" style="display:none"&gt;
+          &lt;dl&gt;&lt;dt&gt;Script:&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Absolute path of an executable script; Browse... shows &lt;em&gt;.sh&lt;/em&gt; files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;/div&gt;
+          &lt;div class="rj-fsec"&gt;&lt;i class="fa fa-shield"&gt;&lt;/i&gt; Limits &amp;amp; Notifications&lt;/div&gt;
+          &lt;dl&gt;&lt;dt&gt;Per-job dry-run:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_dryrun"&gt;&lt;option value="yes"&gt;yes (preview only)&lt;/option&gt;&lt;option value="no"&gt;no (real transfer)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;While &lt;em&gt;yes&lt;/em&gt;, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Notify:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_notify"&gt;&lt;option value="always"&gt;always (OK + problems)&lt;/option&gt;&lt;option value="failures"&gt;failures &amp;amp; warnings only&lt;/option&gt;&lt;option value="off"&gt;off (silent)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;When this job sends Unraid notifications: &lt;em&gt;always&lt;/em&gt; = an OK notice after each successful run plus notices for any problem; &lt;em&gt;failures&lt;/em&gt; = only failures, gate blocks, overlaps and watchdog findings; &lt;em&gt;off&lt;/em&gt; = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &amp;rarr; Notification Settings.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;div class="rj-eng"&gt;
+          &lt;dl&gt;&lt;dt&gt;Transfers / Checkers:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Bandwidth limit:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_bwlimit" class="rj-size" size="10" placeholder="off"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone syntax, e.g. &lt;em&gt;10M&lt;/em&gt; (10 MByte/s) or &lt;em&gt;off&lt;/em&gt; for unlimited. Only affects the rclone engine.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Max deletes / Warn deletes:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_maxdelete" min="0" max="999999999" value="100"&gt; / &lt;input type="number" id="f_warndelete" min="0" max="999999999" value="100"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;Sync modes only. &lt;em&gt;Max deletes&lt;/em&gt; is a hard cap - rclone aborts rather than deleting more. &lt;em&gt;Warn deletes&lt;/em&gt; makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;dl&gt;&lt;dt&gt;Backup dir (optional):&lt;/dt&gt;&lt;dd class="rj-pathrow"&gt;&lt;input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"&gt; &lt;input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"&gt;&lt;/dd&gt;&lt;/dl&gt;
+          &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone &lt;em&gt;--backup-dir&lt;/em&gt;: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like &lt;em&gt;gdrive:trash&lt;/em&gt; or a subfolder of the storage folder work well; leave empty to disable.&lt;/p&gt;&lt;/blockquote&gt;
+          &lt;/div&gt;
+          &lt;div class="rj-form-actions"&gt;
+            &lt;input type="submit" value="Save Job" class="rj-btn"&gt;
+            &lt;input type="button" id="rj-form-test" value="Test (Dry-run)" class="rj-btn"&gt;
+            &lt;input type="button" id="rj-form-cancel" value="Cancel"&gt;
+          &lt;/div&gt;
+          &lt;datalist id="rj-paths-dl"&gt;&lt;/datalist&gt;
+        &lt;/form&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
@@ -2806,15 +2843,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09b &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09c &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>d0238f0f6df69556ac4d8342dee9485a879023dd576aa3ba99cc90b62b9d22af</SHA256>
+<SHA256>75948990c6822044e56e468d1847f69a156281bb6569b3321d507f185983606e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09b - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09c - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3171,13 +3208,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>ac18f6cef820fc5c68bb3906a730dd6209dbcc20dd4a4167e9b6623076312e15</SHA256>
+<SHA256>f84396e0084a21b1fe89a625221afb133b69355956b7f45ecdce3d761fb29cd3</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09b - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09c - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3285,12 +3322,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>2cd39fc1ff99cb98e3a5ddd1ee737cb76e324612b58d022d71468fa754ee8e74</SHA256>
+<SHA256>8a20fc4e83d1bdfe00fd8ac452ac5b4e3a545ec50909e858da7562c40e6a9184</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.09b - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09c - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -3620,6 +3657,10 @@ function rjLiveStart() {
   if (typeof EventSource === 'undefined') { rjLiveFallback(); return; }
   rjLiveInd('init');
   try { rjLive.es = new EventSource('/sub/' + 'rclone-jobs'); } catch (e) { rjLiveFallback(); return; }
+  rjLive.es.onopen = function () {
+    rjLive.errs = 0;
+    rjLiveInd('on');
+  };
   rjLive.es.onmessage = function () {
     rjLive.errs = 0;
     rjLiveInd('on');
@@ -3988,30 +4029,69 @@ $(function () {
   }
   $('#f_src, #f_dst').off('.rjov').on('input.rjov change.rjov', rjOvHint);
   $('#f_engine').off('.rjov').on('change.rjov', rjOvHint);
-
-  /* the job form starts collapsed so the Jobs table is the landing view;
-     the title bar toggles it, Edit/Add opens it, Cancel closes it, and a box
-     with no jobs yet opens it right away (first-use guidance) */
-  function rjSetFormOpen(open) {
-    $('#rj-form-wrap').toggle(!!open);
-    $('#rj-form-chev').attr('class', 'fa ' + (open ? 'fa-chevron-up' : 'fa-chevron-down'));
-    $('#rj-form-toggle').attr('aria-expanded', open ? 'true' : 'false');
+  /* inline form placement: attaching form directly below target job row or at top of table */
+  function rjAttachForm(jobName) {
+    var $wrap = $('#rj-form-wrap');
+    $('#rj-inline-form-tr').remove();
+    $('.rj-row-editing').removeClass('rj-row-editing');
+    if (jobName) {
+      var $row = $('#tab_rj_jobs tbody tr[data-job="' + jobName + '"]');
+      if ($row.length) {
+        $row.addClass('rj-row-editing');
+        var $tr = $('&lt;tr id="rj-inline-form-tr" class="rj-inline-form-tr"&gt;&lt;td colspan="7"&gt;&lt;/td&gt;&lt;/tr&gt;');
+        $row.after($tr);
+        $tr.find('td').append($wrap);
+        return;
+      }
+    }
+    var $tbody = $('#tab_rj_jobs table.rclone-jobs tbody');
+    if ($tbody.length &amp;&amp; $('#tab_rj_jobs tbody tr[data-job]').length) {
+      var $tr = $('&lt;tr id="rj-inline-form-tr" class="rj-inline-form-tr"&gt;&lt;td colspan="7"&gt;&lt;/td&gt;&lt;/tr&gt;');
+      $tbody.prepend($tr);
+      $tr.find('td').append($wrap);
+      return;
+    }
+    $('#rj-form-slot-bottom').append($wrap);
   }
+
+  function rjCloseForm() {
+    $('#rj-form-wrap').hide();
+    $('#rj-inline-form-tr').remove();
+    $('.rj-row-editing').removeClass('rj-row-editing');
+    $('#rj-form-slot-bottom').append($('#rj-form-wrap'));
+    $('#rj-form-chev').attr('class', 'fa fa-chevron-down');
+    $('#rj-form-toggle').attr('aria-expanded', 'false');
+    $('#rj-result').hide();
+  }
+
+  function rjSetFormOpen(open) {
+    if (!open) {
+      rjCloseForm();
+    } else {
+      $('#rj-form-wrap').show();
+      $('#rj-form-chev').attr('class', 'fa fa-chevron-up');
+      $('#rj-form-toggle').attr('aria-expanded', 'true');
+    }
+  }
+
   $('#rj-form-toggle').off('.rjform').on('click.rjform', function () {
-    rjSetFormOpen(!$('#rj-form-wrap').is(':visible'));
+    if ($('#rj-form-wrap').is(':visible') &amp;&amp; $('#rj-inline-form-tr').length === 0) {
+      rjCloseForm();
+    } else {
+      showForm('Add job', null);
+    }
   }).on('keydown.rjform', function (ev) {
-    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); rjSetFormOpen(!$('#rj-form-wrap').is(':visible')); }
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); $(this).trigger('click'); }
   });
+
   $('#rj-btn-add-top').off('.rjadd').on('click.rjadd', function () {
     showForm('Add job', null);
-    rjSetFormOpen(true);
-    var $w = $('#rj-form-wrap');
-    if ($w.length) $('html, body').animate({ scrollTop: $w.offset().top - 60 }, 200);
   });
-  if (!Object.keys(D.jobs).length) rjSetFormOpen(true);
+  if (!Object.keys(D.jobs).length) showForm('Add job', null);
 
   function showForm(title, j) {
     $('#rj-form-title').text(title);
+    $('#rj-form-title-accordion').text(title);
     $('#f_orig').val(j ? j.name : '');
     $('#f_name').val(j ? j.name : '').prop('disabled', !!j);
     $('#f_desc').val(j &amp;&amp; j.conf.DESC ? j.conf.DESC : '');
@@ -4033,14 +4113,14 @@ $(function () {
     $('#f_backupdir').val(j &amp;&amp; j.conf.BACKUPDIR ? j.conf.BACKUPDIR : '');
     engRows();
     rjOvHint();
+    rjAttachForm(j ? j.name : null);
     rjSetFormOpen(true);
-    $('#rj-form-title')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    var el = $('#rj-inline-form-tr').length ? $('#rj-inline-form-tr')[0] : $('#rj-form-wrap')[0];
+    if (el &amp;&amp; el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  $('#rj-form-cancel').off('.rclonejobs').on('click.rclonejobs', function () {
-    showForm('Add job', null);
-    rjSetFormOpen(false);
-    $('#rj-result').hide();
+  $('#rj-form-cancel, #rj-form-close').off('.rclonejobs').on('click.rclonejobs', function () {
+    rjCloseForm();
   });
 
   /* In-form Test (Dry-run) button */
@@ -4468,13 +4548,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>7dc93882b4f57e75ff08e049e71790b510db4592d1450e618bf75244691e1b23</SHA256>
+<SHA256>84d202b6d90457c6479711ca946d055400f3862b1cacc1e5683ce6c206319527</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09b - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09c - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -4633,13 +4713,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>381aec33eae7d7248bd6b1d56c9775a71a3ecda6b2499c009bd6e018e5fabe53</SHA256>
+<SHA256>66f514a7fe679e651d1ec7cdf3e837a1b3cb5e17d5711ea067e204eb62829757</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09b - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09c - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -4718,13 +4798,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>fafddee4c4f839f819b9dc9600c28f8c8f53af61e8f3ee9a7dcd3510a03deb52</SHA256>
+<SHA256>d14131c20f5748100ad75d9b78adc994005f4b975d22df5a272cf3681a41b381</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09b - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09c - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -4792,7 +4872,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>b80f7806afccaa6456f4d66ce64f4b42c7b4ad580f4056eb4596a425266d6ca2</SHA256>
+<SHA256>bda9ee64f9915f399d5c91ae5a3914aa031fba2cf76f779a27376e0772bb8b06</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -4913,17 +4993,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.09b - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09c - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-792226d11788f05649c093463f294175ce60b00e62ffa1a94ac66ad010631204  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+2a9f3390d0d5d6a2603652f26e11f6847a661b1c45655d01a6e97dd5342d8b87  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-d0238f0f6df69556ac4d8342dee9485a879023dd576aa3ba99cc90b62b9d22af  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-ac18f6cef820fc5c68bb3906a730dd6209dbcc20dd4a4167e9b6623076312e15  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-2cd39fc1ff99cb98e3a5ddd1ee737cb76e324612b58d022d71468fa754ee8e74  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-7dc93882b4f57e75ff08e049e71790b510db4592d1450e618bf75244691e1b23  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-381aec33eae7d7248bd6b1d56c9775a71a3ecda6b2499c009bd6e018e5fabe53  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-fafddee4c4f839f819b9dc9600c28f8c8f53af61e8f3ee9a7dcd3510a03deb52  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-b80f7806afccaa6456f4d66ce64f4b42c7b4ad580f4056eb4596a425266d6ca2  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+75948990c6822044e56e468d1847f69a156281bb6569b3321d507f185983606e  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+f84396e0084a21b1fe89a625221afb133b69355956b7f45ecdce3d761fb29cd3  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+8a20fc4e83d1bdfe00fd8ac452ac5b4e3a545ec50909e858da7562c40e6a9184  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+84d202b6d90457c6479711ca946d055400f3862b1cacc1e5683ce6c206319527  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+66f514a7fe679e651d1ec7cdf3e837a1b3cb5e17d5711ea067e204eb62829757  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+d14131c20f5748100ad75d9b78adc994005f4b975d22df5a272cf3681a41b381  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+bda9ee64f9915f399d5c91ae5a3914aa031fba2cf76f779a27376e0772bb8b06  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -4931,7 +5011,7 @@ b80f7806afccaa6456f4d66ce64f4b42c7b4ad580f4056eb4596a425266d6ca2  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>5a11f88886aa5828beaef1f939346a417310e04c4cfee6f86462adf6934185e4</SHA256>
+<SHA256>544ba1d633d952e9400db55dbcd99e36beeff207ddd3ae8d2e353d78647df74a</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
