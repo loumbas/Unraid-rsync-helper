@@ -1,3 +1,17 @@
+## 2026.09.09a
+UI & UX feature additions:
+ - Action button grouping: table action buttons organized into functional
+   segments (Execution, Diagnostics, Management) with clean dividers while
+   retaining native Unraid button styling.
+ - Next scheduled run countdown: humanized relative countdown (e.g. "Next: in 4h 15m")
+   displayed directly under the schedule frequency in each job row.
+ - Fleet toolbar: live client-side search input and quick filter pills (All,
+   Active, Failed) above the jobs table for rapid navigation.
+ - In-form path autocomplete: source and destination input fields suggest
+   configured rclone remotes (from .rclone.conf) and local user shares (/mnt/user/).
+ - In-form Test (Dry-run): dedicated button next to Save job to test transfers
+   directly inside the accordion form before scheduling.
+
 ## 2026.09.09
 Restore native Unraid button styling:
  - Reverted button overrides to restore native Unraid `<input type="button">`

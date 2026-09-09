@@ -130,6 +130,19 @@ function rjFmtRun(d) {
   return RJ_DOWS[d.getDay()] + ' ' + rjPad2(d.getDate()) + ' ' + RJ_MONTHS[d.getMonth()] + ' ' + rjPad2(d.getHours()) + ':' + rjPad2(d.getMinutes());
 }
 
+function rjRelativeCountdown(d) {
+  var diffMs = d.getTime() - Date.now();
+  if (diffMs <= 0) return 'due now';
+  var totalMins = Math.round(diffMs / 60000);
+  if (totalMins < 60) return 'in ' + totalMins + 'm';
+  var hrs = Math.floor(totalMins / 60);
+  var mins = totalMins % 60;
+  if (hrs < 24) return 'in ' + hrs + 'h' + (mins > 0 ? ' ' + mins + 'm' : '');
+  var days = Math.floor(hrs / 24);
+  var remHrs = hrs % 24;
+  return 'in ' + days + 'd' + (remHrs > 0 ? ' ' + remHrs + 'h' : '');
+}
+
 function rjParseCron(cron) {
   /* reverse-map to a builder preset; null = keep as Custom */
   var f = String(cron || '').trim().split(/\s+/);
@@ -650,7 +663,7 @@ $(function () {
     var cron = String(j.conf.SCHEDULE);
     var runs = rjNextRuns(cron, 1);
     var html = rjEsc(rjHumanize(cron) || cron);
-    if (runs.length) html += '<br><span class="rj-next">next: ' + rjEsc(rjFmtRun(runs[0])) + '</span>';
+    if (runs.length) html += '<br><span class="rj-next">Next: ' + rjEsc(rjRelativeCountdown(runs[0])) + ' (' + rjEsc(rjFmtRun(runs[0])) + ')</span>';
     $(this).find('td.rj-sched').html(html).attr('title', cron);
   });
 
@@ -733,6 +746,71 @@ $(function () {
     showForm('Add job', null);
     rjSetFormOpen(false);
     $('#rj-result').hide();
+  });
+
+  /* In-form Test (Dry-run) button */
+  $('#rj-form-test').off('.rclonejobs').on('click.rclonejobs', function () {
+    var orig = $('#f_orig').val(), name = $('#f_name').val().trim();
+    var job = orig || name;
+    if (!job) {
+      rjPanel('rj-result', 'Please enter a valid job Name first to test.', true);
+      return;
+    }
+    if (orig && D.jobs[orig]) {
+      rjPanel('rj-result', 'Running preview test for "' + orig + '"...', false);
+      rjRunPreview(orig);
+      var $p = $('#rj-preview');
+      if ($p.length) $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+      rjPanel('rj-result', 'Saving "' + job + '" to start dry-run preview...', false);
+      $('#rj-jobform').trigger('submit');
+    }
+  });
+
+  /* populate path datalist (rclone remotes & unraid shares) */
+  (function rjInitPathDatalist() {
+    var $dl = $('#rj-paths-dl').empty();
+    var rems = D.remotes || [], shares = D.shares || [];
+    rems.forEach(function (r) {
+      $dl.append($('<option></option>').val(r).text(r + ' (rclone remote)'));
+    });
+    shares.forEach(function (sh) {
+      $dl.append($('<option></option>').val(sh).text(sh + ' (user share)'));
+    });
+  })();
+
+  /* Fleet toolbar filtering (search input + All / Active / Failed pills) */
+  var rjFilter = { text: '', status: 'all' };
+  function rjApplyFilter() {
+    var q = rjFilter.text.toLowerCase();
+    $('#tab_rj_jobs tbody tr.rj-row').each(function () {
+      var $tr = $(this), name = String($tr.data('job') || '');
+      var j = D.jobs[name] || {};
+      var en = (j.conf && j.conf.ENABLED !== 'no');
+      var rc = (j.status && j.status.rc !== undefined && j.status.rc !== null && j.status.rc !== '') ? +j.status.rc : null;
+      var failed = rc !== null && rc !== 0 && !(j.status && j.status.running);
+
+      var matchStatus = true;
+      if (rjFilter.status === 'active') matchStatus = en;
+      else if (rjFilter.status === 'failed') matchStatus = failed;
+
+      var matchText = true;
+      if (q) {
+        var hay = (name + ' ' + (j.conf ? (j.conf.SRC || '') + ' ' + (j.conf.DST || '') + ' ' + (j.conf.DESC || '') : '')).toLowerCase();
+        matchText = hay.indexOf(q) >= 0;
+      }
+      $tr.toggle(matchStatus && matchText);
+    });
+  }
+  $('#rj-filter-search').off('.rjfilter').on('input.rjfilter', function () {
+    rjFilter.text = $(this).val().trim();
+    rjApplyFilter();
+  });
+  $('.rj-filter-pill').off('.rjfilter').on('click.rjfilter', function () {
+    $('.rj-filter-pill').removeClass('active');
+    $(this).addClass('active');
+    rjFilter.status = $(this).data('filter') || 'all';
+    rjApplyFilter();
   });
 
   /* table buttons - delegated from document because live status refreshes add

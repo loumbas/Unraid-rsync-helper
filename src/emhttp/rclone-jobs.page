@@ -67,7 +67,29 @@ foreach (glob($RJ_BOOT.'/jobs/*.conf') as $cf) {
     $jobs[$name] = ['conf' => $cfg, 'status' => $st, 'dryrun' => $dry];
 }
 $nEnabled = 0;
-foreach ($jobs as $jj) { if (($jj['conf']['ENABLED'] ?? 'yes') !== 'no') $nEnabled++; }
+$nFailed  = 0;
+foreach ($jobs as $jj) {
+    if (($jj['conf']['ENABLED'] ?? 'yes') !== 'no') $nEnabled++;
+    $rc = $jj['status']['rc'] ?? null;
+    if ($rc !== null && $rc !== '' && (int)$rc !== 0 && empty($jj['status']['running'])) $nFailed++;
+}
+
+$remotes = [];
+$rcloneConf = '/boot/config/plugins/rclone/.rclone.conf';
+if (is_readable($rcloneConf)) {
+    $ini = @parse_ini_file($rcloneConf, true);
+    if (is_array($ini)) {
+        foreach (array_keys($ini) as $k) {
+            $k = trim($k);
+            if ($k !== '') $remotes[] = $k.':';
+        }
+    }
+}
+$shares = [];
+foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
+    $b = basename($sh);
+    if ($b !== '' && $b[0] !== '.') $shares[] = '/mnt/user/'.$b;
+}
 
 $rjdata = [
     'version'    => '{{VERSION}}',
@@ -76,6 +98,8 @@ $rjdata = [
     'quiet'      => ['start' => $quietSt, 'end' => $quietEn],
     'retention'  => $retention,
     'jobs'       => $jobs,
+    'remotes'    => $remotes,
+    'shares'     => $shares,
 ];
 ?>
 <?php /* the page CSS is injected from an inline SCRIPT, not a <style> tag: inline
@@ -150,8 +174,19 @@ $rjdata = [
     '.rj-chip-diff{display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:bold;margin-right:3px}',
     '.rj-chip-add{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
     '.rj-chip-del{background:rgba(230,134,126,0.15);color:#e6867e;border:1px solid rgba(230,134,126,0.3)}',
-    '.rj-chip-err{background:rgba(217,144,58,0.15);color:#d9903a;border:1px solid rgba(217,144,58,0.3)}',
-    '#tab_rj_jobs td.rj-acts .rj-btn{padding:2px 8px;font-size:11px;margin:1px 3px 1px 0;width:auto}',
+    /* Button Grouping & Separators */
+    '#tab_rj_jobs td.rj-acts{white-space:nowrap}',
+    '#tab_rj_jobs .rj-act-grp{display:inline-flex;align-items:center;vertical-align:middle}',
+    '#tab_rj_jobs .rj-act-sep{display:inline-block;width:1px;height:15px;background:var(--border,#46505a);margin:0 5px;vertical-align:middle;opacity:0.6}',
+    '#tab_rj_jobs td.rj-acts .rj-btn{padding:2px 8px;font-size:11px;margin:1px 2px;width:auto}',
+    /* Fleet Toolbar */
+    '.rj-toolbar{display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px;gap:12px;flex-wrap:wrap}',
+    '.rj-tb-search{display:inline-flex;align-items:center;position:relative;flex:1 1 240px;max-width:340px}',
+    '.rj-tb-search i{position:absolute;left:8px;color:var(--gray-text,#8b98a3);font-size:11px;pointer-events:none}',
+    '.rj-tb-search input{width:100%!important;padding-left:26px!important;height:26px;font-size:11px;border-radius:4px}',
+    '.rj-tb-pills{display:inline-flex;align-items:center;gap:4px}',
+    '.rj-tb-pills .rj-btn{height:26px;padding:0 10px;font-size:11px}',
+    '.rj-tb-pills .rj-btn.active{font-weight:bold;color:#fff!important;background:rgba(255,255,255,0.12)!important}',
     /* History card */
     '.rj-hist-card{background:var(--background,#242b31);border:1px solid var(--border,#3a444d);border-radius:8px;padding:16px 18px;margin-top:14px;box-shadow:0 3px 8px rgba(0,0,0,0.15)}',
     '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border,#3a444d)}',
@@ -216,6 +251,19 @@ $rjdata = [
       </div>
     </div>
     <span id="rj-counts" style="display:none"><?= count($jobs).' jobs · '.$nEnabled.' enabled' ?></span>
+
+    <div class="rj-toolbar">
+      <div class="rj-tb-search">
+        <i class="fa fa-search"></i>
+        <input type="text" id="rj-filter-search" placeholder="Search jobs, remotes, paths..." autocomplete="off">
+      </div>
+      <div class="rj-tb-pills">
+        <input type="button" class="rj-btn rj-filter-pill active" data-filter="all" value="All (<?= count($jobs) ?>)">
+        <input type="button" class="rj-btn rj-filter-pill" data-filter="active" value="Active (<?= $nEnabled ?>)">
+        <input type="button" class="rj-btn rj-filter-pill" data-filter="failed" value="Failed (<?= $nFailed ?>)">
+      </div>
+    </div>
+
     <table class="rclone-jobs view-table sortable">
       <thead><tr>
         <th>Job</th><th>On</th><th>Schedule</th>
@@ -293,15 +341,23 @@ $rjdata = [
               -
             <?php endif; ?>
           </td>
-          <td class="rj-acts" style="white-space:nowrap">
-            <input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>' title='Dry-run: simulate only, nothing is written'>
-            <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'<?= $running ? " style='display:none'" : '' ?>>
-            <input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='<?= htmlspecialchars($name) ?>' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'<?= $running ? '' : " style='display:none'" ?>>
-            <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>' title='This dry-run wants to delete files - acknowledge before a real run'><?php endif; ?>
-            <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='Open the last log (redacted) in a new window'>
-            <input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='Last 20 live runs + size trend'>
-            <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>' title='Edit this job'>
-            <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>' title='Delete this job (config kept as a .removed-* backup)'>
+          <td class="rj-acts">
+            <span class="rj-act-grp">
+              <input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>' title='Dry-run: simulate only, nothing is written'>
+              <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'<?= $running ? " style='display:none'" : '' ?>>
+              <input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='<?= htmlspecialchars($name) ?>' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'<?= $running ? '' : " style='display:none'" ?>>
+              <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>' title='This dry-run wants to delete files - acknowledge before a real run'><?php endif; ?>
+            </span>
+            <span class="rj-act-sep"></span>
+            <span class="rj-act-grp">
+              <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='Open the last log (redacted) in a new window'>
+              <input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='Last 20 live runs + size trend'>
+            </span>
+            <span class="rj-act-sep"></span>
+            <span class="rj-act-grp">
+              <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>' title='Edit this job'>
+              <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>' title='Delete this job (config kept as a .removed-* backup)'>
+            </span>
           </td>
         </tr>
       <?php endforeach; ?>
@@ -350,9 +406,9 @@ $rjdata = [
         <div class="rj-eng">
         <dl><dt>Mode (rclone):</dt><dd><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></dd></dl>
         <blockquote class='inline_help'><p><em>sync</em> makes destination identical to source (may delete). <em>copy</em> only adds/updates, never deletes. <em>check</em> only compares and reports differences.</p></blockquote>
-        <dl><dt>Source:</dt><dd class="rj-pathrow"><input type="text" id="f_src" class="variable rj-path" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></dd></dl>
+        <dl><dt>Source:</dt><dd class="rj-pathrow"><input type="text" id="f_src" class="variable rj-path" list="rj-paths-dl" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></dd></dl>
         <blockquote class='inline_help'><p>Folder on this server (shares, array disks, mounts) or an rclone remote path like <em>gdrive:Data</em>. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.</p></blockquote>
-        <dl><dt>Destination:</dt><dd class="rj-pathrow"><input type="text" id="f_dst" class="variable rj-path" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
+        <dl><dt>Destination:</dt><dd class="rj-pathrow"><input type="text" id="f_dst" class="variable rj-path" list="rj-paths-dl" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
         <blockquote class='inline_help'><p>Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.</p></blockquote>
         </div>
         <p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"></p>
@@ -377,8 +433,9 @@ $rjdata = [
         </div>
       <dl>
         <dt>&nbsp;</dt>
-        <dd><input type="submit" value="Save job" class="rj-btn"> <input type="button" id="rj-form-cancel" value="Cancel"></dd>
+        <dd><input type="submit" value="Save job" class="rj-btn"> <input type="button" id="rj-form-test" value="Test (Dry-run)" class="rj-btn"> <input type="button" id="rj-form-cancel" value="Cancel"></dd>
       </dl>
+      <datalist id="rj-paths-dl"></datalist>
       </form>
     </div>
   </div>
