@@ -1,3 +1,9 @@
+## 2026.09.09
+Restore native Unraid button styling:
+ - Reverted button overrides to restore native Unraid `<input type="button">`
+   elements with signature orange edges across the WebUI (actions, quick add, history,
+   and ack controls).
+
 ## 2026.09.08h
 Modern WebUI redesign & UX enhancements:
  - KPI metric cards: replaced the plain text status strip with 4 compact summary

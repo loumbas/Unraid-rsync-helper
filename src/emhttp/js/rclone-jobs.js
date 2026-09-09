@@ -274,7 +274,7 @@ function rjApplyStatus(jobs) {
     }
     var $ack = $tr.find("[data-act='ack']");
     if (needAck && $ack.length === 0) {
-      $tr.find("[data-act='run']").after(" <button type='button' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'><i class='fa fa-check'></i> Ack</button>");
+      $tr.find("[data-act='run']").after(" <input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'>");
     } else if (!needAck && $ack.length) {
       $ack.remove();
     }
@@ -284,7 +284,7 @@ function rjApplyStatus(jobs) {
     var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
     if (running) {
       $run.hide();
-      $stop.show().prop('disabled', false).html('<i class="fa fa-stop"></i> Stop');
+      $stop.show().prop('disabled', false).val('Stop');
     } else {
       $stop.hide();
       $run.show();
@@ -350,7 +350,7 @@ function rjShowHistory(job) {
     var $wrap = $('<div class="rj-hist-card"></div>');
     var $hdr = $('<div class="rj-hist-top">' +
       '<div class="rj-hist-title"><i class="fa fa-bar-chart"></i> Run History &amp; Trend: <span style="color:#2e97c2">"' + rjEsc(job) + '"</span></div>' +
-      '<div><button type="button" class="rj-btn" id="rj-hist-close" style="padding:2px 8px"><i class="fa fa-times"></i> Close</button></div>' +
+      '<div><input type="button" value="Close" id="rj-hist-close" style="padding:2px 8px"></div>' +
       '</div>');
     $wrap.append($hdr);
     $hdr.find('#rj-hist-close').on('click', function () { $p.slideUp(180); });
@@ -779,7 +779,7 @@ $(function () {
                 'Stop', true, function () {
         rjPost({ action: 'stop_job', job: job }, function (res) {
           if (res.ok) {
-            $btn.prop('disabled', true).val('stopping...').html('<i class="fa fa-spinner fa-spin"></i> Stopping...');
+            $btn.prop('disabled', true).val('stopping...');
             rjPanel('rj-result', 'Stop requested for "' + job + '" - the row returns to idle when the run records rc=143.');
             setTimeout(rjStatusRefresh, 1500);
           } else {

@@ -151,17 +151,7 @@ $rjdata = [
     '.rj-chip-add{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
     '.rj-chip-del{background:rgba(230,134,126,0.15);color:#e6867e;border:1px solid rgba(230,134,126,0.3)}',
     '.rj-chip-err{background:rgba(217,144,58,0.15);color:#d9903a;border:1px solid rgba(217,144,58,0.3)}',
-    /* Button Group & Buttons - Strict no-animation and theme border override */
-    '.rj-btn-group{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap}',
-    '.rj-btn,button.rj-btn,input[type=button].rj-btn{padding:3px 8px!important;font-size:11px!important;border-radius:4px!important;border:1px solid var(--border,#46505a)!important;background:var(--background,#242b31)!important;color:var(--text,#dfe6ec)!important;cursor:pointer!important;display:inline-flex!important;align-items:center!important;gap:4px!important;outline:none!important;transition:none!important;box-shadow:none!important;transform:none!important;text-decoration:none!important;line-height:normal!important;height:auto!important}',
-    '.rj-btn i{pointer-events:none;font-size:10px}',
-    '.rj-btn:hover,button.rj-btn:hover,input[type=button].rj-btn:hover{background:rgba(255,255,255,0.08)!important;border-color:var(--text,#cbd5e1)!important;color:#fff!important;transition:none!important;transform:none!important}',
-    '.rj-btn.rj-run:hover{border-color:#2f8f46!important;color:#7dcf7d!important}',
-    '.rj-btn.rj-del{color:#e6867e!important;border-color:rgba(214,90,84,0.4)!important}',
-    '.rj-btn.rj-del:hover{background:rgba(214,90,84,0.2)!important;border-color:#d65a54!important;color:#fff!important}',
-    '.rj-btn.rj-warn{background:rgba(217,144,58,0.2)!important;border-color:#d9903a!important;color:#f0ad4e!important}',
-    '.rj-btn.rj-btn-primary{background:#24638a!important;border-color:#2e97c2!important;color:#fff!important}',
-    '.rj-btn.rj-btn-primary:hover{background:#2e97c2!important;border-color:#2e97c2!important;color:#fff!important}',
+    '#tab_rj_jobs td.rj-acts .rj-btn{padding:2px 8px;font-size:11px;margin:1px 3px 1px 0;width:auto}',
     /* History card */
     '.rj-hist-card{background:var(--background,#242b31);border:1px solid var(--border,#3a444d);border-radius:8px;padding:16px 18px;margin-top:14px;box-shadow:0 3px 8px rgba(0,0,0,0.15)}',
     '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border,#3a444d)}',
@@ -221,7 +211,7 @@ $rjdata = [
       <div class="rj-card" style="justify-content:center;align-items:flex-start">
         <div class="rj-card-title"><i class="fa fa-plus-circle"></i> Quick Actions</div>
         <div style="margin-top:2px">
-          <button type="button" id="rj-btn-add-top" class="rj-btn rj-btn-primary" style="padding:5px 12px;font-weight:bold"><i class="fa fa-plus"></i> Add New Job</button>
+          <input type="button" id="rj-btn-add-top" class="rj-btn" value="+ Add New Job">
         </div>
       </div>
     </div>
@@ -304,16 +294,14 @@ $rjdata = [
             <?php endif; ?>
           </td>
           <td class="rj-acts" style="white-space:nowrap">
-            <div class="rj-btn-group">
-              <button type="button" class="rj-btn" data-act="dry" data-job="<?= htmlspecialchars($name) ?>" title="Dry-run: simulate only, nothing is written"><i class="fa fa-flask"></i> Dry</button>
-              <button type="button" class="rj-btn rj-run" data-act="run" data-job="<?= htmlspecialchars($name) ?>" title="Start a run now (respects the master dry-run switch)"<?= $running ? " style='display:none'" : '' ?>><i class="fa fa-play"></i> Run</button>
-              <button type="button" class="rj-btn rj-del rj-stop" data-act="stop" data-job="<?= htmlspecialchars($name) ?>" title="Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)"<?= $running ? '' : " style='display:none'" ?>><i class="fa fa-stop"></i> Stop</button>
-              <?php if ($needAck): ?><button type="button" class="rj-btn rj-warn" data-act="ack" data-job="<?= htmlspecialchars($name) ?>" title="This dry-run wants to delete files - acknowledge before a real run"><i class="fa fa-check"></i> Ack</button><?php endif; ?>
-              <button type="button" class="rj-btn" data-act="log" data-job="<?= htmlspecialchars($name) ?>" title="Open the last log (redacted) in a new window"><i class="fa fa-file-text-o"></i> Log</button>
-              <button type="button" class="rj-btn" data-act="hist" data-job="<?= htmlspecialchars($name) ?>" title="Last 20 live runs + size trend"><i class="fa fa-bar-chart"></i> Hist</button>
-              <button type="button" class="rj-btn" data-act="edit" data-job="<?= htmlspecialchars($name) ?>" title="Edit this job"><i class="fa fa-pencil"></i> Edit</button>
-              <button type="button" class="rj-btn rj-del" data-act="del" data-job="<?= htmlspecialchars($name) ?>" title="Delete this job (config kept as a .removed-* backup)"><i class="fa fa-trash"></i></button>
-            </div>
+            <input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>' title='Dry-run: simulate only, nothing is written'>
+            <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'<?= $running ? " style='display:none'" : '' ?>>
+            <input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='<?= htmlspecialchars($name) ?>' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'<?= $running ? '' : " style='display:none'" ?>>
+            <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>' title='This dry-run wants to delete files - acknowledge before a real run'><?php endif; ?>
+            <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='Open the last log (redacted) in a new window'>
+            <input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='Last 20 live runs + size trend'>
+            <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>' title='Edit this job'>
+            <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>' title='Delete this job (config kept as a .removed-* backup)'>
           </td>
         </tr>
       <?php endforeach; ?>

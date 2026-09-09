@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.08h">
+<!ENTITY version   "2026.09.09">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,12 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09
+Restore native Unraid button styling:
+ - Reverted button overrides to restore native Unraid `&lt;input type="button"&gt;`
+   elements with signature orange edges across the WebUI (actions, quick add, history,
+   and ack controls).
+
 ## 2026.09.08h
 Modern WebUI redesign &amp; UX enhancements:
  - KPI metric cards: replaced the plain text status strip with 4 compact summary
@@ -170,22 +176,6 @@ Run history + transferred-size trend:
 - WebUI: per-row History button opens a newest-first table of the last 20 runs
   (result colored, errors, transferred) with plain-CSS bars relative to the largest
   run - no chart library on an Unraid box.
-
-## 2026.09.07k
-Job export / import (fleet setup) on the Alerts &amp; Safety tab:
-- Engine 'export-jobs': every job config (regular files, valid names only) plus meta.txt
-  (plugin version, export time, host) packed as a deterministic tar.gz and returned
-  base64-in-JSON; the UI builds a normal file download. Job names, paths, schedules and
-  script locations are inside - credentials never are.
-- Engine 'import-jobs &lt;ask|overwrite|skip&gt; &lt;b64-file&gt;': size cap ~1 MiB, member names
-  whitelisted BEFORE extraction (only meta.txt, jobs/ and jobs/&lt;valid&gt;.conf - tar-slip
-  impossible), each config re-validated by the real save-time validators in a subshell
-  (one bad file is rejected individually, the rest still import), atomic installs mode
-  0600; overwrite first keeps a .pre-import-&lt;ts&gt; backup; 'ask' (default) reports name
-  conflicts and changes nothing. The upload file is consumed by the engine.
-- The archive reaches the ajax endpoint as base64 inside the normal urlencoded body,
-  never multipart (the CSRF recovery cannot read a multipart body). Cron block is
-  regenerated automatically when something was added or replaced.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -224,7 +214,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.08h - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09 - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -246,7 +236,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.08h"
+ENGINE_VERSION="2026.09.09"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -2083,7 +2073,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>86ee075ffee8f5f0f31fcf7f6971fd1f69da8f4a773d742d1b59ab75f4c1da8b</SHA256>
+<SHA256>8e46dad9e3dae5aa7dd38065c42b8588599dc1c988db5f9193e9d4cb3e3ba7c8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2260,7 +2250,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.08h - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09 - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2327,7 +2317,7 @@ $nEnabled = 0;
 foreach ($jobs as $jj) { if (($jj['conf']['ENABLED'] ?? 'yes') !== 'no') $nEnabled++; }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.08h',
+    'version'    =&gt; '2026.09.09',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2408,17 +2398,7 @@ $rjdata = [
     '.rj-chip-add{background:rgba(46,151,80,0.15);color:#7dcf7d;border:1px solid rgba(46,151,80,0.3)}',
     '.rj-chip-del{background:rgba(230,134,126,0.15);color:#e6867e;border:1px solid rgba(230,134,126,0.3)}',
     '.rj-chip-err{background:rgba(217,144,58,0.15);color:#d9903a;border:1px solid rgba(217,144,58,0.3)}',
-    /* Button Group &amp; Buttons - Strict no-animation and theme border override */
-    '.rj-btn-group{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap}',
-    '.rj-btn,button.rj-btn,input[type=button].rj-btn{padding:3px 8px!important;font-size:11px!important;border-radius:4px!important;border:1px solid var(--border,#46505a)!important;background:var(--background,#242b31)!important;color:var(--text,#dfe6ec)!important;cursor:pointer!important;display:inline-flex!important;align-items:center!important;gap:4px!important;outline:none!important;transition:none!important;box-shadow:none!important;transform:none!important;text-decoration:none!important;line-height:normal!important;height:auto!important}',
-    '.rj-btn i{pointer-events:none;font-size:10px}',
-    '.rj-btn:hover,button.rj-btn:hover,input[type=button].rj-btn:hover{background:rgba(255,255,255,0.08)!important;border-color:var(--text,#cbd5e1)!important;color:#fff!important;transition:none!important;transform:none!important}',
-    '.rj-btn.rj-run:hover{border-color:#2f8f46!important;color:#7dcf7d!important}',
-    '.rj-btn.rj-del{color:#e6867e!important;border-color:rgba(214,90,84,0.4)!important}',
-    '.rj-btn.rj-del:hover{background:rgba(214,90,84,0.2)!important;border-color:#d65a54!important;color:#fff!important}',
-    '.rj-btn.rj-warn{background:rgba(217,144,58,0.2)!important;border-color:#d9903a!important;color:#f0ad4e!important}',
-    '.rj-btn.rj-btn-primary{background:#24638a!important;border-color:#2e97c2!important;color:#fff!important}',
-    '.rj-btn.rj-btn-primary:hover{background:#2e97c2!important;border-color:#2e97c2!important;color:#fff!important}',
+    '#tab_rj_jobs td.rj-acts .rj-btn{padding:2px 8px;font-size:11px;margin:1px 3px 1px 0;width:auto}',
     /* History card */
     '.rj-hist-card{background:var(--background,#242b31);border:1px solid var(--border,#3a444d);border-radius:8px;padding:16px 18px;margin-top:14px;box-shadow:0 3px 8px rgba(0,0,0,0.15)}',
     '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border,#3a444d)}',
@@ -2444,7 +2424,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.08h"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2478,7 +2458,7 @@ $rjdata = [
       &lt;div class="rj-card" style="justify-content:center;align-items:flex-start"&gt;
         &lt;div class="rj-card-title"&gt;&lt;i class="fa fa-plus-circle"&gt;&lt;/i&gt; Quick Actions&lt;/div&gt;
         &lt;div style="margin-top:2px"&gt;
-          &lt;button type="button" id="rj-btn-add-top" class="rj-btn rj-btn-primary" style="padding:5px 12px;font-weight:bold"&gt;&lt;i class="fa fa-plus"&gt;&lt;/i&gt; Add New Job&lt;/button&gt;
+          &lt;input type="button" id="rj-btn-add-top" class="rj-btn" value="+ Add New Job"&gt;
         &lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
@@ -2561,16 +2541,14 @@ $rjdata = [
             &lt;?php endif; ?&gt;
           &lt;/td&gt;
           &lt;td class="rj-acts" style="white-space:nowrap"&gt;
-            &lt;div class="rj-btn-group"&gt;
-              &lt;button type="button" class="rj-btn" data-act="dry" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Dry-run: simulate only, nothing is written"&gt;&lt;i class="fa fa-flask"&gt;&lt;/i&gt; Dry&lt;/button&gt;
-              &lt;button type="button" class="rj-btn rj-run" data-act="run" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Start a run now (respects the master dry-run switch)"&lt;?= $running ? " style='display:none'" : '' ?&gt;&gt;&lt;i class="fa fa-play"&gt;&lt;/i&gt; Run&lt;/button&gt;
-              &lt;button type="button" class="rj-btn rj-del rj-stop" data-act="stop" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)"&lt;?= $running ? '' : " style='display:none'" ?&gt;&gt;&lt;i class="fa fa-stop"&gt;&lt;/i&gt; Stop&lt;/button&gt;
-              &lt;?php if ($needAck): ?&gt;&lt;button type="button" class="rj-btn rj-warn" data-act="ack" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="This dry-run wants to delete files - acknowledge before a real run"&gt;&lt;i class="fa fa-check"&gt;&lt;/i&gt; Ack&lt;/button&gt;&lt;?php endif; ?&gt;
-              &lt;button type="button" class="rj-btn" data-act="log" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Open the last log (redacted) in a new window"&gt;&lt;i class="fa fa-file-text-o"&gt;&lt;/i&gt; Log&lt;/button&gt;
-              &lt;button type="button" class="rj-btn" data-act="hist" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Last 20 live runs + size trend"&gt;&lt;i class="fa fa-bar-chart"&gt;&lt;/i&gt; Hist&lt;/button&gt;
-              &lt;button type="button" class="rj-btn" data-act="edit" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Edit this job"&gt;&lt;i class="fa fa-pencil"&gt;&lt;/i&gt; Edit&lt;/button&gt;
-              &lt;button type="button" class="rj-btn rj-del" data-act="del" data-job="&lt;?= htmlspecialchars($name) ?&gt;" title="Delete this job (config kept as a .removed-* backup)"&gt;&lt;i class="fa fa-trash"&gt;&lt;/i&gt;&lt;/button&gt;
-            &lt;/div&gt;
+            &lt;input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Dry-run: simulate only, nothing is written'&gt;
+            &lt;input type='button' value='Run' class='rj-btn' data-act='run' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Start a run now (respects the master dry-run switch)'&lt;?= $running ? " style='display:none'" : '' ?&gt;&gt;
+            &lt;input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'&lt;?= $running ? '' : " style='display:none'" ?&gt;&gt;
+            &lt;?php if ($needAck): ?&gt;&lt;input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='This dry-run wants to delete files - acknowledge before a real run'&gt;&lt;?php endif; ?&gt;
+            &lt;input type='button' value='Log' class='rj-btn' data-act='log' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Open the last log (redacted) in a new window'&gt;
+            &lt;input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Last 20 live runs + size trend'&gt;
+            &lt;input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Edit this job'&gt;
+            &lt;input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='&lt;?= htmlspecialchars($name) ?&gt;' title='Delete this job (config kept as a .removed-* backup)'&gt;
           &lt;/td&gt;
         &lt;/tr&gt;
       &lt;?php endforeach; ?&gt;
@@ -2718,15 +2696,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.08h &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09 &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>e4b66b7ee282c5ad45953d5d312cfdf1a7cca32e6de087c9a1bcb2c5eac500b5</SHA256>
+<SHA256>e608d73b3a9404a6d7b09a03e095ca5a55ef5729b05521cd2d1768be8f97d3a4</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.08h - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09 - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3083,13 +3061,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>93abffb9e57ff972606fb8a13506affec1cbcc689fb3d45e02b4d8563e44fe46</SHA256>
+<SHA256>abc374fa190f2551ede7a7a3c932eb07db2d9c2028312143636120bac10291ae</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.08h - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09 - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3197,12 +3175,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>2e247813d3ddca49c0db002cdce32f435d781a7c07d5d432f545edf7bf2d6980</SHA256>
+<SHA256>9c1bc8ca9e6f733f0bb8e967ede2fb928797eda2931c16262cd602c0fe5129fb</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.08h - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09 - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -3478,7 +3456,7 @@ function rjApplyStatus(jobs) {
     }
     var $ack = $tr.find("[data-act='ack']");
     if (needAck &amp;&amp; $ack.length === 0) {
-      $tr.find("[data-act='run']").after(" &lt;button type='button' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'&gt;&lt;i class='fa fa-check'&gt;&lt;/i&gt; Ack&lt;/button&gt;");
+      $tr.find("[data-act='run']").after(" &lt;input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'&gt;");
     } else if (!needAck &amp;&amp; $ack.length) {
       $ack.remove();
     }
@@ -3488,7 +3466,7 @@ function rjApplyStatus(jobs) {
     var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
     if (running) {
       $run.hide();
-      $stop.show().prop('disabled', false).html('&lt;i class="fa fa-stop"&gt;&lt;/i&gt; Stop');
+      $stop.show().prop('disabled', false).val('Stop');
     } else {
       $stop.hide();
       $run.show();
@@ -3554,7 +3532,7 @@ function rjShowHistory(job) {
     var $wrap = $('&lt;div class="rj-hist-card"&gt;&lt;/div&gt;');
     var $hdr = $('&lt;div class="rj-hist-top"&gt;' +
       '&lt;div class="rj-hist-title"&gt;&lt;i class="fa fa-bar-chart"&gt;&lt;/i&gt; Run History &amp;amp; Trend: &lt;span style="color:#2e97c2"&gt;"' + rjEsc(job) + '"&lt;/span&gt;&lt;/div&gt;' +
-      '&lt;div&gt;&lt;button type="button" class="rj-btn" id="rj-hist-close" style="padding:2px 8px"&gt;&lt;i class="fa fa-times"&gt;&lt;/i&gt; Close&lt;/button&gt;&lt;/div&gt;' +
+      '&lt;div&gt;&lt;input type="button" value="Close" id="rj-hist-close" style="padding:2px 8px"&gt;&lt;/div&gt;' +
       '&lt;/div&gt;');
     $wrap.append($hdr);
     $hdr.find('#rj-hist-close').on('click', function () { $p.slideUp(180); });
@@ -3983,7 +3961,7 @@ $(function () {
                 'Stop', true, function () {
         rjPost({ action: 'stop_job', job: job }, function (res) {
           if (res.ok) {
-            $btn.prop('disabled', true).val('stopping...').html('&lt;i class="fa fa-spinner fa-spin"&gt;&lt;/i&gt; Stopping...');
+            $btn.prop('disabled', true).val('stopping...');
             rjPanel('rj-result', 'Stop requested for "' + job + '" - the row returns to idle when the run records rc=143.');
             setTimeout(rjStatusRefresh, 1500);
           } else {
@@ -4299,13 +4277,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>b25b7c8d129cb757c2309786d3357e028edc206d7890f33fc696b1c65913dfd0</SHA256>
+<SHA256>0feb7c4d29b0064119f685eefbdd114351f3388ed4434c21b3728c5efe7b04eb</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08h - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09 - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -4464,13 +4442,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>182d8fe823ab4f0c64ae03476fb72f0e5976a55f7fb6f22a11644deeb8b08576</SHA256>
+<SHA256>89246edcf3ace7dd7122f83c30d8b50dc0fa19795afa6577e42e507b490585c5</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08h - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09 - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -4549,13 +4527,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>2769a586a8beb885e7938a2ad36242152bd49523f5eed069f8a61586c133fb87</SHA256>
+<SHA256>458ac61acfe344aba8c1b576ff69935f6ddeccdfd3ac70f7072076a24380638e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.08h - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09 - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -4623,7 +4601,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>eee766a0a7f7045ff50e59d9d6a46474bbc561bea055ea56dd808510db48dc90</SHA256>
+<SHA256>a0bcd6e4c3594aca203f4d8e9db6d558580c71eedf237a64cec13e900c902580</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -4744,17 +4722,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.08h - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09 - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-86ee075ffee8f5f0f31fcf7f6971fd1f69da8f4a773d742d1b59ab75f4c1da8b  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+8e46dad9e3dae5aa7dd38065c42b8588599dc1c988db5f9193e9d4cb3e3ba7c8  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-e4b66b7ee282c5ad45953d5d312cfdf1a7cca32e6de087c9a1bcb2c5eac500b5  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-93abffb9e57ff972606fb8a13506affec1cbcc689fb3d45e02b4d8563e44fe46  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-2e247813d3ddca49c0db002cdce32f435d781a7c07d5d432f545edf7bf2d6980  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-b25b7c8d129cb757c2309786d3357e028edc206d7890f33fc696b1c65913dfd0  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-182d8fe823ab4f0c64ae03476fb72f0e5976a55f7fb6f22a11644deeb8b08576  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-2769a586a8beb885e7938a2ad36242152bd49523f5eed069f8a61586c133fb87  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-eee766a0a7f7045ff50e59d9d6a46474bbc561bea055ea56dd808510db48dc90  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+e608d73b3a9404a6d7b09a03e095ca5a55ef5729b05521cd2d1768be8f97d3a4  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+abc374fa190f2551ede7a7a3c932eb07db2d9c2028312143636120bac10291ae  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+9c1bc8ca9e6f733f0bb8e967ede2fb928797eda2931c16262cd602c0fe5129fb  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+0feb7c4d29b0064119f685eefbdd114351f3388ed4434c21b3728c5efe7b04eb  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+89246edcf3ace7dd7122f83c30d8b50dc0fa19795afa6577e42e507b490585c5  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+458ac61acfe344aba8c1b576ff69935f6ddeccdfd3ac70f7072076a24380638e  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+a0bcd6e4c3594aca203f4d8e9db6d558580c71eedf237a64cec13e900c902580  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -4762,7 +4740,7 @@ eee766a0a7f7045ff50e59d9d6a46474bbc561bea055ea56dd808510db48dc90  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>f47604921d25ebc4636c6e9c1d75a03d9c28deb871f1caf00db8f8680aeb801b</SHA256>
+<SHA256>9785bdedf60927d7e7bfd11bffab02bc1f9a5e8362f9a997ad70a1a91dc0bc6a</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
