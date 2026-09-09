@@ -1,3 +1,12 @@
+## 2026.09.09r
+Responsive Jobs Table & Viewport Adaptations:
+ - Fluid table resizing: eliminated rigid minimum width and inflexible cell nowrap constraints, allowing the jobs table to fluidly resize to fit standard laptop, tablet, and windowed viewports without blowing out the page.
+ - Truncating path endpoints: wrapped path text in flexible ellipsis containers with tooltips, preventing long directory and cloud paths from expanding column width beyond available space.
+ - Multi-row actions on constrained screens: actions column now flexibly wraps button groups (execution vs. management) into two rows on medium screens (<= 1250px), saving ~200px of table width.
+ - Vertical path stacking: on viewports <= 1060px, source and destination paths stack vertically with a directional indicator, saving an additional ~300px.
+ - Sticky job context: sticky first column on horizontal scroll (<= 1060px) ensures the job name remains pinned and clearly visible when scrolling table details.
+ - Mobile card transformation: on small mobile screens (<= 740px), table rows seamlessly transform into styled, touch-friendly job cards with labeled details and full-width action controls.
+
 ## 2026.09.09q
 Installed Plugins Table Branding & Title Fix:
  - Plugin Manager icon resolution: updated PLUGIN tag icon attribute from generic FontAwesome 'clone' to '&name;.png' (rclone-jobs.png), allowing Unraid's ShowPlugins parser to locate /usr/local/emhttp/plugins/rclone-jobs/images/rclone-jobs.png and render the official high-resolution icon in the Plugins table.

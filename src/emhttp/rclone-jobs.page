@@ -325,10 +325,10 @@ $rjdata = [
     '#rj-btn-add-top{height:30px!important;line-height:28px!important;padding:0 14px!important;font-size:12px!important;font-weight:600!important;border:1px solid #ff8c2f!important;border-radius:6px!important;background:#20262d!important;color:#ff8c2f!important;cursor:pointer!important;text-transform:none!important;display:inline-flex!important;align-items:center!important;gap:5px!important;margin:0!important;transition:all 0.15s ease!important}',
     '#rj-btn-add-top:hover{background:#ff8c2f!important;color:#111!important}',
     /* Table Styling - Elevated Card Rows */
-    '#tab_rj_jobs table.rclone-jobs{width:100%;min-width:760px;border-collapse:separate;border-spacing:0 4px;margin:0}',
+    '#tab_rj_jobs table.rclone-jobs{width:100%;border-collapse:separate;border-spacing:0 4px;margin:0}',
     '#rj-result-pre,#rj-preview-pre{white-space:pre-wrap!important;word-break:break-word!important;max-width:100%}',
-    '#tab_rj_jobs table.rclone-jobs th{padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#8b98a3;border:none;background:transparent;font-weight:600}',
-    '#tab_rj_jobs table.rclone-jobs tbody tr td{background:#20262d!important;padding:12px 14px;border:none;border-top:1px solid #2f3842!important;border-bottom:1px solid #2f3842!important;vertical-align:middle;transition:background 0.15s ease}',
+    '#tab_rj_jobs table.rclone-jobs th{padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#8b98a3;border:none;background:transparent;font-weight:600;white-space:nowrap}',
+    '#tab_rj_jobs table.rclone-jobs tbody tr td{background:#20262d!important;padding:10px 12px;border:none;border-top:1px solid #2f3842!important;border-bottom:1px solid #2f3842!important;vertical-align:middle;transition:background 0.15s ease}',
     '#tab_rj_jobs table.rclone-jobs tbody tr:hover td{background:#262f38!important}',
     '#tab_rj_jobs table.rclone-jobs tbody td:first-child{border-left:1px solid #2f3842!important;border-top-left-radius:6px;border-bottom-left-radius:6px}',
     '#tab_rj_jobs table.rclone-jobs tbody td:last-child{border-right:1px solid #2f3842!important;border-top-right-radius:6px;border-bottom-right-radius:6px}',
@@ -357,11 +357,13 @@ $rjdata = [
     '#tab_rj_jobs .rj-chip{color:#22d3ee!important;font-size:11px!important;font-weight:600!important;border:1px solid rgba(34,211,238,0.4)!important;border-radius:12px!important;padding:2px 10px!important;margin-top:4px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;background:rgba(6,182,212,0.18)!important;letter-spacing:0.3px}',
     '#tab_rj_jobs .rj-chip.rsync{color:#a78bfa!important;border-color:rgba(167,139,250,0.4)!important;background:rgba(167,139,250,0.18)!important}',
     '#tab_rj_jobs .rj-chip.custom{color:#fbbf24!important;border-color:rgba(251,191,36,0.4)!important;background:rgba(251,191,36,0.18)!important}',
-    '#tab_rj_jobs .rj-sched{font-weight:600;font-size:12px;color:#e8eef3}',
+    '#tab_rj_jobs .rj-sched{font-weight:600;font-size:12px;color:#e8eef3;white-space:nowrap}',
     /* Endpoint Badge Tags & Paths */
-    '.rj-path-container{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,\'Liberation Mono\',Menlo,monospace;max-width:560px}',
-    '.rj-path-endpoint{background:#181d22!important;border:1px solid #333d47!important;border-radius:6px!important;padding:4px 9px!important;color:#d0d7de!important;display:inline-flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}',
-    '.rj-path-arrow{color:#ff8c2f!important;font-size:11px;flex:0 0 auto}',
+    '.rj-path-container{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,\'Liberation Mono\',Menlo,monospace;max-width:100%;min-width:0}',
+    '.rj-path-endpoint{background:#181d22!important;border:1px solid #333d47!important;border-radius:6px!important;padding:3px 8px!important;color:#d0d7de!important;display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:210px;flex:0 1 auto}',
+    '.rj-path-endpoint i{font-size:11px;flex:0 0 auto}',
+    '.rj-path-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto;display:inline-block}',
+    '.rj-path-arrow{color:#ff8c2f!important;font-size:10px;flex:0 0 auto}',
     /* Status Badges - Punchy Pills from Mockup */
     '.rj-rc{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;font-size:11px;font-weight:700;letter-spacing:0.3px;color:#fff!important;box-shadow:0 2px 6px rgba(0,0,0,0.25)}',
     '.rj-rc.ok{background:#10b981!important;border:1px solid #059669!important;box-shadow:0 2px 8px rgba(16,185,129,0.4)!important}',
@@ -404,9 +406,10 @@ $rjdata = [
     '.rj-chip-del{background:rgba(230,134,126,0.18);color:#f87171;border:1px solid rgba(230,134,126,0.3)}',
     '.rj-chip-err{background:rgba(214,90,84,0.18);color:#f87171;border:1px solid rgba(214,90,84,0.3)}',
     /* Button Grouping & Separators */
-    '#tab_rj_jobs td.rj-acts{white-space:nowrap}',
-    '#tab_rj_jobs .rj-act-grp{display:inline-flex;align-items:center;vertical-align:middle;gap:3px}',
-    '#tab_rj_jobs .rj-act-sep{display:inline-block;width:1px;height:16px;background:#3e4b57!important;margin:0 5px;vertical-align:middle}',
+    '#tab_rj_jobs td.rj-acts{text-align:right}',
+    '.rj-acts-wrap{display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap;max-width:340px}',
+    '#tab_rj_jobs .rj-act-grp{display:inline-flex;align-items:center;vertical-align:middle;gap:3px;white-space:nowrap}',
+    '#tab_rj_jobs .rj-act-sep{display:inline-block;width:1px;height:16px;background:#3e4b57!important;margin:0 4px;vertical-align:middle}',
     '#tab_rj_jobs td.rj-acts .rj-btn{height:24px!important;line-height:22px!important;padding:0 8px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;letter-spacing:normal!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#1e242b!important;color:#f1f5f9!important;cursor:pointer!important;margin:0!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;transition:all 0.12s ease!important;outline:none!important}',
     '#tab_rj_jobs td.rj-acts .rj-btn i{font-size:10px!important;color:inherit!important}',
     '#tab_rj_jobs td.rj-acts .rj-btn:hover{background:#ff8c2f!important;color:#111!important}',
@@ -474,10 +477,13 @@ $rjdata = [
     '.rj-form-actions #rj-form-cancel{border:1px solid #3e4a56!important;background:transparent!important;color:#9aa7b2!important}',
     '.rj-form-actions #rj-form-cancel:hover{border-color:#8b98a3!important;color:#e8eef3!important}',
     /* Responsive Adaptations */
-    '.rj-table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:6px;border-radius:8px}',
+    '.rj-table-wrap{width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:6px;border-radius:8px;scrollbar-width:thin;scrollbar-color:#485460 #181d22}',
+    '@media (max-width:1250px){#tab_rj_jobs .rj-act-sep{display:none!important}.rj-acts-wrap{max-width:210px;justify-content:flex-end}.rj-path-endpoint{max-width:160px}}',
+    '@media (max-width:1060px){.rj-path-container{flex-direction:column;align-items:flex-start;gap:3px;max-width:200px}.rj-path-arrow{transform:rotate(90deg);margin-left:6px;font-size:9px}.rj-path-endpoint{max-width:190px}#tab_rj_jobs table.rclone-jobs th:first-child,#tab_rj_jobs table.rclone-jobs td:first-child{position:sticky;left:0;z-index:3;box-shadow:2px 0 6px rgba(0,0,0,0.35)}#tab_rj_jobs table.rclone-jobs th:first-child{background:#181d22!important}#tab_rj_jobs table.rclone-jobs td:first-child{background:#20262d!important}#tab_rj_jobs table.rclone-jobs tr:hover td:first-child{background:#262f38!important}}',
     '@media (max-width:860px){.rj-chart-body{gap:16px}.rj-chart-main{flex:1 1 100%!important;min-height:140px}.rj-chart-summary{flex:1 1 100%!important;border-left:none!important;border-top:1px solid #2f3842!important;padding-left:0!important;padding-top:16px!important;display:grid!important;grid-template-columns:1fr 1fr;gap:10px 16px}.rj-sum-title{grid-column:1 / -1;margin-bottom:0}}',
     '@media (max-width:768px){#rj-jobform dl,#tab_rj_alerts dl{flex-direction:column!important;align-items:flex-start!important;max-width:100%!important}#rj-jobform dt,#tab_rj_alerts dt{width:100%!important;min-width:100%!important;max-width:100%!important;margin-bottom:4px!important}#rj-jobform dd,#tab_rj_alerts dd{width:100%!important;max-width:100%!important}#rj-jobform dd.rj-pathrow{width:100%!important;max-width:100%!important}#rj-jobform dd.rj-pathrow input[type=text]{width:100%!important;max-width:calc(100% - 90px)!important}#rj-form-wrap blockquote.inline_help,#rj-jobform blockquote.inline_help,#tab_rj_jobs blockquote.inline_help,#tab_rj_alerts blockquote.inline_help{margin:4px 0 10px 0!important;width:100%!important;max-width:100%!important}#rj-sched-summary,#rj-ov-note{margin:4px 0 6px 0!important;max-width:100%!important}.rj-form-card{padding:12px 14px!important}#rj-form-wrap{padding:14px 14px!important}.rj-form-actions{flex-wrap:wrap;gap:8px}.rj-toolbar{flex-direction:column;align-items:stretch;gap:10px}.rj-tb-search{max-width:100%!important;flex:1 1 100%!important}.rj-tb-right{width:100%!important;justify-content:space-between!important}}',
-    '@media (max-width:520px){.rj-tb-right{flex-direction:column;align-items:stretch;gap:8px}.rj-tb-pills{justify-content:center;width:100%}.rj-filter-pill{flex:1;justify-content:center}#rj-btn-add-top{width:100%!important;justify-content:center!important}.rj-chart-card{padding:12px 14px!important}.rj-chart-summary{grid-template-columns:1fr}.rj-chart-y-axis{min-width:36px!important;font-size:9px!important;padding-right:6px}.rj-chart-x-lbl{font-size:9px!important}.rj-chart-bars-cols{gap:2px!important;padding:0}.rj-cards{grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 16px}.rj-card{padding:10px 12px!important;min-height:70px}.rj-card-val{font-size:15px!important}.rj-card-title{font-size:9px!important;margin-bottom:4px}ul#rj-tabs>li>a{padding:7px 14px!important;font-size:11px!important}}'
+    '@media (max-width:740px){.rj-table-wrap{overflow-x:visible}#tab_rj_jobs table.rclone-jobs{display:block;min-width:0;width:100%}#tab_rj_jobs table.rclone-jobs thead{display:none}#tab_rj_jobs table.rclone-jobs tbody{display:flex;flex-direction:column;gap:12px}#tab_rj_jobs table.rclone-jobs tbody tr.rj-row{display:flex;flex-direction:column;background:#20262d!important;border:1px solid #333d47!important;border-radius:8px!important;padding:14px 16px!important;gap:8px;box-shadow:0 4px 12px rgba(0,0,0,0.25)!important}#tab_rj_jobs table.rclone-jobs tbody tr.rj-row td{display:flex;align-items:center;justify-content:space-between;padding:0!important;background:transparent!important;border:none!important;border-radius:0!important;width:100%!important;box-sizing:border-box!important}#tab_rj_jobs table.rclone-jobs td.rj-col-job{position:static!important;box-shadow:none!important;background:transparent!important;border-bottom:1px solid #2f3842!important;padding-bottom:10px!important;display:flex!important;justify-content:space-between!important;align-items:flex-start!important}#tab_rj_jobs table.rclone-jobs td.rj-col-toggle:before{content:"Enabled:";font-size:10px;text-transform:uppercase;color:#8b98a3;font-weight:600}#tab_rj_jobs td.rj-sched:before{content:"Schedule:";font-size:10px;text-transform:uppercase;color:#8b98a3;font-weight:600}#tab_rj_jobs td.rj-dry:before{content:"Dry-run:";font-size:10px;text-transform:uppercase;color:#8b98a3;font-weight:600}#tab_rj_jobs td.rj-col-lastrun:before{content:"Last run:";font-size:10px;text-transform:uppercase;color:#8b98a3;font-weight:600}#tab_rj_jobs td.rj-col-paths{flex-direction:column;align-items:flex-start;padding:4px 0!important}#tab_rj_jobs td.rj-col-paths .rj-path-container{max-width:100%;flex-direction:row;align-items:center}#tab_rj_jobs td.rj-col-paths .rj-path-endpoint{max-width:calc(50% - 10px)}#tab_rj_jobs td.rj-col-paths .rj-path-arrow{transform:none;margin-left:0}#tab_rj_jobs table.rclone-jobs td.rj-acts{border-top:1px solid #2f3842!important;padding-top:10px!important;border-right:none!important}.rj-acts-wrap{width:100%;max-width:100%!important;justify-content:space-between;gap:6px}.rj-acts-wrap .rj-act-grp{flex:1 1 auto;justify-content:center}.rj-acts-wrap .rj-btn{flex:1 1 auto}#tab_rj_jobs table.rclone-jobs tbody tr.rj-inline-form-tr,#tab_rj_jobs table.rclone-jobs tbody tr.rj-inline-hist-tr{display:block;width:100%}#tab_rj_jobs table.rclone-jobs tbody tr.rj-inline-form-tr td,#tab_rj_jobs table.rclone-jobs tbody tr.rj-inline-hist-tr td{display:block;width:100%;padding:0!important}}',
+    '@media (max-width:520px){.rj-tb-right{flex-direction:column;align-items:stretch;gap:8px}.rj-tb-pills{justify-content:center;width:100%}.rj-filter-pill{flex:1;justify-content:center}#rj-btn-add-top{width:100%!important;justify-content:center!important}.rj-chart-card{padding:12px 14px!important}.rj-chart-summary{grid-template-columns:1fr}.rj-chart-y-axis{min-width:36px!important;font-size:9px!important;padding-right:6px}.rj-chart-x-lbl{font-size:9px!important}.rj-chart-bars-cols{gap:2px!important;padding:0}.rj-cards{grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 16px}.rj-card{padding:10px 12px!important;min-height:70px}.rj-card-val{font-size:15px!important}.rj-card-title{font-size:9px!important;margin-bottom:4px}ul#rj-tabs>li>a{padding:7px 14px!important;font-size:11px!important}#tab_rj_jobs td.rj-col-paths .rj-path-container{flex-direction:column;align-items:flex-start}#tab_rj_jobs td.rj-col-paths .rj-path-endpoint{max-width:100%}#tab_rj_jobs td.rj-col-paths .rj-path-arrow{transform:rotate(90deg);margin-left:6px}}'
   ].join('\n');
   var s = document.createElement('style');
   s.type = 'text/css';
@@ -584,12 +590,12 @@ $rjdata = [
           if ($en === 'no') $stCls .= ' rj-off';
       ?>
         <tr data-job="<?= htmlspecialchars($name) ?>" class="rj-row <?= $stCls ?>">
-          <td>
+          <td class="rj-col-job">
             <div style="font-weight:600;font-size:13px;color:var(--text,#e8eef3)"><?= htmlspecialchars($name) ?></div>
             <span class="rj-chip <?= strtolower($c['ENGINE'] ?? 'rclone') ?>"><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></span>
             <?php if (($c['DESC'] ?? '') !== ''): ?><br><span class="gray"><?= htmlspecialchars($c['DESC']) ?></span><?php endif; ?>
           </td>
-          <td style="white-space:nowrap">
+          <td class="rj-col-toggle" style="white-space:nowrap">
             <label class="rj-switch" title="Click to <?= $en === 'yes' ? 'disable' : 'enable' ?> job">
               <input type="checkbox" class="rj-toggle-en" data-job="<?= htmlspecialchars($name) ?>" <?= $en === 'yes' ? 'checked' : '' ?>>
               <span class="rj-slider"></span>
@@ -603,14 +609,14 @@ $rjdata = [
             $srcIsRemote = strpos($src, ':') !== false;
             $dstIsRemote = strpos($dst, ':') !== false;
           ?>
-          <td>
+          <td class="rj-col-paths">
             <div class="rj-path-container" title="<?= htmlspecialchars($src.' -> '.$dst) ?>">
-              <span class="rj-path-endpoint"><i class="fa <?= $srcIsRemote ? 'fa-cloud' : 'fa-folder' ?>" style="color:<?= $srcIsRemote ? '#5cacee' : '#e5c07b' ?>"></i> <?= htmlspecialchars($src) ?></span>
+              <span class="rj-path-endpoint"><i class="fa <?= $srcIsRemote ? 'fa-cloud' : 'fa-folder' ?>" style="color:<?= $srcIsRemote ? '#5cacee' : '#e5c07b' ?>"></i><span class="rj-path-text" title="<?= htmlspecialchars($src) ?>"><?= htmlspecialchars($src) ?></span></span>
               <i class="fa fa-arrow-right rj-path-arrow"></i>
-              <span class="rj-path-endpoint"><i class="fa <?= $dstIsRemote ? 'fa-cloud' : 'fa-folder' ?>" style="color:<?= $dstIsRemote ? '#5cacee' : '#e5c07b' ?>"></i> <?= htmlspecialchars($dst) ?></span>
+              <span class="rj-path-endpoint"><i class="fa <?= $dstIsRemote ? 'fa-cloud' : 'fa-folder' ?>" style="color:<?= $dstIsRemote ? '#5cacee' : '#e5c07b' ?>"></i><span class="rj-path-text" title="<?= htmlspecialchars($dst) ?>"><?= htmlspecialchars($dst) ?></span></span>
             </div>
           </td>
-          <td style="white-space:nowrap">
+          <td class="rj-col-lastrun" style="white-space:nowrap">
             <?php
               $trAmt = $s['transferred'] ?? '';
               $hasTr = ($trAmt !== '' && $trAmt !== '0' && $trAmt !== '0 B');
@@ -633,22 +639,24 @@ $rjdata = [
             <?php endif; ?>
           </td>
           <td class="rj-acts">
-            <span class="rj-act-grp">
-              <button type="button" class="rj-btn" data-act="dry" data-job="<?= htmlspecialchars($name) ?>" title="Dry-run: simulate only, nothing is written"><i class="fa fa-flask"></i> Dry</button>
-              <button type="button" class="rj-btn" data-act="run" data-job="<?= htmlspecialchars($name) ?>" title="Start a run now (respects the master dry-run switch)"<?= $running ? " style='display:none'" : '' ?>><i class="fa fa-play"></i> Run</button>
-              <button type="button" class="rj-btn rj-del" data-act="stop" data-job="<?= htmlspecialchars($name) ?>" title="Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)"<?= $running ? '' : " style='display:none'" ?>><i class="fa fa-stop"></i> Stop</button>
-              <?php if ($needAck): ?><button type="button" class="rj-btn rj-warn" data-act="ack" data-job="<?= htmlspecialchars($name) ?>" title="This dry-run wants to delete files - acknowledge before a real run"><i class="fa fa-exclamation-triangle"></i> Ack</button><?php endif; ?>
-            </span>
-            <span class="rj-act-sep"></span>
-            <span class="rj-act-grp">
-              <button type="button" class="rj-btn" data-act="log" data-job="<?= htmlspecialchars($name) ?>" title="Open the last log (redacted) in a new window"><i class="fa fa-file-text-o"></i> Log</button>
-              <button type="button" class="rj-btn" data-act="hist" data-job="<?= htmlspecialchars($name) ?>" title="Last 20 live runs + size trend"><i class="fa fa-history"></i> Hist</button>
-            </span>
-            <span class="rj-act-sep"></span>
-            <span class="rj-act-grp">
-              <button type="button" class="rj-btn" data-act="edit" data-job="<?= htmlspecialchars($name) ?>" title="Edit this job"><i class="fa fa-pencil"></i> Edit</button>
-              <button type="button" class="rj-btn rj-del" data-act="del" data-job="<?= htmlspecialchars($name) ?>" title="Delete this job (config kept as a .removed-* backup)"><i class="fa fa-trash"></i></button>
-            </span>
+            <div class="rj-acts-wrap">
+              <span class="rj-act-grp">
+                <button type="button" class="rj-btn" data-act="dry" data-job="<?= htmlspecialchars($name) ?>" title="Dry-run: simulate only, nothing is written"><i class="fa fa-flask"></i> Dry</button>
+                <button type="button" class="rj-btn" data-act="run" data-job="<?= htmlspecialchars($name) ?>" title="Start a run now (respects the master dry-run switch)"<?= $running ? " style='display:none'" : '' ?>><i class="fa fa-play"></i> Run</button>
+                <button type="button" class="rj-btn rj-del" data-act="stop" data-job="<?= htmlspecialchars($name) ?>" title="Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)"<?= $running ? '' : " style='display:none'" ?>><i class="fa fa-stop"></i> Stop</button>
+                <?php if ($needAck): ?><button type="button" class="rj-btn rj-warn" data-act="ack" data-job="<?= htmlspecialchars($name) ?>" title="This dry-run wants to delete files - acknowledge before a real run"><i class="fa fa-exclamation-triangle"></i> Ack</button><?php endif; ?>
+              </span>
+              <span class="rj-act-sep"></span>
+              <span class="rj-act-grp">
+                <button type="button" class="rj-btn" data-act="log" data-job="<?= htmlspecialchars($name) ?>" title="Open the last log (redacted) in a new window"><i class="fa fa-file-text-o"></i> Log</button>
+                <button type="button" class="rj-btn" data-act="hist" data-job="<?= htmlspecialchars($name) ?>" title="Last 20 live runs + size trend"><i class="fa fa-history"></i> Hist</button>
+              </span>
+              <span class="rj-act-sep"></span>
+              <span class="rj-act-grp">
+                <button type="button" class="rj-btn" data-act="edit" data-job="<?= htmlspecialchars($name) ?>" title="Edit this job"><i class="fa fa-pencil"></i> Edit</button>
+                <button type="button" class="rj-btn rj-del" data-act="del" data-job="<?= htmlspecialchars($name) ?>" title="Delete this job (config kept as a .removed-* backup)"><i class="fa fa-trash"></i></button>
+              </span>
+            </div>
           </td>
         </tr>
       <?php endforeach; ?>
