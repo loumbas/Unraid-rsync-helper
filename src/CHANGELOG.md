@@ -1,3 +1,8 @@
+## 2026.09.09p
+Extra-Large High-Visibility Calendar Badge:
+ - High-visibility calendar scaling: re-engineered the calendar badge to 2.5x larger scale with thick high-contrast binder loops, a bold orange header bar, and vivid schedule indicators for instant legibility at Unraid's 48x48 tile size.
+ - Deployed assets: updated vector rclone-jobs.svg, root icon.svg, and rasterized WebUI asset rclone-jobs.png.b64.
+
 ## 2026.09.09o
 Scheduler Branding Remix: Calendar + Cron Time Dial:
  - Calendar-Cron badge remix: updated official plugin vector icon (rclone-jobs.svg) and rasterized 256x256 WebUI icon with a scheduler badge featuring a calendar sheet with an integrated precision cron dial, highlighting scheduled synchronization tasks.

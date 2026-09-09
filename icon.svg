@@ -1,95 +1,93 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
     <!-- Background -->
-    <linearGradient id="rc2-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="cl-bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#1e232a" />
       <stop offset="100%" stop-color="#121519" />
     </linearGradient>
 
     <!-- Colors -->
-    <linearGradient id="rc2-orange" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="cl-orange" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#ff7334" />
       <stop offset="100%" stop-color="#ea580c" />
     </linearGradient>
-    <linearGradient id="rc2-amber" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="cl-amber" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#f59e0b" />
       <stop offset="100%" stop-color="#d97706" />
     </linearGradient>
-    <linearGradient id="rc2-white" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="cl-white" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#ffffff" />
       <stop offset="100%" stop-color="#cbd5e1" />
     </linearGradient>
 
     <!-- Badge Background -->
-    <linearGradient id="rc2-badgeBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#242c38" />
-      <stop offset="100%" stop-color="#10141a" />
+    <linearGradient id="cl-badgeBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#283240" />
+      <stop offset="100%" stop-color="#0f1318" />
     </linearGradient>
 
-    <filter id="rc2-drop" x="-15%" y="-15%" width="130%" height="130%">
+    <filter id="cl-drop" x="-15%" y="-15%" width="130%" height="130%">
       <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.6" />
     </filter>
-    <filter id="rc2-badgeShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.85" />
+    <filter id="cl-badgeShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.9" />
     </filter>
   </defs>
 
   <!-- Background Squircle -->
-  <rect x="20" y="20" width="472" height="472" rx="112" fill="url(#rc2-bg)" stroke="#313947" stroke-width="3" filter="url(#rc2-drop)" />
+  <rect x="20" y="20" width="472" height="472" rx="112" fill="url(#cl-bg)" stroke="#313947" stroke-width="3" filter="url(#cl-drop)" />
 
-  <!-- Rclone Official Geometry with Refined Duotone Finish -->
-  <g transform="translate(38, 28) scale(0.85)" filter="url(#rc2-drop)">
+  <!-- Rclone Loops slightly shifted to give room to prominent badge -->
+  <g transform="translate(18, 12) scale(0.88)" filter="url(#cl-drop)">
     <!-- Segment 1: Unraid Fire Orange -->
     <path d="M474-312.2c-18.4-22.4-45.1-39.3-75.8-49.8-3.9 14.8-11.4 29.3-22.6 43l-17.8 21.7c11.8 4.6 22.1 11.4 29.4 20.3 21.3 26 8.7 59.3-28.3 74.3s-84.2 6.1-105.6-19.9l-35.8-43.6h-57.9l-28.9 35.3 35.9 43.6c49 59.8 157.5 80.2 242.4 45.7 84.9-34.4 114-110.8 65-170.6"
-          fill="url(#rc2-orange)"
+          fill="url(#cl-orange)"
           transform="matrix(.8819 0 0 1.25276 73.007 655.001)" />
 
     <!-- Segment 2: Solar Amber -->
     <path d="M317.6-468.4c-84.9-34.5-193.4-14-242.4 45.7-18.4 22.4-25.8 47.1-23.4 71.1 20.1-5 41.7-7.7 64.3-7.7h35.6c-.2-9.5 3-19.2 10.3-28.1 21.4-26 68.6-34.9 105.6-19.9s49.6 48.3 28.3 74.3L260-289.3l28.9 35.3h57.9l35.7-43.7c49.1-59.7 20-136.2-64.9-170.7"
-          fill="url(#rc2-amber)"
+          fill="url(#cl-amber)"
           transform="matrix(.8819 0 0 1.25276 54.168 621.044)" />
 
     <!-- Segment 3: Pure Ceramic White -->
     <path d="M190.9-153.9 173-175.6c-11.6 4.9-25.1 7.8-39.7 7.8-42.7 0-77.3-24.4-77.3-54.4 0-30.1 34.6-54.4 77.3-54.4h71.6l28.9-35.3-28.8-35.3h-71.6c-98 0-177.5 55.9-177.5 124.9S35.4-97.4 133.4-97.4c36.7 0 70.8-7.8 99.1-21.3-16.2-9.6-30.4-21.4-41.6-35.2"
-          fill="url(#rc2-white)"
+          fill="url(#cl-white)"
           transform="matrix(.8819 0 0 1.25276 38.903 620.511)" />
   </g>
 
-  <!-- HELPER CALENDAR BADGE (Option B: Calendar with Cron Time Dial) -->
-  <g transform="translate(372, 372)" filter="url(#rc2-badgeShadow)">
-    <!-- Outer Rim Glow & Container -->
-    <circle cx="0" cy="0" r="74" fill="url(#rc2-badgeBg)" stroke="#f59e0b" stroke-width="6" />
-    <circle cx="0" cy="0" r="62" fill="#12161d" />
+  <!-- PROMINENT LARGE CALENDAR BADGE (2.5x larger, highly visible at 48px) -->
+  <g transform="translate(360, 360)" filter="url(#cl-badgeShadow)">
+    <!-- Thick Protective Outer Rim -->
+    <circle cx="0" cy="0" r="116" fill="url(#cl-badgeBg)" stroke="#ff7334" stroke-width="9" />
+    <circle cx="0" cy="0" r="102" fill="#10141b" />
 
-    <!-- Calendar Body -->
-    <g transform="translate(-32, -32)">
-      <!-- Calendar Backing Sheet -->
-      <rect x="0" y="8" width="54" height="54" rx="8" fill="#ffffff" />
+    <!-- Calendar Group -->
+    <g transform="translate(-64, -60)">
+      <!-- Pure White Card Sheet with distinct drop shadow -->
+      <rect x="0" y="14" width="128" height="116" rx="20" fill="#ffffff" />
       
-      <!-- Calendar Header Bar (Solar Amber) -->
-      <path d="M0 16 C0 11.58 3.58 8 8 8 L46 8 C50.42 8 54 11.58 54 16 L54 22 L0 22 Z" fill="url(#rc2-amber)" />
+      <!-- Vivid Header Bar (Unraid Fire Orange) -->
+      <path d="M0 32 C0 22 8 14 20 14 L108 14 C120 14 128 22 128 32 L128 46 L0 46 Z" fill="url(#cl-orange)" />
       
-      <!-- Top Binder Rings -->
-      <rect x="10" y="3" width="5" height="10" rx="2.5" fill="#1e232a" stroke="#ffffff" stroke-width="1.2" />
-      <rect x="39" y="3" width="5" height="10" rx="2.5" fill="#1e232a" stroke="#ffffff" stroke-width="1.2" />
+      <!-- Heavy Binder Rings (Bold contrast) -->
+      <rect x="24" y="2" width="14" height="24" rx="7" fill="#10141b" stroke="#ffffff" stroke-width="2.5" />
+      <rect x="90" y="2" width="14" height="24" rx="7" fill="#10141b" stroke="#ffffff" stroke-width="2.5" />
 
-      <!-- Calendar Date Grid -->
-      <circle cx="14" cy="30" r="3" fill="#ea580c" />
-      <circle cx="27" cy="30" r="3" fill="#94a3b8" />
-      <circle cx="40" cy="30" r="3" fill="#94a3b8" />
+      <!-- Big Bold Schedule Matrix (Ultra legible even at 32px) -->
+      <circle cx="34" cy="68" r="8.5" fill="#f15a24" />
+      <circle cx="64" cy="68" r="8.5" fill="#64748b" />
+      <circle cx="94" cy="68" r="8.5" fill="#64748b" />
       
-      <circle cx="14" cy="42" r="3" fill="#94a3b8" />
-      <circle cx="27" cy="42" r="3" fill="#94a3b8" />
-      
-      <!-- Overlapping Precision Clock / Cron Dial -->
-      <g transform="translate(44, 44)">
-        <circle cx="0" cy="0" r="19" fill="#12161d" stroke="#f15a24" stroke-width="3.5" />
-        <circle cx="0" cy="0" r="14" fill="#1e232a" />
-        <!-- Clock Hands -->
-        <line x1="0" y1="0" x2="0" y2="-8" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" />
-        <line x1="0" y1="0" x2="5.5" y2="3.5" stroke="#ff7334" stroke-width="2.2" stroke-linecap="round" />
-        <circle cx="0" cy="0" r="2" fill="#ffffff" />
-      </g>
+      <circle cx="34" cy="98" r="8.5" fill="#64748b" />
+      <circle cx="64" cy="98" r="8.5" fill="#f59e0b" />
+      <circle cx="94" cy="98" r="8.5" fill="#10b981" />
     </g>
+
+    <!-- Mini Cron Indicator Ring in Badge Corner -->
+    <circle cx="70" cy="70" r="32" fill="#10141b" stroke="#f59e0b" stroke-width="5" />
+    <circle cx="70" cy="70" r="24" fill="#1e232a" />
+    <line x1="70" y1="70" x2="70" y2="56" stroke="#ffffff" stroke-width="4" stroke-linecap="round" />
+    <line x1="70" y1="70" x2="79" y2="76" stroke="#ff7334" stroke-width="3.5" stroke-linecap="round" />
+    <circle cx="70" cy="70" r="3.5" fill="#ffffff" />
   </g>
 </svg>
