@@ -1,3 +1,17 @@
+## 2026.09.09h
+Enhanced Verbosity for Plugin Updates & Installations:
+ - Comprehensive update pre-clean reporting: displays current vs target version, explicitly confirms
+   preservation of existing user job configurations, settings (`paths.env`), and array storage data.
+ - Detailed 5-step installation diagnostics: during update or install, provides step-by-step console
+   visibility into:
+     1. WebUI package file count and SHA256 integrity verification against release manifest (`installed-checksums.txt`).
+     2. Configuration directory & job definition counts, including master safety switch state (`DRY_RUN_MASTER`).
+     3. Array storage tree verification (`logs/`, `status/`, `backup/`) and CLI engine synchronization.
+     4. Cron schedule regeneration, active job entries, and 15-minute maintenance watchdog registration.
+     5. System environment checks, detecting rclone binary, configured remotes, and rsync availability.
+ - Standalone verbose CLI diagnostics: `boot-setup.sh --verbose` can now be executed manually via terminal
+   to verify installation health at any time.
+
 ## 2026.09.09g
 Inline Help Text Wrapping & Box Containment:
  - Helper text box containment: fixed `blockquote.inline_help` and its inner paragraph tags to enforce

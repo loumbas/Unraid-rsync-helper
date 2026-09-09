@@ -36,10 +36,18 @@ echo "----------------------------------------------------"
 echo " rclone-jobs: update starting"
 OLDV="$(grep -E 'ENTITY[[:space:]]+version' /var/log/plugins/&name;.plg 2>/dev/null | head -1 | cut -d'"' -f2)"
 echo " previous version: ${OLDV:-unknown} -> new: &version;"
+echo " preserving user configuration: &bootDir;"
+JOB_COUNT="$(find "&bootDir;/jobs" -maxdepth 1 -name "*.conf" 2>/dev/null | wc -l)"
+echo "   - jobs preserved: ${JOB_COUNT:-0} configuration(s)"
+if [ -f "&bootDir;/paths.env" ]; then
+  echo "   - settings preserved: &bootDir;/paths.env"
+fi
+echo " preserving storage data (logs, status, backups) on array"
 echo " clearing previous emhttp copy: &pluginDir;"
 rm -rf "&pluginDir;"
 logger -t rclone-jobs "update: stale emhttp copy cleared (was ${OLDV:-unknown})"
-echo " cleared. Files are re-deployed by the blocks below."
+echo " cleared. New files are re-deployed by the package manager below."
+echo "----------------------------------------------------"
 true
     </INLINE>
   </FILE>
@@ -56,14 +64,15 @@ echo "----------------------------------------------------"
 if [ -e /var/log/plugins/&name;.plg ]; then RJ_MODE="update/repair"; else RJ_MODE="fresh install"; fi
 echo " rclone-jobs v&version; - $RJ_MODE"
 echo " emhttp copy: &pluginDir;"
+echo "----------------------------------------------------"
 S="&pluginDir;/scripts"
 if [ -x "$S/boot-setup.sh" ]; then
-  echo " running boot-setup (config skeleton, engine copy, cron block)..."
-  "$S/boot-setup.sh"
+  "$S/boot-setup.sh" --verbose
 else
   mkdir -p "&bootDir;/jobs"
 fi
-echo " deployed: $(find "&pluginDir;" -type f 2>/dev/null | wc -l) files, config in &bootDir;"
+echo "----------------------------------------------------"
+echo " rclone-jobs v&version; - setup complete!"
 echo " open: Settings -> Utilities -> rclone-jobs (details: syslog tag 'rclone-jobs')"
 echo "----------------------------------------------------"
 logger -t rclone-jobs "install script finished (v&version;, $RJ_MODE)"

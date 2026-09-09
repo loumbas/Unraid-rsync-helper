@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.09g">
+<!ENTITY version   "2026.09.09h">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,20 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09h
+Enhanced Verbosity for Plugin Updates &amp; Installations:
+ - Comprehensive update pre-clean reporting: displays current vs target version, explicitly confirms
+   preservation of existing user job configurations, settings (`paths.env`), and array storage data.
+ - Detailed 5-step installation diagnostics: during update or install, provides step-by-step console
+   visibility into:
+     1. WebUI package file count and SHA256 integrity verification against release manifest (`installed-checksums.txt`).
+     2. Configuration directory &amp; job definition counts, including master safety switch state (`DRY_RUN_MASTER`).
+     3. Array storage tree verification (`logs/`, `status/`, `backup/`) and CLI engine synchronization.
+     4. Cron schedule regeneration, active job entries, and 15-minute maintenance watchdog registration.
+     5. System environment checks, detecting rclone binary, configured remotes, and rsync availability.
+ - Standalone verbose CLI diagnostics: `boot-setup.sh --verbose` can now be executed manually via terminal
+   to verify installation health at any time.
+
 ## 2026.09.09g
 Inline Help Text Wrapping &amp; Box Containment:
  - Helper text box containment: fixed `blockquote.inline_help` and its inner paragraph tags to enforce
@@ -120,35 +134,6 @@ Modern WebUI redesign &amp; UX enhancements:
    containers with sticky headers for raw runs and daily rollups.
  - 100% backward compatible: pure HTML/CSS/JS presentation layer improvements
    using Unraid 7 theme variables, with zero external dependencies.
-
-## 2026.09.08f
-Live job cancellation (Stop) + detached runs + phantom-status repair:
- - Engine 'stop &lt;job&gt;': stops a live run from the WebUI (red Stop button on a
-   running row, with confirmation) or the CLI. Graceful path: stop marker +
-   SIGTERM; the run's own trap records rc=143 (status, SSE, history, keep the
-   log), then SIGKILL escalation if the engine ignores TERM. A pid is only
-   ever signaled when it is alive AND holds the job lock AND its cmdline
-   references rclone-jobs + that exact job - a recycled pid can never be
-   killed. Stop on an idle job is a clean no-op; syslog + a bell notice
-   record the operator stop.
- - Non-tty runs (cron, WebUI) now detach into their own session via setsid
-   (same pattern as the preview tasks): the engine is the group leader, so
-   the group TERM reaches rclone/rsync/custom-script children too, and a
-   crond restart can no longer take a running transfer's session down.
-   Scheduled runs log a structured DONE syslog line (rc, secs) since cron's
-   output pipe is gone; tty runs stay fully synchronous (Ctrl+C unchanged),
-   'preview' stays synchronous.
- - Watchdog: repairs phantom statuses (running:true with the flock free -
-   the engine died without its trap: hard kill/OOM) by marking rc=143 and
-   SSE-publishing, so a dead job can never pulse RUN in the UI forever;
-   sweeps leftover &lt;job&gt;.run.pid files of vanished pids and stale stop
-   markers (&gt;10 min); the stuck-run alert behavior is unchanged.
- - Interrupted dry-runs are no longer recorded into the run history (the
-   old signal trap could log a 143 line for a DRYRUN).
- - ajax: new stop_job action (POST + CSRF + name validation; all
-   verification stays engine-side). Jobs rows render Run+Stop server-side
-   (hidden pair) so a mid-run page load shows Stop immediately; the live
-   refresh toggles the pair. No MANIFEST change (no new files).
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -172,10 +157,18 @@ echo "----------------------------------------------------"
 echo " rclone-jobs: update starting"
 OLDV="$(grep -E 'ENTITY[[:space:]]+version' /var/log/plugins/&name;.plg 2>/dev/null | head -1 | cut -d'"' -f2)"
 echo " previous version: ${OLDV:-unknown} -> new: &version;"
+echo " preserving user configuration: &bootDir;"
+JOB_COUNT="$(find "&bootDir;/jobs" -maxdepth 1 -name "*.conf" 2>/dev/null | wc -l)"
+echo "   - jobs preserved: ${JOB_COUNT:-0} configuration(s)"
+if [ -f "&bootDir;/paths.env" ]; then
+  echo "   - settings preserved: &bootDir;/paths.env"
+fi
+echo " preserving storage data (logs, status, backups) on array"
 echo " clearing previous emhttp copy: &pluginDir;"
 rm -rf "&pluginDir;"
 logger -t rclone-jobs "update: stale emhttp copy cleared (was ${OLDV:-unknown})"
-echo " cleared. Files are re-deployed by the blocks below."
+echo " cleared. New files are re-deployed by the package manager below."
+echo "----------------------------------------------------"
 true
     </INLINE>
   </FILE>
@@ -187,7 +180,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.09g - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09h - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -209,7 +202,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.09g"
+ENGINE_VERSION="2026.09.09h"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -2060,7 +2053,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>4926a80e74ed69ef8aa4c6497513fc88a9125b4efa1063369bf1e5902ac6a384</SHA256>
+<SHA256>9e2aa4c2b00015fd5675b55ba2bc532dec825ffff9c4d1572fd4103dc6a5bf15</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2237,7 +2230,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.09g - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09h - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2493,7 +2486,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.09g',
+    'version'    =&gt; '2026.09.09h',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2708,7 +2701,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09g"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09h"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -3084,15 +3077,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09g &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09h &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>62f29e120e1a0847f30497e1565c3bbf817b1502b796cd2a11c3dc8f6560b618</SHA256>
+<SHA256>4d910e6ef5774fe99fe97fb0d2776fb7fcd3eb2a85d9e649bf70985908646992</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09g - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09h - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3458,13 +3451,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>037a17e6685ff3bbdb0626d958a66566cc00c9d2da99b8e4ee56d9ad894793b7</SHA256>
+<SHA256>0803ba2c3d27866b8a9e5ffdbcfacbf5e59a957093c3bae06594ae92da43a36a</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09g - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09h - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3572,12 +3565,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>c62e8b54c0959400802e915368a415154daafa3cef8ccf0b53ac162cef50f085</SHA256>
+<SHA256>2143ca7dd9a157cf9d5c3faca96fc664fa596a4ce4237c2aee90ff2af29516e1</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.09g - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09h - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -4868,13 +4861,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>f2f67964038419ff1909bdcd3c70dec1a925e623dc5b1c6e4a2d8c804a77482e</SHA256>
+<SHA256>afcf1a870fa0324426812216c9e2798b5212ffa3b8b451a8db281a2fa5495188</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09g - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09h - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -5033,13 +5026,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>5313adb4ba118fad80a11a6dbfad094aa1f4207f48298b3e6ee2c60345b65396</SHA256>
+<SHA256>bb7aed5b688fa5aaa27b1ba4fb60420cb60bf1bdc5cbdb19b648814af28c2b54</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09g - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09h - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -5118,13 +5111,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>14160a000033385feb2758c3854d3084d08becd824ba94e101dc0b0bacc6b295</SHA256>
+<SHA256>c5b0c025c3c8bf4f2b538a6f9d742e7e994205fbff1af200824a69d630ea3256</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09g - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09h - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -5134,6 +5127,48 @@ B="${RJ_BOOT_DIR:-/boot/config/plugins/$NAME}"
 D="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/$NAME}"
 log() { logger -t "$NAME" -- "setup: $*" 2&gt;/dev/null || true; }
 
+VERBOSE=no
+for arg in "$@"; do
+  case "$arg" in
+    -v|--verbose) VERBOSE=yes ;;
+  esac
+done
+
+v_echo() {
+  if [ "$VERBOSE" = "yes" ]; then
+    printf '%s\n' "$*"
+  fi
+}
+
+v_echo " [1/5] Verifying WebUI package files and integrity..."
+v_echo "       Target directory : $D"
+file_count="$(find "$D" -type f 2&gt;/dev/null | wc -l)"
+v_echo "       Files extracted  : ${file_count:-0}"
+csf="$D/installed-checksums.txt"
+if [ -f "$csf" ]; then
+  if head -n 2 "$csf" | grep -q 'PLACEHOLDER'; then
+    v_echo "       Checksum status  : build placeholder (check skipped)"
+  else
+    cscount=0; csbad=0; csmiss=0
+    while read -r csha cpath cmode || [ -n "${csha:-}" ]; do
+      case "$csha" in ''|'#'*) continue ;; esac
+      cscount=$((cscount + 1))
+      if [ ! -f "$cpath" ]; then
+        csmiss=$((csmiss + 1))
+      elif [ "$(sha256sum "$cpath" 2&gt;/dev/null | cut -d' ' -f1)" != "$csha" ]; then
+        csbad=$((csbad + 1))
+      fi
+    done &lt; "$csf"
+    if [ $((csbad + csmiss)) -eq 0 ]; then
+      v_echo "       Checksum status  : PASS ($cscount package files verified matching SHA256)"
+    else
+      v_echo "       Checksum status  : WARN ($((csbad + csmiss)) of $cscount files mismatched or missing)"
+    fi
+  fi
+fi
+
+v_echo " [2/5] Checking configuration directory &amp; persistence..."
+v_echo "       Config location  : $B"
 mkdir -p "$B/jobs" 2&gt;/dev/null || true
 
 if [ ! -f "$B/paths.env" ]; then
@@ -5176,8 +5211,17 @@ LOG_KEEP_MAX=300
 CONFIG_VERSION=1
 EOF
   log "created default $B/paths.env"
+  v_echo "       Settings file    : created default $B/paths.env (DRY_RUN_MASTER=yes)"
+else
+  v_echo "       Settings file    : $B/paths.env (preserved)"
+  drm="$(grep -E '^[[:space:]]*DRY_RUN_MASTER=' "$B/paths.env" 2&gt;/dev/null | cut -d'=' -f2 | tr -d '\" ')"
+  v_echo "       Master safety    : DRY_RUN_MASTER=${drm:-yes}"
 fi
 
+job_count="$(find "$B/jobs" -maxdepth 1 -name "*.conf" 2&gt;/dev/null | wc -l)"
+v_echo "       User jobs        : ${job_count:-0} job configuration(s) preserved"
+
+v_echo " [3/5] Setting up array storage &amp; CLI engine..."
 up=no
 for d in /mnt/disk[0-9]*; do
   [ -d "$d" ] || continue
@@ -5185,14 +5229,62 @@ for d in /mnt/disk[0-9]*; do
   case "$s" in /dev/md*) up=yes; break ;; esac
 done
 if [ "$up" = yes ]; then
-  [ -x "$D/scripts/install-engine.sh" ] &amp;&amp; "$D/scripts/install-engine.sh" &gt;/dev/null 2&gt;&amp;1
-  [ -x "$D/scripts/regen-cron.sh" ]     &amp;&amp; "$D/scripts/regen-cron.sh" &gt;/dev/null 2&gt;&amp;1
+  if [ -x "$D/scripts/install-engine.sh" ]; then
+    if [ "$VERBOSE" = "yes" ]; then
+      "$D/scripts/install-engine.sh" 2&gt;&amp;1 | while IFS= read -r line; do
+        [ -n "$line" ] &amp;&amp; v_echo "       $line"
+      done
+    else
+      "$D/scripts/install-engine.sh" &gt;/dev/null 2&gt;&amp;1
+    fi
+  fi
 else
   log "array not started - engine deploy deferred to array_started event"
+  v_echo "       Array status     : Stopped / No mounted array disk detected"
+  v_echo "       Notice           : Engine deploy will automatically run when array starts (array_started event)"
 fi
+
+v_echo " [4/5] Synchronizing scheduler &amp; maintenance watchdog..."
+if [ "$up" = yes ]; then
+  if [ -x "$D/scripts/regen-cron.sh" ]; then
+    if [ "$VERBOSE" = "yes" ]; then
+      "$D/scripts/regen-cron.sh" 2&gt;&amp;1 | while IFS= read -r line; do
+        [ -n "$line" ] &amp;&amp; v_echo "       $line"
+      done
+    else
+      "$D/scripts/regen-cron.sh" &gt;/dev/null 2&gt;&amp;1
+    fi
+  fi
+  ct="/var/spool/cron/crontabs/root"
+  if [ -f "$ct" ] &amp;&amp; grep -qF '# rclone-jobs BEGIN' "$ct" 2&gt;/dev/null; then
+    sched_entries="$(sed -n '/^# rclone-jobs BEGIN/,/^# rclone-jobs END/p' "$ct" 2&gt;/dev/null | grep -c '/usr/bin/env bash' || echo 0)"
+    v_echo "       Cron status      : active in $ct ($sched_entries entry/entries, incl. 15m watchdog)"
+  fi
+else
+  v_echo "       Notice           : Schedule sync deferred until array starts"
+fi
+
+v_echo " [5/5] Checking system environment &amp; dependencies..."
+rc_bin="$(command -v /usr/sbin/rclone 2&gt;/dev/null || command -v rclone 2&gt;/dev/null || echo "")"
+if [ -n "$rc_bin" ] &amp;&amp; [ -x "$rc_bin" ]; then
+  rc_ver="$("$rc_bin" --version 2&gt;/dev/null | head -1)"
+  v_echo "       rclone binary    : $rc_bin (${rc_ver:-ready})"
+else
+  v_echo "       rclone binary    : NOTICE: rclone not found in standard paths (install rclone plugin)"
+fi
+if [ -f "/boot/config/plugins/rclone/.rclone.conf" ]; then
+  rc_remotes="$(grep -E '^[[:space:]]*\[' "/boot/config/plugins/rclone/.rclone.conf" 2&gt;/dev/null | tr -d '[]' | tr '\n' ' ')"
+  v_echo "       rclone config    : /boot/config/plugins/rclone/.rclone.conf (remotes: ${rc_remotes:-none})"
+else
+  v_echo "       rclone config    : not found at /boot/config/plugins/rclone/.rclone.conf"
+fi
+if command -v rsync &gt;/dev/null 2&gt;&amp;1; then
+  v_echo "       rsync binary     : $(command -v rsync)"
+fi
+
 exit 0
 </INLINE>
-<SHA256>086083d71ff6cd3f0ec5d8edcf2d03a436772252adc35ea0a8aa58064caeed39</SHA256>
+<SHA256>2aca8a25deb0843f3c74d8f133590d195fdd15ea19161f9621903bbeb1298d1d</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -5313,17 +5405,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.09g - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09h - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-4926a80e74ed69ef8aa4c6497513fc88a9125b4efa1063369bf1e5902ac6a384  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+9e2aa4c2b00015fd5675b55ba2bc532dec825ffff9c4d1572fd4103dc6a5bf15  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-62f29e120e1a0847f30497e1565c3bbf817b1502b796cd2a11c3dc8f6560b618  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-037a17e6685ff3bbdb0626d958a66566cc00c9d2da99b8e4ee56d9ad894793b7  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-c62e8b54c0959400802e915368a415154daafa3cef8ccf0b53ac162cef50f085  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-f2f67964038419ff1909bdcd3c70dec1a925e623dc5b1c6e4a2d8c804a77482e  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-5313adb4ba118fad80a11a6dbfad094aa1f4207f48298b3e6ee2c60345b65396  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-14160a000033385feb2758c3854d3084d08becd824ba94e101dc0b0bacc6b295  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-086083d71ff6cd3f0ec5d8edcf2d03a436772252adc35ea0a8aa58064caeed39  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+4d910e6ef5774fe99fe97fb0d2776fb7fcd3eb2a85d9e649bf70985908646992  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+0803ba2c3d27866b8a9e5ffdbcfacbf5e59a957093c3bae06594ae92da43a36a  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+2143ca7dd9a157cf9d5c3faca96fc664fa596a4ce4237c2aee90ff2af29516e1  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+afcf1a870fa0324426812216c9e2798b5212ffa3b8b451a8db281a2fa5495188  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+bb7aed5b688fa5aaa27b1ba4fb60420cb60bf1bdc5cbdb19b648814af28c2b54  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+c5b0c025c3c8bf4f2b538a6f9d742e7e994205fbff1af200824a69d630ea3256  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+2aca8a25deb0843f3c74d8f133590d195fdd15ea19161f9621903bbeb1298d1d  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -5331,7 +5423,7 @@ f2f67964038419ff1909bdcd3c70dec1a925e623dc5b1c6e4a2d8c804a77482e  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>668d7788e52092b46c89c44530f12cca302b08479b0d50f9a64fcf8702cedaff</SHA256>
+<SHA256>db698d0a60a01b4f4406847f8901fd8bbdf2ba707de21e9229dbe1df0a79faea</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
@@ -5341,14 +5433,15 @@ echo "----------------------------------------------------"
 if [ -e /var/log/plugins/&name;.plg ]; then RJ_MODE="update/repair"; else RJ_MODE="fresh install"; fi
 echo " rclone-jobs v&version; - $RJ_MODE"
 echo " emhttp copy: &pluginDir;"
+echo "----------------------------------------------------"
 S="&pluginDir;/scripts"
 if [ -x "$S/boot-setup.sh" ]; then
-  echo " running boot-setup (config skeleton, engine copy, cron block)..."
-  "$S/boot-setup.sh"
+  "$S/boot-setup.sh" --verbose
 else
   mkdir -p "&bootDir;/jobs"
 fi
-echo " deployed: $(find "&pluginDir;" -type f 2>/dev/null | wc -l) files, config in &bootDir;"
+echo "----------------------------------------------------"
+echo " rclone-jobs v&version; - setup complete!"
 echo " open: Settings -> Utilities -> rclone-jobs (details: syslog tag 'rclone-jobs')"
 echo "----------------------------------------------------"
 logger -t rclone-jobs "install script finished (v&version;, $RJ_MODE)"

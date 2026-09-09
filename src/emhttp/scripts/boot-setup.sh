@@ -9,6 +9,48 @@ B="${RJ_BOOT_DIR:-/boot/config/plugins/$NAME}"
 D="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/$NAME}"
 log() { logger -t "$NAME" -- "setup: $*" 2>/dev/null || true; }
 
+VERBOSE=no
+for arg in "$@"; do
+  case "$arg" in
+    -v|--verbose) VERBOSE=yes ;;
+  esac
+done
+
+v_echo() {
+  if [ "$VERBOSE" = "yes" ]; then
+    printf '%s\n' "$*"
+  fi
+}
+
+v_echo " [1/5] Verifying WebUI package files and integrity..."
+v_echo "       Target directory : $D"
+file_count="$(find "$D" -type f 2>/dev/null | wc -l)"
+v_echo "       Files extracted  : ${file_count:-0}"
+csf="$D/installed-checksums.txt"
+if [ -f "$csf" ]; then
+  if head -n 2 "$csf" | grep -q 'PLACEHOLDER'; then
+    v_echo "       Checksum status  : build placeholder (check skipped)"
+  else
+    cscount=0; csbad=0; csmiss=0
+    while read -r csha cpath cmode || [ -n "${csha:-}" ]; do
+      case "$csha" in ''|'#'*) continue ;; esac
+      cscount=$((cscount + 1))
+      if [ ! -f "$cpath" ]; then
+        csmiss=$((csmiss + 1))
+      elif [ "$(sha256sum "$cpath" 2>/dev/null | cut -d' ' -f1)" != "$csha" ]; then
+        csbad=$((csbad + 1))
+      fi
+    done < "$csf"
+    if [ $((csbad + csmiss)) -eq 0 ]; then
+      v_echo "       Checksum status  : PASS ($cscount package files verified matching SHA256)"
+    else
+      v_echo "       Checksum status  : WARN ($((csbad + csmiss)) of $cscount files mismatched or missing)"
+    fi
+  fi
+fi
+
+v_echo " [2/5] Checking configuration directory & persistence..."
+v_echo "       Config location  : $B"
 mkdir -p "$B/jobs" 2>/dev/null || true
 
 if [ ! -f "$B/paths.env" ]; then
@@ -51,8 +93,17 @@ LOG_KEEP_MAX=300
 CONFIG_VERSION=1
 EOF
   log "created default $B/paths.env"
+  v_echo "       Settings file    : created default $B/paths.env (DRY_RUN_MASTER=yes)"
+else
+  v_echo "       Settings file    : $B/paths.env (preserved)"
+  drm="$(grep -E '^[[:space:]]*DRY_RUN_MASTER=' "$B/paths.env" 2>/dev/null | cut -d'=' -f2 | tr -d '\" ')"
+  v_echo "       Master safety    : DRY_RUN_MASTER=${drm:-yes}"
 fi
 
+job_count="$(find "$B/jobs" -maxdepth 1 -name "*.conf" 2>/dev/null | wc -l)"
+v_echo "       User jobs        : ${job_count:-0} job configuration(s) preserved"
+
+v_echo " [3/5] Setting up array storage & CLI engine..."
 up=no
 for d in /mnt/disk[0-9]*; do
   [ -d "$d" ] || continue
@@ -60,9 +111,57 @@ for d in /mnt/disk[0-9]*; do
   case "$s" in /dev/md*) up=yes; break ;; esac
 done
 if [ "$up" = yes ]; then
-  [ -x "$D/scripts/install-engine.sh" ] && "$D/scripts/install-engine.sh" >/dev/null 2>&1
-  [ -x "$D/scripts/regen-cron.sh" ]     && "$D/scripts/regen-cron.sh" >/dev/null 2>&1
+  if [ -x "$D/scripts/install-engine.sh" ]; then
+    if [ "$VERBOSE" = "yes" ]; then
+      "$D/scripts/install-engine.sh" 2>&1 | while IFS= read -r line; do
+        [ -n "$line" ] && v_echo "       $line"
+      done
+    else
+      "$D/scripts/install-engine.sh" >/dev/null 2>&1
+    fi
+  fi
 else
   log "array not started - engine deploy deferred to array_started event"
+  v_echo "       Array status     : Stopped / No mounted array disk detected"
+  v_echo "       Notice           : Engine deploy will automatically run when array starts (array_started event)"
 fi
+
+v_echo " [4/5] Synchronizing scheduler & maintenance watchdog..."
+if [ "$up" = yes ]; then
+  if [ -x "$D/scripts/regen-cron.sh" ]; then
+    if [ "$VERBOSE" = "yes" ]; then
+      "$D/scripts/regen-cron.sh" 2>&1 | while IFS= read -r line; do
+        [ -n "$line" ] && v_echo "       $line"
+      done
+    else
+      "$D/scripts/regen-cron.sh" >/dev/null 2>&1
+    fi
+  fi
+  ct="/var/spool/cron/crontabs/root"
+  if [ -f "$ct" ] && grep -qF '# rclone-jobs BEGIN' "$ct" 2>/dev/null; then
+    sched_entries="$(sed -n '/^# rclone-jobs BEGIN/,/^# rclone-jobs END/p' "$ct" 2>/dev/null | grep -c '/usr/bin/env bash' || echo 0)"
+    v_echo "       Cron status      : active in $ct ($sched_entries entry/entries, incl. 15m watchdog)"
+  fi
+else
+  v_echo "       Notice           : Schedule sync deferred until array starts"
+fi
+
+v_echo " [5/5] Checking system environment & dependencies..."
+rc_bin="$(command -v /usr/sbin/rclone 2>/dev/null || command -v rclone 2>/dev/null || echo "")"
+if [ -n "$rc_bin" ] && [ -x "$rc_bin" ]; then
+  rc_ver="$("$rc_bin" --version 2>/dev/null | head -1)"
+  v_echo "       rclone binary    : $rc_bin (${rc_ver:-ready})"
+else
+  v_echo "       rclone binary    : NOTICE: rclone not found in standard paths (install rclone plugin)"
+fi
+if [ -f "/boot/config/plugins/rclone/.rclone.conf" ]; then
+  rc_remotes="$(grep -E '^[[:space:]]*\[' "/boot/config/plugins/rclone/.rclone.conf" 2>/dev/null | tr -d '[]' | tr '\n' ' ')"
+  v_echo "       rclone config    : /boot/config/plugins/rclone/.rclone.conf (remotes: ${rc_remotes:-none})"
+else
+  v_echo "       rclone config    : not found at /boot/config/plugins/rclone/.rclone.conf"
+fi
+if command -v rsync >/dev/null 2>&1; then
+  v_echo "       rsync binary     : $(command -v rsync)"
+fi
+
 exit 0
