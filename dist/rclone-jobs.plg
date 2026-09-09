@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.09k">
+<!ENTITY version   "2026.09.09l">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -10,8 +10,14 @@
 <!ENTITY repoURL   "https://github.com/loumbas/Unraid-rsync-helper">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/dist/rclone-jobs.plg">
 ]>
-<PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
+<PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" icon="clone" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09l
+WebUI Vector Branding &amp; Plugin Manager Icon Integration:
+ - Embedded WebUI vector icon: packaged rclone-jobs.svg directly into the plugin package (/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.svg) with automated compatibility symlinks.
+ - Settings page icon: updated rclone-jobs.page header to reference rclone-jobs.svg, rendering the official Minimal Duotone Rclone mark under Settings -&gt; Utilities.
+ - Plugin Manager icon: added icon="clone" attribute to the PLUGIN manifest tag for crisp FontAwesome representation in Unraid's Installed Plugins table.
+
 ## 2026.09.09k
 Community Applications Publishing &amp; Vector Branding:
  - Unraid Community Applications metadata: added repository profile (ca_profile.xml) and plugin application descriptor (plugins/rclone-jobs.xml) adhering to official CA moderation guidelines.
@@ -103,21 +109,6 @@ Inline Job Editing &amp; SSE Daemon Health Connection fix:
    card header with close button, aligned flex field rows, and styled primary/secondary buttons.
  - Daemon Health onopen fix: added missing `EventSource.onopen` handler so the Daemon Health
    indicator immediately transitions to active green `● Live SSE` upon connection.
-
-## 2026.09.09b
-Visual enhancement &amp; layout polish matching design mockup:
- - Elevated KPI cards: explicit contrast background (#20262d) and crisp borders (#333d47)
-   replacing flat background matching Unraid's dark canvas.
- - 24h Data Moved KPI: calculated rolling 24-hour transfer throughput across active
-   jobs displayed in the third summary card.
- - Fleet Toolbar integration: relocated primary "+ Add New Job" button into the fleet
-   toolbar alongside refined filter pills (All, Active, Failed) and search input.
- - Card-style table rows: separated rows with individual borders and left status color accents
-   (green OK, red failed, blue running, amber ack).
- - Endpoint badge tags: source and destination paths styled as discrete monospace endpoint
-   chips with distinct cloud/folder iconography and directional arrows.
- - Semantic status badges: success exit codes rendered as readable "OK (Xs)" rather than "0 (Xs)".
- - Polished action buttons: mixed-case typography with native Unraid orange border accents.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -164,7 +155,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.09k - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09l - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -186,7 +177,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.09k"
+ENGINE_VERSION="2026.09.09l"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -2037,7 +2028,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>3e5e59b5562f9b29833f256f78a89a49d025090941ba548375ce9a6e01718bbc</SHA256>
+<SHA256>8fc2bbeade23a5ebdf610e6fba45d572d512940066773ec85ae97031039ca048</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2211,10 +2202,10 @@ if (PHP_SAPI === 'cli') {
 <INLINE>
 Menu="Utilities"
 Title="rclone-jobs"
-Icon="exchange"
+Icon="rclone-jobs.svg"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.09k - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09l - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2470,7 +2461,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.09k',
+    'version'    =&gt; '2026.09.09l',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2697,7 +2688,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09k"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09l"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -3088,15 +3079,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09k &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09l &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>f6e5997b98a8439558bd697b9bfee12f4f631da877a399e2be01e77e216f5426</SHA256>
+<SHA256>a2811f1a59043114d28e51da3de9183e007c7d10ea1ebd4920944c2cfec22b9c</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09k - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09l - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3462,13 +3453,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>49b7541250a24ea6fbc082621c3fc318f4207d52fcb4090f723a7ad60994c790</SHA256>
+<SHA256>9a99ab8039fa6a43abbe5c03d4dc4e808b4898c3ea790fea8517b7a4d69c8a37</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09k - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09l - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3576,12 +3567,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>f714e6e212d190eca1691eb87ae5106c8e1a605ac4891b5b68b487544ae5a74e</SHA256>
+<SHA256>902291c5e99eb13feabe98c8cdec6ba1129d84dc6f6ab38b05c70ea1758f7720</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.09k - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09l - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -4923,13 +4914,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>fc6921ad398ded2c4b4dd9d457595f3d368c95db2496cd7188f22f27356896a1</SHA256>
+<SHA256>8c35df82f3efb59c20635c944d352503075e3ae1803669cdab7024459fb4aec1</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09k - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09l - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -5088,13 +5079,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>031e5fffddfa6f9392697056dc50e3c5739013ee0a2d2625bdd7aa07937f0b52</SHA256>
+<SHA256>ab8ec0cb6b212ea7b5d1c2c7078de6c6fc3b9e0cfebd5d85f6b7c014df408b9f</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09k - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09l - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -5173,13 +5164,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>67665bb2348c80a14e2894260cd67942f6eb1db4cfafc9c6df12ab4225f0d12e</SHA256>
+<SHA256>7deb9ad3e4dab5654a5e24b92d1467b668c9ebf67af066d58d9359d7135b7d7d</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09k - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09l - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -5227,6 +5218,17 @@ if [ -f "$csf" ]; then
       v_echo "       Checksum status  : WARN ($((csbad + csmiss)) of $cscount files mismatched or missing)"
     fi
   fi
+fi
+
+# Ensure WebUI icon compatibility across various Unraid page loaders
+mkdir -p "$D/images" "$D/icons" 2&gt;/dev/null || true
+if [ -f "$D/rclone-jobs.svg" ]; then
+  ln -sf "$D/rclone-jobs.svg" "$D/icon.svg" 2&gt;/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/rclone-jobs.png" 2&gt;/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/images/rclone-jobs.svg" 2&gt;/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/images/rclone-jobs.png" 2&gt;/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/icons/rclone-jobs.svg" 2&gt;/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/icons/rclone-jobs.png" 2&gt;/dev/null || true
 fi
 
 v_echo " [2/5] Checking configuration directory &amp; persistence..."
@@ -5346,7 +5348,7 @@ fi
 
 exit 0
 </INLINE>
-<SHA256>e6733a5522542fda9916bba329159a175a26811d87dda7f80fbcaf9632c20382</SHA256>
+<SHA256>29a012b63542c19ed8b46bff84f9478e8fe9ceb1aeaf3a008a289bce6902c780</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -5465,27 +5467,82 @@ exit 0
 <SHA256>d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b</SHA256>
   </FILE>
 
+  <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.svg" Mode="0644">
+<INLINE>
+&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%"&gt;
+  &lt;defs&gt;
+    &lt;!-- Background --&gt;
+    &lt;linearGradient id="rd-bg" x1="0%" y1="0%" x2="100%" y2="100%"&gt;
+      &lt;stop offset="0%" stop-color="#1e232a" /&gt;
+      &lt;stop offset="100%" stop-color="#121519" /&gt;
+    &lt;/linearGradient&gt;
+
+    &lt;!-- Colors --&gt;
+    &lt;linearGradient id="rd-orange" x1="0%" y1="0%" x2="100%" y2="100%"&gt;
+      &lt;stop offset="0%" stop-color="#ff7334" /&gt;
+      &lt;stop offset="100%" stop-color="#ea580c" /&gt;
+    &lt;/linearGradient&gt;
+    &lt;linearGradient id="rd-amber" x1="0%" y1="0%" x2="100%" y2="100%"&gt;
+      &lt;stop offset="0%" stop-color="#f59e0b" /&gt;
+      &lt;stop offset="100%" stop-color="#d97706" /&gt;
+    &lt;/linearGradient&gt;
+    &lt;linearGradient id="rd-white" x1="0%" y1="0%" x2="100%" y2="100%"&gt;
+      &lt;stop offset="0%" stop-color="#ffffff" /&gt;
+      &lt;stop offset="100%" stop-color="#cbd5e1" /&gt;
+    &lt;/linearGradient&gt;
+
+    &lt;filter id="rd-drop" x="-15%" y="-15%" width="130%" height="130%"&gt;
+      &lt;feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.6" /&gt;
+    &lt;/filter&gt;
+  &lt;/defs&gt;
+
+  &lt;!-- Background Squircle --&gt;
+  &lt;rect x="20" y="20" width="472" height="472" rx="112" fill="url(#rd-bg)" stroke="#313947" stroke-width="3" filter="url(#rd-drop)" /&gt;
+
+  &lt;!-- Rclone Official Geometry with Refined Duotone Finish --&gt;
+  &lt;g transform="translate(38, 28) scale(0.85)" filter="url(#rd-drop)"&gt;
+    &lt;!-- Segment 1: Unraid Fire Orange --&gt;
+    &lt;path d="M474-312.2c-18.4-22.4-45.1-39.3-75.8-49.8-3.9 14.8-11.4 29.3-22.6 43l-17.8 21.7c11.8 4.6 22.1 11.4 29.4 20.3 21.3 26 8.7 59.3-28.3 74.3s-84.2 6.1-105.6-19.9l-35.8-43.6h-57.9l-28.9 35.3 35.9 43.6c49 59.8 157.5 80.2 242.4 45.7 84.9-34.4 114-110.8 65-170.6"
+          fill="url(#rd-orange)"
+          transform="matrix(.8819 0 0 1.25276 73.007 655.001)" /&gt;
+
+    &lt;!-- Segment 2: Solar Amber --&gt;
+    &lt;path d="M317.6-468.4c-84.9-34.5-193.4-14-242.4 45.7-18.4 22.4-25.8 47.1-23.4 71.1 20.1-5 41.7-7.7 64.3-7.7h35.6c-.2-9.5 3-19.2 10.3-28.1 21.4-26 68.6-34.9 105.6-19.9s49.6 48.3 28.3 74.3L260-289.3l28.9 35.3h57.9l35.7-43.7c49.1-59.7 20-136.2-64.9-170.7"
+          fill="url(#rd-amber)"
+          transform="matrix(.8819 0 0 1.25276 54.168 621.044)" /&gt;
+
+    &lt;!-- Segment 3: Pure Ceramic White --&gt;
+    &lt;path d="M190.9-153.9 173-175.6c-11.6 4.9-25.1 7.8-39.7 7.8-42.7 0-77.3-24.4-77.3-54.4 0-30.1 34.6-54.4 77.3-54.4h71.6l28.9-35.3-28.8-35.3h-71.6c-98 0-177.5 55.9-177.5 124.9S35.4-97.4 133.4-97.4c36.7 0 70.8-7.8 99.1-21.3-16.2-9.6-30.4-21.4-41.6-35.2"
+          fill="url(#rd-white)"
+          transform="matrix(.8819 0 0 1.25276 38.903 620.511)" /&gt;
+  &lt;/g&gt;
+&lt;/svg&gt;
+</INLINE>
+<SHA256>75ca19afa88c135375b1a37786a037c3d97bc8f917511fcb3428adc43c6f4b2e</SHA256>
+  </FILE>
+
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.09k - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09l - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-3e5e59b5562f9b29833f256f78a89a49d025090941ba548375ce9a6e01718bbc  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+8fc2bbeade23a5ebdf610e6fba45d572d512940066773ec85ae97031039ca048  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-f6e5997b98a8439558bd697b9bfee12f4f631da877a399e2be01e77e216f5426  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-49b7541250a24ea6fbc082621c3fc318f4207d52fcb4090f723a7ad60994c790  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-f714e6e212d190eca1691eb87ae5106c8e1a605ac4891b5b68b487544ae5a74e  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-fc6921ad398ded2c4b4dd9d457595f3d368c95db2496cd7188f22f27356896a1  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-031e5fffddfa6f9392697056dc50e3c5739013ee0a2d2625bdd7aa07937f0b52  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-67665bb2348c80a14e2894260cd67942f6eb1db4cfafc9c6df12ab4225f0d12e  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-e6733a5522542fda9916bba329159a175a26811d87dda7f80fbcaf9632c20382  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+a2811f1a59043114d28e51da3de9183e007c7d10ea1ebd4920944c2cfec22b9c  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+9a99ab8039fa6a43abbe5c03d4dc4e808b4898c3ea790fea8517b7a4d69c8a37  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+902291c5e99eb13feabe98c8cdec6ba1129d84dc6f6ab38b05c70ea1758f7720  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+8c35df82f3efb59c20635c944d352503075e3ae1803669cdab7024459fb4aec1  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+ab8ec0cb6b212ea7b5d1c2c7078de6c6fc3b9e0cfebd5d85f6b7c014df408b9f  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+7deb9ad3e4dab5654a5e24b92d1467b668c9ebf67af066d58d9359d7135b7d7d  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+29a012b63542c19ed8b46bff84f9478e8fe9ceb1aeaf3a008a289bce6902c780  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
 28a59bfb180f905827ea55e4314b981667f5e5be274bb42e6a2af2709604edb0  /usr/local/emhttp/plugins/rclone-jobs/event/started  0755
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
+75ca19afa88c135375b1a37786a037c3d97bc8f917511fcb3428adc43c6f4b2e  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.svg  0644
 </INLINE>
-<SHA256>873bff22b4287c965ddcba4e7fc712991635c93d6749d2082175ab91ebb170cf</SHA256>
+<SHA256>36ada38c3c7a0825f8eb9a28dee2450015b7bb3f317a5a0b68c8577523dee14a</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

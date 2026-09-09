@@ -1,3 +1,9 @@
+## 2026.09.09l
+WebUI Vector Branding & Plugin Manager Icon Integration:
+ - Embedded WebUI vector icon: packaged rclone-jobs.svg directly into the plugin package (/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.svg) with automated compatibility symlinks.
+ - Settings page icon: updated rclone-jobs.page header to reference rclone-jobs.svg, rendering the official Minimal Duotone Rclone mark under Settings -> Utilities.
+ - Plugin Manager icon: added icon="clone" attribute to the PLUGIN manifest tag for crisp FontAwesome representation in Unraid's Installed Plugins table.
+
 ## 2026.09.09k
 Community Applications Publishing & Vector Branding:
  - Unraid Community Applications metadata: added repository profile (ca_profile.xml) and plugin application descriptor (plugins/rclone-jobs.xml) adhering to official CA moderation guidelines.

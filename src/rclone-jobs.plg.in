@@ -10,7 +10,7 @@
 <!ENTITY repoURL   "https://github.com/loumbas/Unraid-rsync-helper">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/dist/rclone-jobs.plg">
 ]>
-<PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
+<PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" icon="clone" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
 {{CHANGES}}
   </CHANGES>

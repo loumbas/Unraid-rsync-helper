@@ -49,6 +49,17 @@ if [ -f "$csf" ]; then
   fi
 fi
 
+# Ensure WebUI icon compatibility across various Unraid page loaders
+mkdir -p "$D/images" "$D/icons" 2>/dev/null || true
+if [ -f "$D/rclone-jobs.svg" ]; then
+  ln -sf "$D/rclone-jobs.svg" "$D/icon.svg" 2>/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/rclone-jobs.png" 2>/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/images/rclone-jobs.svg" 2>/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/images/rclone-jobs.png" 2>/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/icons/rclone-jobs.svg" 2>/dev/null || true
+  ln -sf "$D/rclone-jobs.svg" "$D/icons/rclone-jobs.png" 2>/dev/null || true
+fi
+
 v_echo " [2/5] Checking configuration directory & persistence..."
 v_echo "       Config location  : $B"
 mkdir -p "$B/jobs" 2>/dev/null || true
