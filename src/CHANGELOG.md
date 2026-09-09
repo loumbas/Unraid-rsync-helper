@@ -1,3 +1,18 @@
+## 2026.09.09b
+Visual enhancement & layout polish matching design mockup:
+ - Elevated KPI cards: explicit contrast background (#20262d) and crisp borders (#333d47)
+   replacing flat background matching Unraid's dark canvas.
+ - 24h Data Moved KPI: calculated rolling 24-hour transfer throughput across active
+   jobs displayed in the third summary card.
+ - Fleet Toolbar integration: relocated primary "+ Add New Job" button into the fleet
+   toolbar alongside refined filter pills (All, Active, Failed) and search input.
+ - Card-style table rows: separated rows with individual borders and left status color accents
+   (green OK, red failed, blue running, amber ack).
+ - Endpoint badge tags: source and destination paths styled as discrete monospace endpoint
+   chips with distinct cloud/folder iconography and directional arrows.
+ - Semantic status badges: success exit codes rendered as readable "OK (Xs)" rather than "0 (Xs)".
+ - Polished action buttons: mixed-case typography with native Unraid orange border accents.
+
 ## 2026.09.09a
 UI & UX feature additions:
  - Action button grouping: table action buttons organized into functional

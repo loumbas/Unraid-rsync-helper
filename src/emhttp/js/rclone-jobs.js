@@ -267,13 +267,14 @@ function rjApplyStatus(jobs) {
     var rcTxt = (j.rc === null || j.rc === undefined) ? '-' : String(j.rc);
     var running = !!j.running;
     var ok = /^(0|24)$/.test(rcTxt) && !running;
+    var rcDisplay = (ok && (rcTxt === '0' || rcTxt === 0)) ? 'OK' : rcTxt;
     var iconHtml = '';
     if (ok) iconHtml = '<i class="fa fa-check"></i> ';
     else if (running) iconHtml = '<i class="fa fa-refresh fa-spin"></i> ';
     else if (rcTxt !== '-' && rcTxt !== 'RUN') iconHtml = '<i class="fa fa-exclamation-circle"></i> ';
 
     $tr.find('.rj-rc')
-      .html(iconHtml + rjEsc(rcTxt + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : '')))
+      .html(iconHtml + rjEsc(rcDisplay + (j.run ? ' (' + (j.secs === null || j.secs === undefined ? '?' : j.secs) + 's)' : '')))
       .toggleClass('ok', ok).toggleClass('bad', !ok && !running && rcTxt !== '-' && rcTxt !== 'RUN').toggleClass('run', running);
     $tr.find('.rj-lastok').text('last OK: ' + (j.last_ok_run || 'never'));
     var d = j.dry, needAck = false;
@@ -712,6 +713,8 @@ $(function () {
   $('#rj-btn-add-top').off('.rjadd').on('click.rjadd', function () {
     showForm('Add job', null);
     rjSetFormOpen(true);
+    var $w = $('#rj-form-wrap');
+    if ($w.length) $('html, body').animate({ scrollTop: $w.offset().top - 60 }, 200);
   });
   if (!Object.keys(D.jobs).length) rjSetFormOpen(true);
 
