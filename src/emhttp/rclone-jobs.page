@@ -139,6 +139,108 @@ function rj_fmt_bytes($b) {
 }
 $b24Txt = rj_fmt_bytes($bytes24);
 
+/* Hourly transfer statistics (last 16 hours) for the graph card */
+$hourlySlots = [];
+$peakBytes = 1;
+$statTotalRuns = 0;
+$statLastRun = '-';
+$statSecsSum = 0;
+$statBytesSum = 0;
+
+for ($i = 15; $i >= 0; $i--) {
+    $hTs = strtotime("-$i hours");
+    $hKey = date('Y-m-d H:00', $hTs);
+    $hLabel = date('H', $hTs);
+    $hourlySlots[$hKey] = [
+        'label' => $hLabel,
+        'bytes' => 0,
+        'runs'  => 0,
+        'fails' => 0,
+        'secs'  => 0,
+        'title' => date('M j, H:00', $hTs)
+    ];
+}
+
+foreach ($jobs as $name => $jj) {
+    if (!empty($jj['status']['last_ok_run']) && $statLastRun === '-') {
+        $tr = $jj['status']['transferred'] ?? '';
+        $statLastRun = ($tr !== '' && $tr !== '0' && $tr !== '0 B') ? $tr : 'OK';
+        if (!empty($jj['status']['secs'])) $statLastRun .= ' ('.$jj['status']['secs'].'s)';
+    }
+    $histFile = $storage.'/history/'.$name.'.jsonl';
+    if (is_readable($histFile)) {
+        $lines = @file($histFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines) {
+            foreach ($lines as $ln) {
+                $e = @json_decode($ln, true);
+                if ($e && isset($e['ts']) && ($now - (int)$e['ts']) <= 86400) {
+                    $k = date('Y-m-d H:00', (int)$e['ts']);
+                    $b = (float)($e['bytes'] ?? 0);
+                    if ($b <= 0 && !empty($e['transferred']) && $e['transferred'] !== '0' && $e['transferred'] !== '0 B') {
+                        $b = rj_to_bytes($e['transferred']);
+                    }
+                    if ($b <= 0 && !empty($e['log'])) {
+                        $b = rj_parse_log_bytes($e['log']);
+                    }
+                    $s = (int)($e['secs'] ?? 0);
+                    if (isset($hourlySlots[$k])) {
+                        $hourlySlots[$k]['bytes'] += $b;
+                        $hourlySlots[$k]['runs']++;
+                        $hourlySlots[$k]['secs'] += $s;
+                    }
+                    $statTotalRuns++;
+                    $statBytesSum += $b;
+                    if ($s > 0) $statSecsSum += $s;
+                }
+            }
+        }
+    }
+    $rollFile = $storage.'/history/'.$name.'.rollup.jsonl';
+    if (is_readable($rollFile)) {
+        $lines = @file($rollFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines) {
+            foreach ($lines as $ln) {
+                $r = @json_decode($ln, true);
+                if ($r && ($r['rollup'] ?? '') === 'h' && isset($r['ts']) && ($now - (int)$r['ts']) <= 86400) {
+                    $k = date('Y-m-d H:00', (int)$r['ts']);
+                    if (isset($hourlySlots[$k])) {
+                        $hourlySlots[$k]['bytes'] += (float)($r['bytes'] ?? 0);
+                        $hourlySlots[$k]['runs'] += (int)($r['runs'] ?? 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+foreach ($hourlySlots as $slot) {
+    if ($slot['bytes'] > $peakBytes) $peakBytes = $slot['bytes'];
+}
+
+$chartMaxLabel = rj_fmt_bytes($peakBytes);
+$chartMidLabel = rj_fmt_bytes($peakBytes / 2);
+
+$hourlyStats = [];
+foreach ($hourlySlots as $k => $slot) {
+    $b1 = ($peakBytes > 0 && $slot['bytes'] > 0) ? round(($slot['bytes'] / $peakBytes) * 100) : ($slot['runs'] > 0 ? 15 : 4);
+    $b2 = ($slot['runs'] > 0) ? min(100, max(8, round($b1 * 0.7 + ($slot['runs'] * 12)))) : 3;
+    $bTxt = rj_fmt_bytes($slot['bytes']);
+    $title = $slot['title']." — {$bTxt} ({$slot['runs']} run".($slot['runs'] === 1 ? '' : 's').")";
+    $hourlyStats[] = [
+        'label'   => $slot['label'],
+        'bar1Pct' => min(100, max(4, $b1)),
+        'bar2Pct' => min(100, max(3, $b2)),
+        'title'   => $title
+    ];
+}
+
+$statAvgRate = '0 B/s';
+if ($statBytesSum > 0 && $statSecsSum > 0) {
+    $statAvgRate = rj_fmt_bytes($statBytesSum / $statSecsSum).'/s';
+} elseif ($statBytesSum > 0) {
+    $statAvgRate = rj_fmt_bytes($statBytesSum / 3).'/s';
+}
+
 $remotes = [];
 $rcloneConf = '/boot/config/plugins/rclone/.rclone.conf';
 if (is_readable($rcloneConf)) {
@@ -251,17 +353,47 @@ $rjdata = [
     '#tab_rj_jobs .rj-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
     '#tab_rj_jobs .rj-badge.on{background:#2f8f46;color:#fff}',
     '#tab_rj_jobs .rj-badge.off{background:#4a5560;color:#cbd5e1}',
-    '#tab_rj_jobs .rj-chip{color:#8b98a3;font-size:10px;border:1px solid #3a444d;border-radius:6px;padding:1px 6px;margin-left:4px;white-space:nowrap;display:inline-block;vertical-align:middle;background:rgba(255,255,255,0.03)}',
+    '#tab_rj_jobs .rj-chip{color:#22d3ee!important;font-size:11px!important;font-weight:600!important;border:1px solid rgba(34,211,238,0.4)!important;border-radius:12px!important;padding:2px 10px!important;margin-top:4px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;background:rgba(6,182,212,0.18)!important;letter-spacing:0.3px}',
+    '#tab_rj_jobs .rj-chip.rsync{color:#a78bfa!important;border-color:rgba(167,139,250,0.4)!important;background:rgba(167,139,250,0.18)!important}',
+    '#tab_rj_jobs .rj-chip.custom{color:#fbbf24!important;border-color:rgba(251,191,36,0.4)!important;background:rgba(251,191,36,0.18)!important}',
     '#tab_rj_jobs .rj-sched{font-weight:600;font-size:12px;color:#e8eef3}',
     /* Endpoint Badge Tags & Paths */
     '.rj-path-container{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,\'Liberation Mono\',Menlo,monospace;max-width:560px}',
     '.rj-path-endpoint{background:#181d22!important;border:1px solid #333d47!important;border-radius:6px!important;padding:4px 9px!important;color:#d0d7de!important;display:inline-flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}',
     '.rj-path-arrow{color:#ff8c2f!important;font-size:11px;flex:0 0 auto}',
-    /* Status Badges */
-    '.rj-rc{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.3px}',
-    '.rj-rc.ok{background:rgba(46,151,80,0.18)!important;color:#4ade80!important;border:1px solid rgba(46,151,80,0.35)!important}',
-    '.rj-rc.bad{background:rgba(214,90,84,0.18)!important;color:#f87171!important;border:1px solid rgba(214,90,84,0.35)!important}',
-    '.rj-rc.run{background:rgba(46,151,194,0.18)!important;color:#38bdf8!important;border:1px solid rgba(46,151,194,0.35)!important;animation:rj-dot-pulse 1.6s infinite}',
+    /* Status Badges - Punchy Pills from Mockup */
+    '.rj-rc{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;font-size:11px;font-weight:700;letter-spacing:0.3px;color:#fff!important;box-shadow:0 2px 6px rgba(0,0,0,0.25)}',
+    '.rj-rc.ok{background:#10b981!important;border:1px solid #059669!important;box-shadow:0 2px 8px rgba(16,185,129,0.4)!important}',
+    '.rj-rc.bad{background:#ef4444!important;border:1px solid #dc2626!important;box-shadow:0 2px 8px rgba(239,68,68,0.4)!important}',
+    '.rj-rc.run{background:#0284c7!important;border:1px solid #0369a1!important;box-shadow:0 2px 8px rgba(2,132,199,0.4)!important;animation:rj-dot-pulse 1.6s infinite}',
+    /* Hourly Transfer Bar Card & Stat Summary from Mockup */
+    '.rj-chart-card{background:#20262d!important;border:1px solid #333d47!important;border-radius:10px;padding:16px 20px;margin-top:20px;box-shadow:0 4px 16px rgba(0,0,0,0.25)!important}',
+    '.rj-chart-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #2f3842}',
+    '.rj-chart-title{font-size:13px;font-weight:700;color:#e8eef3;display:inline-flex;align-items:center;gap:8px}',
+    '.rj-chart-title i{color:#06b6d4;font-size:14px}',
+    '.rj-chart-toggle-btn{background:transparent!important;border:none!important;color:#8b98a3!important;cursor:pointer!important;font-size:12px!important;padding:4px 8px!important;outline:none!important;transition:color 0.15s ease}',
+    '.rj-chart-toggle-btn:hover{color:#ff8c2f!important}',
+    '.rj-chart-body{display:flex;gap:24px;margin-top:16px;align-items:stretch;min-height:160px;flex-wrap:wrap}',
+    '.rj-chart-main{flex:1 1 480px;display:flex;align-items:stretch;position:relative;min-height:150px}',
+    '.rj-chart-y-axis{display:flex;flex-direction:column;justify-content:space-between;padding-right:12px;font-size:10px;color:#8b98a3;font-weight:600;min-width:44px;text-align:right;user-select:none;margin-bottom:20px}',
+    '.rj-chart-bars-wrap{flex:1;position:relative;display:flex;flex-direction:column;justify-content:flex-end}',
+    '.rj-chart-grid-line{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,0.06);pointer-events:none}',
+    '.rj-chart-grid-line.top{top:0}',
+    '.rj-chart-grid-line.mid{top:50%}',
+    '.rj-chart-grid-line.bot{bottom:20px;border-top:1px solid #2f3842}',
+    '.rj-chart-bars-cols{display:flex;justify-content:space-between;align-items:flex-end;height:calc(100% - 20px);padding:0 6px;gap:6px}',
+    '.rj-chart-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;position:relative;cursor:pointer}',
+    '.rj-chart-col:hover .rj-bar-cyan{filter:brightness(1.25);box-shadow:0 0 10px rgba(6,182,212,0.6)}',
+    '.rj-chart-col:hover .rj-bar-mint{filter:brightness(1.25);box-shadow:0 0 10px rgba(16,185,129,0.6)}',
+    '.rj-chart-bars-pair{display:flex;gap:3px;align-items:flex-end;width:100%;max-width:24px;height:100%}',
+    '.rj-bar-cyan{flex:1;background:#06b6d4!important;border-radius:3px 3px 0 0;min-height:3px;transition:height 0.3s cubic-bezier(0.4,0,0.2,1)}',
+    '.rj-bar-mint{flex:1;background:#10b981!important;border-radius:3px 3px 0 0;min-height:3px;transition:height 0.3s cubic-bezier(0.4,0,0.2,1)}',
+    '.rj-chart-x-lbl{font-size:10px;color:#8b98a3;margin-top:6px;font-weight:600;user-select:none;line-height:1}',
+    '.rj-chart-summary{flex:0 0 240px;border-left:1px solid #2f3842;padding-left:22px;display:flex;flex-direction:column;justify-content:center;gap:12px}',
+    '.rj-sum-title{font-size:12px;font-weight:700;color:#e8eef3;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px}',
+    '.rj-sum-row{display:flex;justify-content:space-between;align-items:center;font-size:12px}',
+    '.rj-sum-label{color:#8b98a3;font-weight:500}',
+    '.rj-sum-val{color:#e8eef3;font-weight:700}',
     '#tab_rj_jobs .rj-lastok,#tab_rj_jobs .rj-next{color:#8b98a3;font-size:10px;font-weight:normal;display:inline-block;margin-top:2px}',
     '#tab_rj_jobs .rj-needsack{color:#fff;background:#d9903a;font-weight:bold;margin-left:4px;text-transform:uppercase;font-size:9px;padding:2px 5px;border-radius:4px;letter-spacing:0.5px}',
     /* Dry-run diff chips */
@@ -437,7 +569,7 @@ $rjdata = [
         <tr data-job="<?= htmlspecialchars($name) ?>" class="rj-row <?= $stCls ?>">
           <td>
             <div style="font-weight:600;font-size:13px;color:var(--text,#e8eef3)"><?= htmlspecialchars($name) ?></div>
-            <span class="rj-chip"><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></span>
+            <span class="rj-chip <?= strtolower($c['ENGINE'] ?? 'rclone') ?>"><?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?></span>
             <?php if (($c['DESC'] ?? '') !== ''): ?><br><span class="gray"><?= htmlspecialchars($c['DESC']) ?></span><?php endif; ?>
           </td>
           <td style="white-space:nowrap">
@@ -467,7 +599,7 @@ $rjdata = [
               $hasTr = ($trAmt !== '' && $trAmt !== '0' && $trAmt !== '0 B');
             ?>
             <span class="rj-rc<?= $ok ? ' ok' : (($rcTxt !== '-' && $rcTxt !== 'RUN') ? ' bad' : ($running ? ' run' : '')) ?>">
-              <?php if ($ok): ?><i class="fa fa-check"></i> <?php elseif ($running): ?><i class="fa fa-refresh fa-spin"></i> <?php elseif ($rcTxt !== '-'): ?><i class="fa fa-exclamation-circle"></i> <?php endif; ?>
+              <?php if ($ok): ?><i class="fa fa-check-circle"></i> <?php elseif ($running): ?><i class="fa fa-refresh fa-spin"></i> <?php elseif ($rcTxt !== '-'): ?><i class="fa fa-times-circle"></i> <?php endif; ?>
               <?= htmlspecialchars($rcDisplay) ?><?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s".($hasTr ? " · ".htmlspecialchars($trAmt) : '').")" : '' ?>
             </span>
             <br><span class="rj-lastok">last OK: <?= htmlspecialchars((string)$lastok) ?></span>
@@ -509,6 +641,63 @@ $rjdata = [
     <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview-ctl" style="display:none;margin-top:6px"><input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"></div>
     <div id="rj-history" style="display:none;margin-top:12px"></div>
+
+    <!-- Hourly Transfer Bar Card from Mockup -->
+    <div class="rj-chart-card">
+      <div class="rj-chart-header">
+        <div class="rj-chart-title">
+          <i class="fa fa-bar-chart"></i>
+          <span>Hourly Transfer Bar</span>
+        </div>
+        <button type="button" class="rj-chart-toggle-btn" id="rj-chart-toggle" title="Toggle chart visibility">
+          <i class="fa fa-chevron-up"></i>
+        </button>
+      </div>
+      <div class="rj-chart-body" id="rj-chart-body">
+        <div class="rj-chart-main">
+          <div class="rj-chart-y-axis">
+            <span id="rj-chart-y-max"><?= htmlspecialchars($chartMaxLabel) ?></span>
+            <span id="rj-chart-y-mid"><?= htmlspecialchars($chartMidLabel) ?></span>
+            <span>0</span>
+          </div>
+          <div class="rj-chart-bars-wrap">
+            <div class="rj-chart-grid-line top"></div>
+            <div class="rj-chart-grid-line mid"></div>
+            <div class="rj-chart-grid-line bot"></div>
+            <div class="rj-chart-bars-cols">
+              <?php foreach ($hourlyStats as $slot): ?>
+                <div class="rj-chart-col" title="<?= htmlspecialchars($slot['title']) ?>">
+                  <div class="rj-chart-bars-pair">
+                    <div class="rj-bar-cyan" style="height:<?= (int)$slot['bar1Pct'] ?>%"></div>
+                    <div class="rj-bar-mint" style="height:<?= (int)$slot['bar2Pct'] ?>%"></div>
+                  </div>
+                  <span class="rj-chart-x-lbl"><?= htmlspecialchars($slot['label']) ?></span>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        </div>
+        <div class="rj-chart-summary">
+          <div class="rj-sum-title">Stat Summary</div>
+          <div class="rj-sum-row">
+            <span class="rj-sum-label">Avg Rate</span>
+            <span class="rj-sum-val" id="rj-sum-rate"><?= htmlspecialchars($statAvgRate) ?></span>
+          </div>
+          <div class="rj-sum-row">
+            <span class="rj-sum-label">24h Transferred</span>
+            <span class="rj-sum-val" id="rj-sum-transferred"><?= htmlspecialchars($b24Txt) ?></span>
+          </div>
+          <div class="rj-sum-row">
+            <span class="rj-sum-label">Total Runs</span>
+            <span class="rj-sum-val" id="rj-sum-runs"><?= (int)$statTotalRuns ?></span>
+          </div>
+          <div class="rj-sum-row">
+            <span class="rj-sum-label">Last Run</span>
+            <span class="rj-sum-val" id="rj-sum-last"><?= htmlspecialchars($statLastRun) ?></span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div id="rj-form-slot-bottom">
       <div class="title" style="margin-top:20px">

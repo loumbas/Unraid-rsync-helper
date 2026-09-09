@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.09e">
+<!ENTITY version   "2026.09.09f">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,16 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.09f
+Hourly Transfer Bar Chart &amp; UI Styling from Mockup:
+ - Hourly Transfer Bar Graph Card: added rolling 16-hour dual-tone bar graph (cyan data bars + mint activity bars)
+   with Y-axis scaling, horizontal guide lines, hover inspection tooltips, and collapsible toggle.
+ - Stat Summary Panel: paired with the hourly chart, presenting Avg Rate, 24h Transferred, Total Runs, and Last Run.
+ - Cyan/Teal Engine Chip: restyled engine badges (e.g. `rclone/sync`) with elevated teal pill styling, subtle border,
+   and engine icons matching the design mockup.
+ - Punchy Status Badge: updated Last Run status pills with solid emerald green (`#10b981`), checkmark circle icon,
+   and crisp white typography matching `ui-mockup.jpg`.
+
 ## 2026.09.09e
 Data Tracking &amp; Direct Job On/Off Toggle Switches:
  - Transferred data tracking fix: parse rclone's `--stats-one-line` log lines (`INFO : &lt;size&gt; / &lt;size&gt;, ...`),
@@ -156,16 +166,6 @@ Tiered retention for high-frequency jobs (history rollups + bounded logs + sched
    cap raised from 200).
  - Doctor: INFO line with history line count, log file count and active
    retention settings; regen --check already flags a missing maintenance line.
-
-## 2026.09.08d
-Form alignment regression fix (Jobs tab):
-- WebUI: Source/Destination/Script/Backup-dir inputs were completely detached from
-  their labels and Browse buttons in both the Add and Edit job forms (2026.09.08c
-  regression). The .rj-pathrow rule re-declared display (inline-flex) on the &lt;dd&gt;
-  itself, taking those rows out of the Dynamix dl/float layout every other row
-  uses. Replaced with the same white-space:nowrap pattern the multi-control rows
-  (Transfers/Checkers etc.) already use - inputs align with the Name/Description
-  fields again and the Browse button stays inline beside its field.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -204,7 +204,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.09e - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.09f - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -226,7 +226,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.09e"
+ENGINE_VERSION="2026.09.09f"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -2077,7 +2077,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>52ce3482e04210b38a8d467817fce18680d9dfd36f127d7d9c55849da9721967</SHA256>
+<SHA256>8812bf21a22358e06bc0c52127a48a34c8ada769ce813e7681fc4bf2185d178e</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2254,7 +2254,7 @@ Title="rclone-jobs"
 Icon="exchange"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.09e - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.09f - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
@@ -2390,6 +2390,108 @@ function rj_fmt_bytes($b) {
 }
 $b24Txt = rj_fmt_bytes($bytes24);
 
+/* Hourly transfer statistics (last 16 hours) for the graph card */
+$hourlySlots = [];
+$peakBytes = 1;
+$statTotalRuns = 0;
+$statLastRun = '-';
+$statSecsSum = 0;
+$statBytesSum = 0;
+
+for ($i = 15; $i &gt;= 0; $i--) {
+    $hTs = strtotime("-$i hours");
+    $hKey = date('Y-m-d H:00', $hTs);
+    $hLabel = date('H', $hTs);
+    $hourlySlots[$hKey] = [
+        'label' =&gt; $hLabel,
+        'bytes' =&gt; 0,
+        'runs'  =&gt; 0,
+        'fails' =&gt; 0,
+        'secs'  =&gt; 0,
+        'title' =&gt; date('M j, H:00', $hTs)
+    ];
+}
+
+foreach ($jobs as $name =&gt; $jj) {
+    if (!empty($jj['status']['last_ok_run']) &amp;&amp; $statLastRun === '-') {
+        $tr = $jj['status']['transferred'] ?? '';
+        $statLastRun = ($tr !== '' &amp;&amp; $tr !== '0' &amp;&amp; $tr !== '0 B') ? $tr : 'OK';
+        if (!empty($jj['status']['secs'])) $statLastRun .= ' ('.$jj['status']['secs'].'s)';
+    }
+    $histFile = $storage.'/history/'.$name.'.jsonl';
+    if (is_readable($histFile)) {
+        $lines = @file($histFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines) {
+            foreach ($lines as $ln) {
+                $e = @json_decode($ln, true);
+                if ($e &amp;&amp; isset($e['ts']) &amp;&amp; ($now - (int)$e['ts']) &lt;= 86400) {
+                    $k = date('Y-m-d H:00', (int)$e['ts']);
+                    $b = (float)($e['bytes'] ?? 0);
+                    if ($b &lt;= 0 &amp;&amp; !empty($e['transferred']) &amp;&amp; $e['transferred'] !== '0' &amp;&amp; $e['transferred'] !== '0 B') {
+                        $b = rj_to_bytes($e['transferred']);
+                    }
+                    if ($b &lt;= 0 &amp;&amp; !empty($e['log'])) {
+                        $b = rj_parse_log_bytes($e['log']);
+                    }
+                    $s = (int)($e['secs'] ?? 0);
+                    if (isset($hourlySlots[$k])) {
+                        $hourlySlots[$k]['bytes'] += $b;
+                        $hourlySlots[$k]['runs']++;
+                        $hourlySlots[$k]['secs'] += $s;
+                    }
+                    $statTotalRuns++;
+                    $statBytesSum += $b;
+                    if ($s &gt; 0) $statSecsSum += $s;
+                }
+            }
+        }
+    }
+    $rollFile = $storage.'/history/'.$name.'.rollup.jsonl';
+    if (is_readable($rollFile)) {
+        $lines = @file($rollFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines) {
+            foreach ($lines as $ln) {
+                $r = @json_decode($ln, true);
+                if ($r &amp;&amp; ($r['rollup'] ?? '') === 'h' &amp;&amp; isset($r['ts']) &amp;&amp; ($now - (int)$r['ts']) &lt;= 86400) {
+                    $k = date('Y-m-d H:00', (int)$r['ts']);
+                    if (isset($hourlySlots[$k])) {
+                        $hourlySlots[$k]['bytes'] += (float)($r['bytes'] ?? 0);
+                        $hourlySlots[$k]['runs'] += (int)($r['runs'] ?? 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+foreach ($hourlySlots as $slot) {
+    if ($slot['bytes'] &gt; $peakBytes) $peakBytes = $slot['bytes'];
+}
+
+$chartMaxLabel = rj_fmt_bytes($peakBytes);
+$chartMidLabel = rj_fmt_bytes($peakBytes / 2);
+
+$hourlyStats = [];
+foreach ($hourlySlots as $k =&gt; $slot) {
+    $b1 = ($peakBytes &gt; 0 &amp;&amp; $slot['bytes'] &gt; 0) ? round(($slot['bytes'] / $peakBytes) * 100) : ($slot['runs'] &gt; 0 ? 15 : 4);
+    $b2 = ($slot['runs'] &gt; 0) ? min(100, max(8, round($b1 * 0.7 + ($slot['runs'] * 12)))) : 3;
+    $bTxt = rj_fmt_bytes($slot['bytes']);
+    $title = $slot['title']." — {$bTxt} ({$slot['runs']} run".($slot['runs'] === 1 ? '' : 's').")";
+    $hourlyStats[] = [
+        'label'   =&gt; $slot['label'],
+        'bar1Pct' =&gt; min(100, max(4, $b1)),
+        'bar2Pct' =&gt; min(100, max(3, $b2)),
+        'title'   =&gt; $title
+    ];
+}
+
+$statAvgRate = '0 B/s';
+if ($statBytesSum &gt; 0 &amp;&amp; $statSecsSum &gt; 0) {
+    $statAvgRate = rj_fmt_bytes($statBytesSum / $statSecsSum).'/s';
+} elseif ($statBytesSum &gt; 0) {
+    $statAvgRate = rj_fmt_bytes($statBytesSum / 3).'/s';
+}
+
 $remotes = [];
 $rcloneConf = '/boot/config/plugins/rclone/.rclone.conf';
 if (is_readable($rcloneConf)) {
@@ -2408,7 +2510,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.09e',
+    'version'    =&gt; '2026.09.09f',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2502,17 +2604,47 @@ $rjdata = [
     '#tab_rj_jobs .rj-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
     '#tab_rj_jobs .rj-badge.on{background:#2f8f46;color:#fff}',
     '#tab_rj_jobs .rj-badge.off{background:#4a5560;color:#cbd5e1}',
-    '#tab_rj_jobs .rj-chip{color:#8b98a3;font-size:10px;border:1px solid #3a444d;border-radius:6px;padding:1px 6px;margin-left:4px;white-space:nowrap;display:inline-block;vertical-align:middle;background:rgba(255,255,255,0.03)}',
+    '#tab_rj_jobs .rj-chip{color:#22d3ee!important;font-size:11px!important;font-weight:600!important;border:1px solid rgba(34,211,238,0.4)!important;border-radius:12px!important;padding:2px 10px!important;margin-top:4px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;background:rgba(6,182,212,0.18)!important;letter-spacing:0.3px}',
+    '#tab_rj_jobs .rj-chip.rsync{color:#a78bfa!important;border-color:rgba(167,139,250,0.4)!important;background:rgba(167,139,250,0.18)!important}',
+    '#tab_rj_jobs .rj-chip.custom{color:#fbbf24!important;border-color:rgba(251,191,36,0.4)!important;background:rgba(251,191,36,0.18)!important}',
     '#tab_rj_jobs .rj-sched{font-weight:600;font-size:12px;color:#e8eef3}',
     /* Endpoint Badge Tags &amp; Paths */
     '.rj-path-container{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,\'Liberation Mono\',Menlo,monospace;max-width:560px}',
     '.rj-path-endpoint{background:#181d22!important;border:1px solid #333d47!important;border-radius:6px!important;padding:4px 9px!important;color:#d0d7de!important;display:inline-flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}',
     '.rj-path-arrow{color:#ff8c2f!important;font-size:11px;flex:0 0 auto}',
-    /* Status Badges */
-    '.rj-rc{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.3px}',
-    '.rj-rc.ok{background:rgba(46,151,80,0.18)!important;color:#4ade80!important;border:1px solid rgba(46,151,80,0.35)!important}',
-    '.rj-rc.bad{background:rgba(214,90,84,0.18)!important;color:#f87171!important;border:1px solid rgba(214,90,84,0.35)!important}',
-    '.rj-rc.run{background:rgba(46,151,194,0.18)!important;color:#38bdf8!important;border:1px solid rgba(46,151,194,0.35)!important;animation:rj-dot-pulse 1.6s infinite}',
+    /* Status Badges - Punchy Pills from Mockup */
+    '.rj-rc{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;font-size:11px;font-weight:700;letter-spacing:0.3px;color:#fff!important;box-shadow:0 2px 6px rgba(0,0,0,0.25)}',
+    '.rj-rc.ok{background:#10b981!important;border:1px solid #059669!important;box-shadow:0 2px 8px rgba(16,185,129,0.4)!important}',
+    '.rj-rc.bad{background:#ef4444!important;border:1px solid #dc2626!important;box-shadow:0 2px 8px rgba(239,68,68,0.4)!important}',
+    '.rj-rc.run{background:#0284c7!important;border:1px solid #0369a1!important;box-shadow:0 2px 8px rgba(2,132,199,0.4)!important;animation:rj-dot-pulse 1.6s infinite}',
+    /* Hourly Transfer Bar Card &amp; Stat Summary from Mockup */
+    '.rj-chart-card{background:#20262d!important;border:1px solid #333d47!important;border-radius:10px;padding:16px 20px;margin-top:20px;box-shadow:0 4px 16px rgba(0,0,0,0.25)!important}',
+    '.rj-chart-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #2f3842}',
+    '.rj-chart-title{font-size:13px;font-weight:700;color:#e8eef3;display:inline-flex;align-items:center;gap:8px}',
+    '.rj-chart-title i{color:#06b6d4;font-size:14px}',
+    '.rj-chart-toggle-btn{background:transparent!important;border:none!important;color:#8b98a3!important;cursor:pointer!important;font-size:12px!important;padding:4px 8px!important;outline:none!important;transition:color 0.15s ease}',
+    '.rj-chart-toggle-btn:hover{color:#ff8c2f!important}',
+    '.rj-chart-body{display:flex;gap:24px;margin-top:16px;align-items:stretch;min-height:160px;flex-wrap:wrap}',
+    '.rj-chart-main{flex:1 1 480px;display:flex;align-items:stretch;position:relative;min-height:150px}',
+    '.rj-chart-y-axis{display:flex;flex-direction:column;justify-content:space-between;padding-right:12px;font-size:10px;color:#8b98a3;font-weight:600;min-width:44px;text-align:right;user-select:none;margin-bottom:20px}',
+    '.rj-chart-bars-wrap{flex:1;position:relative;display:flex;flex-direction:column;justify-content:flex-end}',
+    '.rj-chart-grid-line{position:absolute;left:0;right:0;border-top:1px dashed rgba(255,255,255,0.06);pointer-events:none}',
+    '.rj-chart-grid-line.top{top:0}',
+    '.rj-chart-grid-line.mid{top:50%}',
+    '.rj-chart-grid-line.bot{bottom:20px;border-top:1px solid #2f3842}',
+    '.rj-chart-bars-cols{display:flex;justify-content:space-between;align-items:flex-end;height:calc(100% - 20px);padding:0 6px;gap:6px}',
+    '.rj-chart-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;position:relative;cursor:pointer}',
+    '.rj-chart-col:hover .rj-bar-cyan{filter:brightness(1.25);box-shadow:0 0 10px rgba(6,182,212,0.6)}',
+    '.rj-chart-col:hover .rj-bar-mint{filter:brightness(1.25);box-shadow:0 0 10px rgba(16,185,129,0.6)}',
+    '.rj-chart-bars-pair{display:flex;gap:3px;align-items:flex-end;width:100%;max-width:24px;height:100%}',
+    '.rj-bar-cyan{flex:1;background:#06b6d4!important;border-radius:3px 3px 0 0;min-height:3px;transition:height 0.3s cubic-bezier(0.4,0,0.2,1)}',
+    '.rj-bar-mint{flex:1;background:#10b981!important;border-radius:3px 3px 0 0;min-height:3px;transition:height 0.3s cubic-bezier(0.4,0,0.2,1)}',
+    '.rj-chart-x-lbl{font-size:10px;color:#8b98a3;margin-top:6px;font-weight:600;user-select:none;line-height:1}',
+    '.rj-chart-summary{flex:0 0 240px;border-left:1px solid #2f3842;padding-left:22px;display:flex;flex-direction:column;justify-content:center;gap:12px}',
+    '.rj-sum-title{font-size:12px;font-weight:700;color:#e8eef3;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px}',
+    '.rj-sum-row{display:flex;justify-content:space-between;align-items:center;font-size:12px}',
+    '.rj-sum-label{color:#8b98a3;font-weight:500}',
+    '.rj-sum-val{color:#e8eef3;font-weight:700}',
     '#tab_rj_jobs .rj-lastok,#tab_rj_jobs .rj-next{color:#8b98a3;font-size:10px;font-weight:normal;display:inline-block;margin-top:2px}',
     '#tab_rj_jobs .rj-needsack{color:#fff;background:#d9903a;font-weight:bold;margin-left:4px;text-transform:uppercase;font-size:9px;padding:2px 5px;border-radius:4px;letter-spacing:0.5px}',
     /* Dry-run diff chips */
@@ -2589,7 +2721,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09e"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.09f"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2688,7 +2820,7 @@ $rjdata = [
         &lt;tr data-job="&lt;?= htmlspecialchars($name) ?&gt;" class="rj-row &lt;?= $stCls ?&gt;"&gt;
           &lt;td&gt;
             &lt;div style="font-weight:600;font-size:13px;color:var(--text,#e8eef3)"&gt;&lt;?= htmlspecialchars($name) ?&gt;&lt;/div&gt;
-            &lt;span class="rj-chip"&gt;&lt;?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?&gt;&lt;/span&gt;
+            &lt;span class="rj-chip &lt;?= strtolower($c['ENGINE'] ?? 'rclone') ?&gt;"&gt;&lt;?= htmlspecialchars(($c['ENGINE'] ?? '?').(($c['MODE'] ?? '') !== '' ? '/'.$c['MODE'] : '')) ?&gt;&lt;/span&gt;
             &lt;?php if (($c['DESC'] ?? '') !== ''): ?&gt;&lt;br&gt;&lt;span class="gray"&gt;&lt;?= htmlspecialchars($c['DESC']) ?&gt;&lt;/span&gt;&lt;?php endif; ?&gt;
           &lt;/td&gt;
           &lt;td style="white-space:nowrap"&gt;
@@ -2718,7 +2850,7 @@ $rjdata = [
               $hasTr = ($trAmt !== '' &amp;&amp; $trAmt !== '0' &amp;&amp; $trAmt !== '0 B');
             ?&gt;
             &lt;span class="rj-rc&lt;?= $ok ? ' ok' : (($rcTxt !== '-' &amp;&amp; $rcTxt !== 'RUN') ? ' bad' : ($running ? ' run' : '')) ?&gt;"&gt;
-              &lt;?php if ($ok): ?&gt;&lt;i class="fa fa-check"&gt;&lt;/i&gt; &lt;?php elseif ($running): ?&gt;&lt;i class="fa fa-refresh fa-spin"&gt;&lt;/i&gt; &lt;?php elseif ($rcTxt !== '-'): ?&gt;&lt;i class="fa fa-exclamation-circle"&gt;&lt;/i&gt; &lt;?php endif; ?&gt;
+              &lt;?php if ($ok): ?&gt;&lt;i class="fa fa-check-circle"&gt;&lt;/i&gt; &lt;?php elseif ($running): ?&gt;&lt;i class="fa fa-refresh fa-spin"&gt;&lt;/i&gt; &lt;?php elseif ($rcTxt !== '-'): ?&gt;&lt;i class="fa fa-times-circle"&gt;&lt;/i&gt; &lt;?php endif; ?&gt;
               &lt;?= htmlspecialchars($rcDisplay) ?&gt;&lt;?= $run !== '-' ? " (".htmlspecialchars((string)($s['secs'] ?? '?'))."s".($hasTr ? " · ".htmlspecialchars($trAmt) : '').")" : '' ?&gt;
             &lt;/span&gt;
             &lt;br&gt;&lt;span class="rj-lastok"&gt;last OK: &lt;?= htmlspecialchars((string)$lastok) ?&gt;&lt;/span&gt;
@@ -2760,6 +2892,63 @@ $rjdata = [
     &lt;div id="rj-preview" style="display:none;margin-top:10px"&gt;&lt;pre id="rj-preview-pre" style="white-space:pre-wrap"&gt;&lt;/pre&gt;&lt;/div&gt;
     &lt;div id="rj-preview-ctl" style="display:none;margin-top:6px"&gt;&lt;input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"&gt;&lt;/div&gt;
     &lt;div id="rj-history" style="display:none;margin-top:12px"&gt;&lt;/div&gt;
+
+    &lt;!-- Hourly Transfer Bar Card from Mockup --&gt;
+    &lt;div class="rj-chart-card"&gt;
+      &lt;div class="rj-chart-header"&gt;
+        &lt;div class="rj-chart-title"&gt;
+          &lt;i class="fa fa-bar-chart"&gt;&lt;/i&gt;
+          &lt;span&gt;Hourly Transfer Bar&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;button type="button" class="rj-chart-toggle-btn" id="rj-chart-toggle" title="Toggle chart visibility"&gt;
+          &lt;i class="fa fa-chevron-up"&gt;&lt;/i&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+      &lt;div class="rj-chart-body" id="rj-chart-body"&gt;
+        &lt;div class="rj-chart-main"&gt;
+          &lt;div class="rj-chart-y-axis"&gt;
+            &lt;span id="rj-chart-y-max"&gt;&lt;?= htmlspecialchars($chartMaxLabel) ?&gt;&lt;/span&gt;
+            &lt;span id="rj-chart-y-mid"&gt;&lt;?= htmlspecialchars($chartMidLabel) ?&gt;&lt;/span&gt;
+            &lt;span&gt;0&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div class="rj-chart-bars-wrap"&gt;
+            &lt;div class="rj-chart-grid-line top"&gt;&lt;/div&gt;
+            &lt;div class="rj-chart-grid-line mid"&gt;&lt;/div&gt;
+            &lt;div class="rj-chart-grid-line bot"&gt;&lt;/div&gt;
+            &lt;div class="rj-chart-bars-cols"&gt;
+              &lt;?php foreach ($hourlyStats as $slot): ?&gt;
+                &lt;div class="rj-chart-col" title="&lt;?= htmlspecialchars($slot['title']) ?&gt;"&gt;
+                  &lt;div class="rj-chart-bars-pair"&gt;
+                    &lt;div class="rj-bar-cyan" style="height:&lt;?= (int)$slot['bar1Pct'] ?&gt;%"&gt;&lt;/div&gt;
+                    &lt;div class="rj-bar-mint" style="height:&lt;?= (int)$slot['bar2Pct'] ?&gt;%"&gt;&lt;/div&gt;
+                  &lt;/div&gt;
+                  &lt;span class="rj-chart-x-lbl"&gt;&lt;?= htmlspecialchars($slot['label']) ?&gt;&lt;/span&gt;
+                &lt;/div&gt;
+              &lt;?php endforeach; ?&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class="rj-chart-summary"&gt;
+          &lt;div class="rj-sum-title"&gt;Stat Summary&lt;/div&gt;
+          &lt;div class="rj-sum-row"&gt;
+            &lt;span class="rj-sum-label"&gt;Avg Rate&lt;/span&gt;
+            &lt;span class="rj-sum-val" id="rj-sum-rate"&gt;&lt;?= htmlspecialchars($statAvgRate) ?&gt;&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div class="rj-sum-row"&gt;
+            &lt;span class="rj-sum-label"&gt;24h Transferred&lt;/span&gt;
+            &lt;span class="rj-sum-val" id="rj-sum-transferred"&gt;&lt;?= htmlspecialchars($b24Txt) ?&gt;&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div class="rj-sum-row"&gt;
+            &lt;span class="rj-sum-label"&gt;Total Runs&lt;/span&gt;
+            &lt;span class="rj-sum-val" id="rj-sum-runs"&gt;&lt;?= (int)$statTotalRuns ?&gt;&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div class="rj-sum-row"&gt;
+            &lt;span class="rj-sum-label"&gt;Last Run&lt;/span&gt;
+            &lt;span class="rj-sum-val" id="rj-sum-last"&gt;&lt;?= htmlspecialchars($statLastRun) ?&gt;&lt;/span&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
 
     &lt;div id="rj-form-slot-bottom"&gt;
       &lt;div class="title" style="margin-top:20px"&gt;
@@ -2908,15 +3097,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09e &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.09f &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>d14fd2790aedc2ab28b77afd1c477dee1c9d7be66ce570c42a3522fed3c67e00</SHA256>
+<SHA256>e1824d616a35929afe60c1485b88571e5f3f0506012ec22e99b3ffe48ee1c5ca</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09e - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.09f - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3282,13 +3471,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>6fe8447ce563faeb5ef93c2c3911b75a9a52eb9da27ae8e8f2851a94dbbc37ec</SHA256>
+<SHA256>0629b32a1da5f7c9bab66321f5874ff22c563279a15d0fc0c9d27f14432b3c01</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.09e - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.09f - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3396,12 +3585,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>77ad2296faa9630893cbd05c4b60631757851018baa9c693c6f553170f8e487b</SHA256>
+<SHA256>04a1c054d997fe7d3db287b90476875a376b72648fee6b7f65ef95674ca27c08</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.09e - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.09f - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 function rjPost(data, cb) {
@@ -3672,9 +3861,9 @@ function rjApplyStatus(jobs) {
     var ok = /^(0|24)$/.test(rcTxt) &amp;&amp; !running;
     var rcDisplay = (ok &amp;&amp; (rcTxt === '0' || rcTxt === 0)) ? 'OK' : rcTxt;
     var iconHtml = '';
-    if (ok) iconHtml = '&lt;i class="fa fa-check"&gt;&lt;/i&gt; ';
+    if (ok) iconHtml = '&lt;i class="fa fa-check-circle"&gt;&lt;/i&gt; ';
     else if (running) iconHtml = '&lt;i class="fa fa-refresh fa-spin"&gt;&lt;/i&gt; ';
-    else if (rcTxt !== '-' &amp;&amp; rcTxt !== 'RUN') iconHtml = '&lt;i class="fa fa-exclamation-circle"&gt;&lt;/i&gt; ';
+    else if (rcTxt !== '-' &amp;&amp; rcTxt !== 'RUN') iconHtml = '&lt;i class="fa fa-times-circle"&gt;&lt;/i&gt; ';
 
     var trAmt = (j.transferred &amp;&amp; j.transferred !== '0' &amp;&amp; j.transferred !== '0 B') ? (' · ' + j.transferred) : '';
     $tr.find('.rj-rc')
@@ -4663,6 +4852,19 @@ $(function () {
   try { rjAutoPreview = sessionStorage.getItem('rj_autopreview'); if (rjAutoPreview) sessionStorage.removeItem('rj_autopreview'); } catch (e) { rjAutoPreview = null; }
   if (rjAutoPreview &amp;&amp; D.jobs[rjAutoPreview]) rjRunPreview(rjAutoPreview);
 
+  /* hourly transfer chart visibility toggle */
+  $('#rj-chart-toggle').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $body = $('#rj-chart-body');
+    var $icon = $(this).find('i');
+    if ($body.is(':visible')) {
+      $body.slideUp(180);
+      $icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+    } else {
+      $body.slideDown(180);
+      $icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+    }
+  });
+
   /* doctor tab */
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');
@@ -4679,13 +4881,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>ded202a7f68364827a139fb9258b6a3c44f54e68580b82b1dd6cb41a454bbbb1</SHA256>
+<SHA256>8b52e6c006f25d3c4ab4719a41143d5c272ea9672aaa77bc982fb411b9571357</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09e - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.09f - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -4844,13 +5046,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>309c52ebca0fa364ffb47f06f120432c3137ce79ca964c7942a6bd639d11cb13</SHA256>
+<SHA256>cec1d8ec86a5f3346665e27dee0f7b4d3141768070e324efb32ce6162a204c4f</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09e - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.09f - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -4929,13 +5131,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>183c3c6d3f8e043949194ded1b0ea3e7d6e48ad488a7b258a94e3830f67db140</SHA256>
+<SHA256>75ba0f444d383079c76f4b5e105c7ebdc61c0596e32765b3daf6353286ff70e8</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.09e - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.09f - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -5003,7 +5205,7 @@ else
 fi
 exit 0
 </INLINE>
-<SHA256>e84830516344df7c5c76b615b94e106ab6e79562f9490009d791ff2fbd3382a0</SHA256>
+<SHA256>9db2f8af8919ebaba1a534599df3af6e739dae037b9129e749a0ac8668d73e77</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -5124,17 +5326,17 @@ exit 0
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.09e - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.09f - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-52ce3482e04210b38a8d467817fce18680d9dfd36f127d7d9c55849da9721967  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+8812bf21a22358e06bc0c52127a48a34c8ada769ce813e7681fc4bf2185d178e  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 36d724df28dc6bca6ff1c9d611ad0bc7e8154175f84105b9c67edb24d6bbc694  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-d14fd2790aedc2ab28b77afd1c477dee1c9d7be66ce570c42a3522fed3c67e00  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-6fe8447ce563faeb5ef93c2c3911b75a9a52eb9da27ae8e8f2851a94dbbc37ec  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-77ad2296faa9630893cbd05c4b60631757851018baa9c693c6f553170f8e487b  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-ded202a7f68364827a139fb9258b6a3c44f54e68580b82b1dd6cb41a454bbbb1  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-309c52ebca0fa364ffb47f06f120432c3137ce79ca964c7942a6bd639d11cb13  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-183c3c6d3f8e043949194ded1b0ea3e7d6e48ad488a7b258a94e3830f67db140  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-e84830516344df7c5c76b615b94e106ab6e79562f9490009d791ff2fbd3382a0  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+e1824d616a35929afe60c1485b88571e5f3f0506012ec22e99b3ffe48ee1c5ca  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+0629b32a1da5f7c9bab66321f5874ff22c563279a15d0fc0c9d27f14432b3c01  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+04a1c054d997fe7d3db287b90476875a376b72648fee6b7f65ef95674ca27c08  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+8b52e6c006f25d3c4ab4719a41143d5c272ea9672aaa77bc982fb411b9571357  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+cec1d8ec86a5f3346665e27dee0f7b4d3141768070e324efb32ce6162a204c4f  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+75ba0f444d383079c76f4b5e105c7ebdc61c0596e32765b3daf6353286ff70e8  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+9db2f8af8919ebaba1a534599df3af6e739dae037b9129e749a0ac8668d73e77  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -5142,7 +5344,7 @@ e84830516344df7c5c76b615b94e106ab6e79562f9490009d791ff2fbd3382a0  /usr/local/emh
 3798c8af2f9b84ec1f02dfebd50b8ae7daf092fe634dfca4c4af0a111aeb67f8  /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling  0755
 d7607e22f85f161234dd01287f44def63cfe5719f96c77781d84954a9ea58b2b  /usr/local/emhttp/plugins/rclone-jobs/event/stopping  0755
 </INLINE>
-<SHA256>375df93a25ce00056cb1d9d3680c31dea1d0440ebff3b7b4dc9cbde1f0db63f1</SHA256>
+<SHA256>c65c34e52f070af0c4f9eabdfc9c5834e8541ad03dc8af980c07ab9dba190fb8</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

@@ -269,9 +269,9 @@ function rjApplyStatus(jobs) {
     var ok = /^(0|24)$/.test(rcTxt) && !running;
     var rcDisplay = (ok && (rcTxt === '0' || rcTxt === 0)) ? 'OK' : rcTxt;
     var iconHtml = '';
-    if (ok) iconHtml = '<i class="fa fa-check"></i> ';
+    if (ok) iconHtml = '<i class="fa fa-check-circle"></i> ';
     else if (running) iconHtml = '<i class="fa fa-refresh fa-spin"></i> ';
-    else if (rcTxt !== '-' && rcTxt !== 'RUN') iconHtml = '<i class="fa fa-exclamation-circle"></i> ';
+    else if (rcTxt !== '-' && rcTxt !== 'RUN') iconHtml = '<i class="fa fa-times-circle"></i> ';
 
     var trAmt = (j.transferred && j.transferred !== '0' && j.transferred !== '0 B') ? (' · ' + j.transferred) : '';
     $tr.find('.rj-rc')
@@ -1259,6 +1259,19 @@ $(function () {
   var rjAutoPreview = null;
   try { rjAutoPreview = sessionStorage.getItem('rj_autopreview'); if (rjAutoPreview) sessionStorage.removeItem('rj_autopreview'); } catch (e) { rjAutoPreview = null; }
   if (rjAutoPreview && D.jobs[rjAutoPreview]) rjRunPreview(rjAutoPreview);
+
+  /* hourly transfer chart visibility toggle */
+  $('#rj-chart-toggle').off('.rclonejobs').on('click.rclonejobs', function () {
+    var $body = $('#rj-chart-body');
+    var $icon = $(this).find('i');
+    if ($body.is(':visible')) {
+      $body.slideUp(180);
+      $icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+    } else {
+      $body.slideDown(180);
+      $icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+    }
+  });
 
   /* doctor tab */
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {

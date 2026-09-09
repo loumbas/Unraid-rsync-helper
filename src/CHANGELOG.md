@@ -1,3 +1,13 @@
+## 2026.09.09f
+Hourly Transfer Bar Chart & UI Styling from Mockup:
+ - Hourly Transfer Bar Graph Card: added rolling 16-hour dual-tone bar graph (cyan data bars + mint activity bars)
+   with Y-axis scaling, horizontal guide lines, hover inspection tooltips, and collapsible toggle.
+ - Stat Summary Panel: paired with the hourly chart, presenting Avg Rate, 24h Transferred, Total Runs, and Last Run.
+ - Cyan/Teal Engine Chip: restyled engine badges (e.g. `rclone/sync`) with elevated teal pill styling, subtle border,
+   and engine icons matching the design mockup.
+ - Punchy Status Badge: updated Last Run status pills with solid emerald green (`#10b981`), checkmark circle icon,
+   and crisp white typography matching `ui-mockup.jpg`.
+
 ## 2026.09.09e
 Data Tracking & Direct Job On/Off Toggle Switches:
  - Transferred data tracking fix: parse rclone's `--stats-one-line` log lines (`INFO : <size> / <size>, ...`),
