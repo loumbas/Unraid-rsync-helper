@@ -1,3 +1,8 @@
+## 2026.09.09q
+Installed Plugins Table Branding & Title Fix:
+ - Plugin Manager icon resolution: updated PLUGIN tag icon attribute from generic FontAwesome 'clone' to '&name;.png' (rclone-jobs.png), allowing Unraid's ShowPlugins parser to locate /usr/local/emhttp/plugins/rclone-jobs/images/rclone-jobs.png and render the official high-resolution icon in the Plugins table.
+ - Plugin title & description header: updated emhttp/README.md with a bold title header (**rclone-jobs**), ensuring the plugin name displays prominently above the description in the Plugin column.
+
 ## 2026.09.09p
 Extra-Large High-Visibility Calendar Badge:
  - High-visibility calendar scaling: re-engineered the calendar badge to 2.5x larger scale with thick high-contrast binder loops, a bold orange header bar, and vivid schedule indicators for instant legibility at Unraid's 48x48 tile size.
