@@ -1,3 +1,7 @@
+## 2026.09.09m
+Plugin Manager Description Integration:
+ - Installed plugins description: shipped dedicated README.md (/usr/local/emhttp/plugins/rclone-jobs/README.md) enabling Unraid's Plugin Manager to render the plugin summary under the plugin title in the Plugins table.
+
 ## 2026.09.09l
 WebUI Vector Branding & Plugin Manager Icon Integration:
  - Embedded WebUI vector icon: packaged rclone-jobs.svg directly into the plugin package (/usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.svg) with automated compatibility symlinks.

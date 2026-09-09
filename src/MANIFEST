@@ -23,5 +23,6 @@ emhttp/event/started /usr/local/emhttp/plugins/rclone-jobs/event/started 0755
 emhttp/event/uninstalling /usr/local/emhttp/plugins/rclone-jobs/event/uninstalling 0755
 emhttp/event/stopping /usr/local/emhttp/plugins/rclone-jobs/event/stopping 0755
 emhttp/rclone-jobs.svg /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.svg 0644
+emhttp/README.md /usr/local/emhttp/plugins/rclone-jobs/README.md 0644
 # MUST stay last: its content is generated from every entry above (two-pass build).
 emhttp/installed-checksums.txt /usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt 0644
