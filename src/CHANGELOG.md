@@ -1,3 +1,8 @@
+## 2026.09.09n
+High-Resolution Settings Icon & Plugin Manager Display Fix:
+ - Settings Utilities panel icon: updated rclone-jobs.page header to reference rclone-jobs.png, conforming to Unraid Dynamix panel parser rules requiring `.png` extension for `<img class="PanelImg">` rendering.
+ - Deployed rasterized branding: packaged high-resolution 256x256 transparent PNG (rclone-jobs.png.b64) decoded at install/boot to /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.png and images/rclone-jobs.png for full compatibility with both Settings panels and the Installed Plugins table.
+
 ## 2026.09.09m
 Plugin Manager Description Integration:
  - Installed plugins description: shipped dedicated README.md (/usr/local/emhttp/plugins/rclone-jobs/README.md) enabling Unraid's Plugin Manager to render the plugin summary under the plugin title in the Plugins table.
