@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <!-- Required profile overview for Community Applications -->
+  <Profile>
+    Reliable scheduled sync and backup automation tools for Unraid OS, featuring rclone and rsync with an interactive dry-run gate, mount guards, deletion ceilings, and native webGui alerts (bell, email, and Telegram).
+  </Profile>
+  <!-- Maintainer / Repository Icon -->
+  <Icon>https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/icon.svg</Icon>
+  <!-- Canonical Repository Web Page -->
+  <WebPage>https://github.com/loumbas/Unraid-rsync-helper</WebPage>
+  <!-- Support link (will point to dedicated Unraid Forum topic in Phase 3) -->
+  <Forum>https://github.com/loumbas/Unraid-rsync-helper/issues</Forum>
+</CommunityApplications>

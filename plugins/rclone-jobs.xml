@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Plugin>
+  <!-- Name of the plugin shown in Community Applications -->
+  <Name>rclone-jobs</Name>
+
+  <!-- Canonical download URL of the .plg file (must match pluginURL in .plg) -->
+  <PluginURL>https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/dist/rclone-jobs.plg</PluginURL>
+
+  <!-- Author display name -->
+  <PluginAuthor>sir_lou</PluginAuthor>
+
+  <!-- Categories in CA: Backup and Utilities -->
+  <Category>Backup: Tools:Utilities</Category>
+
+  <!-- App Card Icon URL -->
+  <Icon>https://raw.githubusercontent.com/loumbas/Unraid-rsync-helper/main/icon.svg</Icon>
+
+  <!-- Project homepage -->
+  <Project>https://github.com/loumbas/Unraid-rsync-helper</Project>
+
+  <!-- Support destination (will point to official Unraid Forum topic in Phase 3) -->
+  <Support>https://github.com/loumbas/Unraid-rsync-helper/issues</Support>
+
+  <!-- Short summary displayed on CA browse cards -->
+  <Overview>Scheduled rclone and rsync job manager for Unraid 7 with a dry-run gate, mount guard, deletion limits, live SSE progress monitoring, and native Unraid notifications (bell, email, Telegram).</Overview>
+
+  <!-- Extended details shown in CA info popup -->
+  <Description>
+[b]rclone-jobs[/b] is a dedicated Unraid 7 plugin designed for safe, automated file synchronisation and offsite backups.
+
+[b]Key Features:[/b]
+[list]
+[*] [b]Dry-Run Safety Gate:[/b] Newly created or modified jobs remain locked in Dry-Run mode until you inspect the preview log and intentionally unlock live execution.
+[*] [b]Mount Guard &amp; Array Verification:[/b] Prevents sync runs if source or destination paths are unmounted or missing.
+[*] [b]Max-Delete Protection:[/b] Enforces configurable limits on file deletions to prevent accidental data loss from misconfigured remote paths.
+[*] [b]Native Unraid Notifications:[/b] Integrates seamlessly with Unraid's notification system (webGui bell, email, Telegram, Discord, Pushover).
+[*] [b]Zero Background Daemons:[/b] Integrates cleanly with Unraid's Dillon cron; zero memory overhead when idle.
+[*] [b]Real-Time SSE Live Progress:[/b] Watch rclone transfers live via Server-Sent Events with automatic fallback.
+[*] [b]Zero-Conf Rclone Reuse:[/b] Automatically pairs with existing credentials in /boot/config/plugins/rclone/.rclone.conf.
+[/list]
+
+[b]Requirements:[/b]
+Requires Unraid 7.0.0 or higher.
+  </Description>
+
+  <!-- Minimum supported Unraid version -->
+  <MinVer>7.0.0</MinVer>
+</Plugin>

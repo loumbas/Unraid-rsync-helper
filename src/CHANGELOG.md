@@ -1,3 +1,8 @@
+## 2026.09.09k
+Community Applications Publishing & Vector Branding:
+ - Unraid Community Applications metadata: added repository profile (ca_profile.xml) and plugin application descriptor (plugins/rclone-jobs.xml) adhering to official CA moderation guidelines.
+ - Official Rclone duotone icon: added high-resolution vector icon (icon.svg) featuring the iconic 3-segment Rclone mark in Unraid Fire Orange, Solar Amber, and Ceramic White.
+
 ## 2026.09.09j
 Responsive UI Layout Across Mobile, Tablet and Desktop Viewports:
  - Responsive table scrolling: wrapped the jobs table in `.rj-table-wrap` with smooth horizontal touch-scrolling (`min-width: 760px`), preventing table columns and action buttons from being crushed on mobile or forcing the Unraid page to scroll.
