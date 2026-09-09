@@ -1,3 +1,11 @@
+## 2026.09.09g
+Inline Help Text Wrapping & Box Containment:
+ - Helper text box containment: fixed `blockquote.inline_help` and its inner paragraph tags to enforce
+   `white-space: normal`, `overflow-wrap: break-word`, and proper bounding box widths, preventing text
+   from overflowing outside its container on a single line when editing inline within table rows.
+ - Refined help callout styling: styled help blocks with a dark background (`#14191f`), crisp border with
+   Unraid orange accent (`#ff8c2f`), and cyan emphasis highlighting.
+
 ## 2026.09.09f
 Hourly Transfer Bar Chart & UI Styling from Mockup:
  - Hourly Transfer Bar Graph Card: added rolling 16-hour dual-tone bar graph (cyan data bars + mint activity bars)
