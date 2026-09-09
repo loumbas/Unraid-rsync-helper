@@ -1,3 +1,8 @@
+## 2026.09.09o
+Scheduler Branding Remix: Calendar + Cron Time Dial:
+ - Calendar-Cron badge remix: updated official plugin vector icon (rclone-jobs.svg) and rasterized 256x256 WebUI icon with a scheduler badge featuring a calendar sheet with an integrated precision cron dial, highlighting scheduled synchronization tasks.
+ - Deployed assets: re-rendered and updated rclone-jobs.png.b64 and root icon.svg.
+
 ## 2026.09.09n
 High-Resolution Settings Icon & Plugin Manager Display Fix:
  - Settings Utilities panel icon: updated rclone-jobs.page header to reference rclone-jobs.png, conforming to Unraid Dynamix panel parser rules requiring `.png` extension for `<img class="PanelImg">` rendering.
