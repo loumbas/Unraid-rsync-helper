@@ -289,7 +289,7 @@ function rjApplyStatus(jobs) {
     }
     var $ack = $tr.find("[data-act='ack']");
     if (needAck && $ack.length === 0) {
-      $tr.find("[data-act='run']").after(" <input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'>");
+      $tr.find("[data-act='run']").after(" <button type='button' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'><i class='fa fa-exclamation-triangle'></i> Ack</button>");
     } else if (!needAck && $ack.length) {
       $ack.remove();
     }
@@ -299,10 +299,10 @@ function rjApplyStatus(jobs) {
     var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
     if (running) {
       $run.hide();
-      $stop.show().prop('disabled', false).val('Stop');
+      $stop.show().prop('disabled', false).html('<i class="fa fa-stop"></i> Stop');
     } else {
       $stop.hide();
-      $run.show();
+      $run.show().prop('disabled', false).html('<i class="fa fa-play"></i> Run');
     }
     /* refresh the row cue: running > needs-ack > ok / failed (rj-off is config-side, untouched) */
     $tr.removeClass('rj-st-ok rj-st-bad rj-st-ack rj-st-run');
@@ -357,25 +357,67 @@ function rjHistBytes(b) {
   return (i === 0 || v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + u[i];
 }
 
+function rjCloseHistory() {
+  var $p = $('#rj-history');
+  $p.hide();
+  $('#rj-history-slot-bottom').append($p);
+  $('#rj-inline-hist-tr').remove();
+  $('.rj-row-hist').removeClass('rj-row-hist');
+}
+
+function rjAttachHistory(job) {
+  var $p = $('#rj-history');
+  $('#rj-history-slot-bottom').append($p);
+  $('#rj-inline-hist-tr').remove();
+  $('.rj-row-hist').removeClass('rj-row-hist');
+
+  if (job) {
+    var $row = $('#tab_rj_jobs tbody tr[data-job="' + job + '"]');
+    if ($row.length) {
+      $row.addClass('rj-row-hist');
+      var $tr = $('<tr id="rj-inline-hist-tr" class="rj-inline-hist-tr"><td colspan="7"></td></tr>');
+      $row.after($tr);
+      $tr.find('td').append($p);
+      return;
+    }
+  }
+  $('#rj-history-slot-bottom').append($p).show();
+}
+
 function rjShowHistory(job) {
+  /* toggle off if already open for this job */
+  if ($('#rj-inline-hist-tr').length && $('.rj-row-hist').data('job') === job && $('#rj-history').is(':visible')) {
+    rjCloseHistory();
+    return;
+  }
+  /* close edit form if open to prevent visual clutter */
+  if (typeof rjCloseForm === 'function') rjCloseForm();
+  rjAttachHistory(job);
+
   /* tiered view: 24h summary + hourly sparkline (raw runs merged with hourly
      buckets) + daily rollup table + raw per-run detail with a failures-only
      filter. A job on a minutes-schedule stays readable this way. */
   rjPost({ action: 'history', job: job, n: 600 }, function (res) {
     var $p = $('#rj-history').empty();
-    if (!res.ok) { $p.append($('<pre style="color:#e6867e"></pre>').text('ERROR: ' + (res.error || '?'))).show(); return; }
+    if (!res.ok) {
+      $p.append($('<div class="rj-hist-card"><div class="rj-hist-top"><div class="rj-hist-title"><i class="fa fa-history" style="color:#e6867e"></i> History Error</div><button type="button" class="rj-form-close-x" id="rj-hist-close">&times;</button></div><pre style="color:#e6867e"></pre></div>'));
+      $p.find('pre').text('ERROR: ' + (res.error || '?'));
+      $p.find('#rj-hist-close').on('click', rjCloseHistory);
+      $p.show();
+      return;
+    }
     var e = res.entries || [], roll = res.rollups || [];
     var nowMs = Date.now(), HR = 3600000;
     var $wrap = $('<div class="rj-hist-card"></div>');
     var $hdr = $('<div class="rj-hist-top">' +
-      '<div class="rj-hist-title"><i class="fa fa-bar-chart"></i> Run History &amp; Trend: <span style="color:#2e97c2">"' + rjEsc(job) + '"</span></div>' +
-      '<div><input type="button" value="Close" id="rj-hist-close" style="padding:2px 8px"></div>' +
+      '<div class="rj-hist-title"><i class="fa fa-history" style="color:#06b6d4"></i> Run History &amp; Trend: <span style="color:#22d3ee">"' + rjEsc(job) + '"</span></div>' +
+      '<div><button type="button" class="rj-form-close-x" id="rj-hist-close" title="Close history">&times;</button></div>' +
       '</div>');
     $wrap.append($hdr);
-    $hdr.find('#rj-hist-close').on('click', function () { $p.slideUp(180); });
+    $hdr.find('#rj-hist-close').on('click', function () { rjCloseHistory(); });
 
     if (!e.length && !roll.length) {
-      $wrap.append('<div class="gray" style="padding:8px 0">No live runs recorded yet - history counts real runs, not dry-runs.</div>');
+      $wrap.append('<div class="gray" style="padding:12px 0">No live runs recorded yet - history counts real runs, not dry-runs.</div>');
       $p.append($wrap).show();
       $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
@@ -472,11 +514,19 @@ function rjShowHistory(job) {
         (list.length - shown.length) + ' older run(s) not shown - see the rollups above</td></tr>');
     }
     renderRaw();
-    var $ff = $('<label style="font-size:11px;cursor:pointer;margin-left:10px"><input type="checkbox"> failures only</label>');
-    $ff.find('input').on('change', function () { failsOnly = this.checked; renderRaw(); });
+    var $ff = $('<div class="rj-tb-pills" style="margin-left:14px;display:inline-flex;gap:4px">' +
+      '<button type="button" class="rj-filter-pill active" data-hist-filter="all">All runs <span class="rj-pill-cnt">' + e.length + '</span></button>' +
+      '<button type="button" class="rj-filter-pill" data-hist-filter="fail">Failures only' + (s24f > 0 ? ' <span class="rj-pill-cnt">' + s24f + '</span>' : '') + '</button>' +
+    '</div>');
+    $ff.find('.rj-filter-pill').on('click', function () {
+      $ff.find('.rj-filter-pill').removeClass('active');
+      $(this).addClass('active');
+      failsOnly = ($(this).data('hist-filter') === 'fail');
+      renderRaw();
+    });
     var $rawWrap = $('<div class="rj-hist-scroll"></div>');
     $rawWrap.append($('<table class="view-table" style="width:100%;margin:0"><thead><tr><th>When</th><th>Result</th><th>Duration</th><th>Errors</th><th>Transferred</th><th>Size trend</th></tr></thead></table>').append($tb));
-    $wrap.append($('<div class="gray" style="font-size:11px;margin:10px 0 4px;font-weight:600;display:flex;align-items:center">Raw per-run detail (newest first)</div>').append($ff), $rawWrap);
+    $wrap.append($('<div class="gray" style="font-size:11px;margin:12px 0 6px;font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:8px"><span>Raw per-run detail (newest first)</span></div>').append($ff), $rawWrap);
     $p.append($wrap).show();
     $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
@@ -769,6 +819,7 @@ $(function () {
   if (!Object.keys(D.jobs).length) showForm('Add job', null);
 
   function showForm(title, j) {
+    if (typeof rjCloseHistory === 'function') rjCloseHistory();
     $('#rj-form-title').text(title);
     $('#rj-form-title-accordion').text(title);
     $('#f_orig').val(j ? j.name : '');
@@ -960,7 +1011,7 @@ $(function () {
                 'Stop', true, function () {
         rjPost({ action: 'stop_job', job: job }, function (res) {
           if (res.ok) {
-            $btn.prop('disabled', true).val('stopping...');
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> stopping...');
             rjPanel('rj-result', 'Stop requested for "' + job + '" - the row returns to idle when the run records rc=143.');
             setTimeout(rjStatusRefresh, 1500);
           } else {

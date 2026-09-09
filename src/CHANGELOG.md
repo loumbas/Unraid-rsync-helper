@@ -1,3 +1,16 @@
+## 2026.09.09i
+UI Polish: Action Button Icons, Inline History Drawer, Filter Pills & Form Cards:
+ - FontAwesome action buttons: enhanced row buttons with crisp FontAwesome icons (`<i class="fa fa-flask"></i> Dry`,
+   `<i class="fa fa-play"></i> Run`, `<i class="fa fa-stop"></i> Stop`, `<i class="fa fa-file-text-o"></i> Log`,
+   `<i class="fa fa-history"></i> Hist`, `<i class="fa fa-pencil"></i> Edit`, and trash icon for delete) matching
+   the UI mockup.
+ - Inline history drawer: clicking `Hist` now smoothly expands the run history card directly beneath the targeted
+   job row as an inline drawer (with clean toggle, smooth scroll, and close button).
+ - History filter pills: upgraded the raw runs failure filter from a plain checkbox to styled pill toggle buttons
+   (`All runs` vs `Failures only`) matching the fleet toolbar design.
+ - Card-based form containers: partitioned the Add/Edit form into 4 distinct visual sub-cards (Basics, Schedule,
+   Transfer Settings, Limits & Safety) with individual title badges and borders.
+
 ## 2026.09.09h
 Enhanced Verbosity for Plugin Updates & Installations:
  - Comprehensive update pre-clean reporting: displays current vs target version, explicitly confirms

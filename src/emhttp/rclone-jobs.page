@@ -406,19 +406,22 @@ $rjdata = [
     '#tab_rj_jobs td.rj-acts{white-space:nowrap}',
     '#tab_rj_jobs .rj-act-grp{display:inline-flex;align-items:center;vertical-align:middle;gap:3px}',
     '#tab_rj_jobs .rj-act-sep{display:inline-block;width:1px;height:16px;background:#3e4b57!important;margin:0 5px;vertical-align:middle}',
-    '#tab_rj_jobs td.rj-acts .rj-btn{height:24px!important;line-height:22px!important;padding:0 8px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;letter-spacing:normal!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#1e242b!important;color:#f1f5f9!important;cursor:pointer!important;margin:0!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;transition:all 0.12s ease!important;outline:none!important}',
+    '#tab_rj_jobs td.rj-acts .rj-btn{height:24px!important;line-height:22px!important;padding:0 8px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;letter-spacing:normal!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#1e242b!important;color:#f1f5f9!important;cursor:pointer!important;margin:0!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;transition:all 0.12s ease!important;outline:none!important}',
+    '#tab_rj_jobs td.rj-acts .rj-btn i{font-size:10px!important;color:inherit!important}',
     '#tab_rj_jobs td.rj-acts .rj-btn:hover{background:#ff8c2f!important;color:#111!important}',
-    '#tab_rj_jobs td.rj-acts .rj-btn.rj-del{border-color:#e0524c!important;color:#fca5a5!important}',
+    '#tab_rj_jobs td.rj-acts .rj-btn.rj-del{border-color:#e0524c!important;color:#fca5a5!important;padding:0 7px!important}',
     '#tab_rj_jobs td.rj-acts .rj-btn.rj-del:hover{background:#e0524c!important;color:#fff!important}',
     '#tab_rj_jobs td.rj-acts .rj-btn.rj-warn{border-color:#d9903a!important;color:#fed7aa!important}',
     '#tab_rj_jobs td.rj-acts .rj-btn.rj-warn:hover{background:#d9903a!important;color:#fff!important}',
-    /* History card */
-    '.rj-hist-card{background:#20262d!important;border:1px solid #333d47!important;border-radius:8px;padding:16px 18px;margin-top:14px;box-shadow:0 4px 16px rgba(0,0,0,0.35)!important}',
-    '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #333d47!important}',
-    '.rj-hist-title{font-size:12px;font-weight:bold;color:#e8eef3;display:flex;align-items:center;gap:6px}',
+    /* History card & Inline Drawer */
+    '.rj-hist-card{background:#181d24!important;border:1px solid #333d47!important;border-radius:8px;padding:16px 18px;margin-top:10px;box-shadow:0 8px 24px rgba(0,0,0,0.45)!important}',
+    '.rj-hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #2e3740!important}',
+    '.rj-hist-title{font-size:13px;font-weight:bold;color:#e8eef3;display:flex;align-items:center;gap:7px}',
     '.rj-hist-spark{display:flex;align-items:flex-end;height:46px;margin:8px 0 4px;padding:6px 10px;background:rgba(0,0,0,0.3)!important;border-radius:6px;border:1px solid #333d47!important}',
     '.rj-spark-bar{width:12px;margin-right:3px;flex:0 0 auto;border-radius:2px 2px 0 0;transition:none!important}',
     '.rj-spark-bar:hover{filter:brightness(1.25);transition:none!important}',
+    '#tab_rj_jobs tbody tr.rj-row-hist td{background:#27303a!important;border-bottom-color:#2e97c2!important}',
+    '#tab_rj_jobs table.rclone-jobs tbody tr.rj-inline-hist-tr td{background:transparent!important;padding:4px 0 12px!important;border:none!important}',
     /* History Scrollable Table Containers */
     '.rj-hist-scroll{max-height:360px;overflow-y:auto;border:1px solid #333d47!important;border-radius:6px;margin-top:6px}',
     '.rj-hist-scroll th{position:sticky!important;top:0;background:#20262d!important;z-index:2;box-shadow:0 1px 0 #333d47!important}',
@@ -437,7 +440,10 @@ $rjdata = [
     '#rj-form-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:#e8eef3;text-decoration:none;font-weight:600;font-size:13px;padding:8px 14px;background:#20262d;border:1px solid #333d47;border-radius:6px;transition:all 0.15s ease}',
     '#rj-form-toggle:hover{border-color:#ff8c2f;color:#ff8c2f}',
     '#rj-form-toggle i{color:#93a0ab}',
-    '.rj-fsec{font-size:11px!important;font-weight:700!important;letter-spacing:1px!important;text-transform:uppercase!important;color:#ff8c2f!important;border-bottom:1px solid #2e3740!important;padding:10px 0 6px!important;margin:16px 0 12px!important;display:flex!important;align-items:center!important;gap:6px!important;text-align:left!important}',
+    /* Card-based form containers */
+    '.rj-form-card{background:#12161b!important;border:1px solid #2a333d!important;border-radius:8px!important;padding:14px 18px!important;margin-bottom:14px!important;box-shadow:0 2px 6px rgba(0,0,0,0.25)!important}',
+    '.rj-form-card-title{font-size:11px!important;font-weight:700!important;letter-spacing:0.8px!important;text-transform:uppercase!important;color:#ff8c2f!important;border-bottom:1px solid #222a33!important;padding-bottom:8px!important;margin-bottom:12px!important;display:flex!important;align-items:center!important;gap:7px!important}',
+    '.rj-form-card-title i{color:#ff8c2f!important;font-size:12px!important}',
     '#rj-jobform{text-align:left!important;white-space:normal!important}',
     '#rj-jobform dl{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;max-width:850px!important;margin:6px 0!important;padding:0!important;float:none!important;clear:both!important;text-align:left!important}',
     '#rj-jobform dt{width:160px!important;min-width:160px!important;max-width:160px!important;float:none!important;text-align:left!important;font-weight:600!important;color:#c0ccd6!important;font-size:12px!important;padding:0!important;margin:0!important}',
@@ -458,7 +464,7 @@ $rjdata = [
     '#rj-ov-note{margin:6px 0 6px 160px!important;font-size:11px!important;color:#e6867e!important;white-space:normal!important;line-height:1.4!important;max-width:680px!important}',
     '#rj-jobform .rj-browse-btn{height:28px!important;line-height:26px!important;padding:0 12px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#20262d!important;color:#ff8c2f!important;cursor:pointer!important;transition:all 0.15s ease!important}',
     '#rj-jobform .rj-browse-btn:hover{background:#ff8c2f!important;color:#111!important}',
-    '.rj-form-actions{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;margin-top:20px!important;margin-left:160px!important;padding-top:14px!important;border-top:1px solid #2e3740!important}',
+    '.rj-form-actions{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;margin-top:14px!important;margin-left:0!important;padding:12px 18px!important;border-top:1px solid #2e3740!important;background:#14181e!important;border-radius:8px!important;border:1px solid #2a333d!important}',
     '.rj-form-actions input[type=submit],.rj-form-actions input[type=button]{height:32px!important;line-height:30px!important;padding:0 18px!important;font-size:12px!important;font-weight:600!important;text-transform:none!important;border-radius:5px!important;cursor:pointer!important;transition:all 0.15s ease!important}',
     '.rj-form-actions input[type=submit]{border:1px solid #ff8c2f!important;background:#ff8c2f!important;color:#111!important;font-weight:700!important}',
     '.rj-form-actions input[type=submit]:hover{background:#ffa75e!important;border-color:#ffa75e!important}',
@@ -621,20 +627,20 @@ $rjdata = [
           </td>
           <td class="rj-acts">
             <span class="rj-act-grp">
-              <input type='button' value='Dry' class='rj-btn' data-act='dry' data-job='<?= htmlspecialchars($name) ?>' title='Dry-run: simulate only, nothing is written'>
-              <input type='button' value='Run' class='rj-btn' data-act='run' data-job='<?= htmlspecialchars($name) ?>' title='Start a run now (respects the master dry-run switch)'<?= $running ? " style='display:none'" : '' ?>>
-              <input type='button' value='Stop' class='rj-btn rj-del' data-act='stop' data-job='<?= htmlspecialchars($name) ?>' title='Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)'<?= $running ? '' : " style='display:none'" ?>>
-              <?php if ($needAck): ?><input type='button' value='Ack' class='rj-btn rj-warn' data-act='ack' data-job='<?= htmlspecialchars($name) ?>' title='This dry-run wants to delete files - acknowledge before a real run'><?php endif; ?>
+              <button type="button" class="rj-btn" data-act="dry" data-job="<?= htmlspecialchars($name) ?>" title="Dry-run: simulate only, nothing is written"><i class="fa fa-flask"></i> Dry</button>
+              <button type="button" class="rj-btn" data-act="run" data-job="<?= htmlspecialchars($name) ?>" title="Start a run now (respects the master dry-run switch)"<?= $running ? " style='display:none'" : '' ?>><i class="fa fa-play"></i> Run</button>
+              <button type="button" class="rj-btn rj-del" data-act="stop" data-job="<?= htmlspecialchars($name) ?>" title="Stop the live run (interrupts the transfer; recorded as rc=143, next run resumes)"<?= $running ? '' : " style='display:none'" ?>><i class="fa fa-stop"></i> Stop</button>
+              <?php if ($needAck): ?><button type="button" class="rj-btn rj-warn" data-act="ack" data-job="<?= htmlspecialchars($name) ?>" title="This dry-run wants to delete files - acknowledge before a real run"><i class="fa fa-exclamation-triangle"></i> Ack</button><?php endif; ?>
             </span>
             <span class="rj-act-sep"></span>
             <span class="rj-act-grp">
-              <input type='button' value='Log' class='rj-btn' data-act='log' data-job='<?= htmlspecialchars($name) ?>' title='Open the last log (redacted) in a new window'>
-              <input type='button' value='Hist' class='rj-btn' data-act='hist' data-job='<?= htmlspecialchars($name) ?>' title='Last 20 live runs + size trend'>
+              <button type="button" class="rj-btn" data-act="log" data-job="<?= htmlspecialchars($name) ?>" title="Open the last log (redacted) in a new window"><i class="fa fa-file-text-o"></i> Log</button>
+              <button type="button" class="rj-btn" data-act="hist" data-job="<?= htmlspecialchars($name) ?>" title="Last 20 live runs + size trend"><i class="fa fa-history"></i> Hist</button>
             </span>
             <span class="rj-act-sep"></span>
             <span class="rj-act-grp">
-              <input type='button' value='Edit' class='rj-btn' data-act='edit' data-job='<?= htmlspecialchars($name) ?>' title='Edit this job'>
-              <input type='button' value='Del' class='rj-btn rj-del' data-act='del' data-job='<?= htmlspecialchars($name) ?>' title='Delete this job (config kept as a .removed-* backup)'>
+              <button type="button" class="rj-btn" data-act="edit" data-job="<?= htmlspecialchars($name) ?>" title="Edit this job"><i class="fa fa-pencil"></i> Edit</button>
+              <button type="button" class="rj-btn rj-del" data-act="del" data-job="<?= htmlspecialchars($name) ?>" title="Delete this job (config kept as a .removed-* backup)"><i class="fa fa-trash"></i></button>
             </span>
           </td>
         </tr>
@@ -644,7 +650,7 @@ $rjdata = [
     <div id="rj-result" style="display:none;margin-top:10px"><pre id="rj-result-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre" style="white-space:pre-wrap"></pre></div>
     <div id="rj-preview-ctl" style="display:none;margin-top:6px"><input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"></div>
-    <div id="rj-history" style="display:none;margin-top:12px"></div>
+    <div id="rj-history-slot-bottom" style="display:none"><div id="rj-history"></div></div>
 
     <!-- Hourly Transfer Bar Card from Mockup -->
     <div class="rj-chart-card">
@@ -717,62 +723,75 @@ $rjdata = [
         </div>
         <form id="rj-jobform" autocomplete="off">
           <input type="hidden" id="f_orig" value="">
-          <div class="rj-fsec"><i class="fa fa-info-circle"></i> Basics</div>
-          <dl><dt>Name:</dt><dd><input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required></dd></dl>
-          <blockquote class='inline_help'><p>Unique job id - letters, digits, dash and underscore, max 40 characters. It names the config file and the schedule entry, so it cannot be changed afterwards; to rename a job create a new one and delete the old.</p></blockquote>
-          <dl><dt>Description:</dt><dd><input type="text" id="f_desc" maxlength="120"></dd></dl>
-          <blockquote class='inline_help'><p>Free-text label shown under the job name in the jobs table.</p></blockquote>
-          <dl><dt>Enabled:</dt><dd><select id="f_enabled"><option value="yes">yes</option><option value="no">no</option></select></dd></dl>
-          <blockquote class='inline_help'><p>A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.</p></blockquote>
-          <dl><dt>Schedule:</dt><dd class="rj-inline">
-            <select id="f_sched_freq">
-              <option value="minutely">Every</option>
-              <option value="hourly">Hourly at minute</option>
-              <option value="daily" selected>Daily at</option>
-              <option value="weekly">Weekly on</option>
-              <option value="monthly">Monthly on day</option>
-              <option value="custom">Custom (cron)</option>
-            </select>
-            <span id="f_s_minutely" style="display:none"><select id="f_sched_nmin"></select> minutes</span>
-            <span id="f_s_dom" style="display:none"><select id="f_sched_dom"></select></span>
-            <span id="f_s_weekday" class="rj-wd" style="display:none"></span>
-            <span id="f_s_clock" style="display:none"><span id="f_s_at" style="display:none">at</span> <select id="f_sched_hour"></select>:<select id="f_sched_min"></select></span>
-            <span id="f_s_hourly" style="display:none"><select id="f_sched_hmin"></select></span>
-          </dd></dl>
-          <dl id="dl_f_schedule" style="display:none"><dt>Cron expression:</dt><dd><input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"></dd></dl>
-          <p id="rj-sched-summary"></p>
-          <blockquote class='inline_help'><p>Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. <em>Custom (cron)</em> accepts the classic five fields <em>minute hour day-of-month month day-of-week</em> (numbers, <em>*</em> and <em>,</em> <em>-</em> <em>/</em> only), e.g. <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
-          <div class="rj-fsec"><i class="fa fa-exchange"></i> Transfer</div>
-          <dl><dt>Engine:</dt><dd><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></dd></dl>
-          <blockquote class='inline_help'><p><em>rclone</em> uses the rclone plugin's own remotes (same config, never modified). <em>rsync</em> is for local/remote paths with mount-guard protection. <em>custom script</em> runs your own executable instead - the transfer settings below do not apply to it.</p></blockquote>
-          <div class="rj-eng">
-          <dl><dt>Mode (rclone):</dt><dd><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></dd></dl>
-          <blockquote class='inline_help'><p><em>sync</em> makes destination identical to source (may delete). <em>copy</em> only adds/updates, never deletes. <em>check</em> only compares and reports differences.</p></blockquote>
-          <dl><dt>Source:</dt><dd class="rj-pathrow"><input type="text" id="f_src" class="variable rj-path" list="rj-paths-dl" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></dd></dl>
-          <blockquote class='inline_help'><p>Folder on this server (shares, array disks, mounts) or an rclone remote path like <em>gdrive:Data</em>. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.</p></blockquote>
-          <dl><dt>Destination:</dt><dd class="rj-pathrow"><input type="text" id="f_dst" class="variable rj-path" list="rj-paths-dl" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
-          <blockquote class='inline_help'><p>Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.</p></blockquote>
+          <div class="rj-form-card">
+            <div class="rj-form-card-title"><i class="fa fa-info-circle"></i> Basics</div>
+            <dl><dt>Name:</dt><dd><input type="text" id="f_name" maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" required></dd></dl>
+            <blockquote class='inline_help'><p>Unique job id - letters, digits, dash and underscore, max 40 characters. It names the config file and the schedule entry, so it cannot be changed afterwards; to rename a job create a new one and delete the old.</p></blockquote>
+            <dl><dt>Description:</dt><dd><input type="text" id="f_desc" maxlength="120"></dd></dl>
+            <blockquote class='inline_help'><p>Free-text label shown under the job name in the jobs table.</p></blockquote>
+            <dl><dt>Enabled:</dt><dd><select id="f_enabled"><option value="yes">yes</option><option value="no">no</option></select></dd></dl>
+            <blockquote class='inline_help'><p>A disabled job keeps its configuration and history but gets no schedule line. Manual Dry-run/Run buttons still work on disabled jobs.</p></blockquote>
           </div>
-          <p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"></p>
-          <div class="rj-custom" style="display:none">
-          <dl><dt>Script:</dt><dd class="rj-pathrow"><input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></dd></dl>
-          <blockquote class='inline_help'><p>Absolute path of an executable script; Browse... shows <em>.sh</em> files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.</p></blockquote>
+
+          <div class="rj-form-card">
+            <div class="rj-form-card-title"><i class="fa fa-calendar"></i> Schedule</div>
+            <dl><dt>Schedule:</dt><dd class="rj-inline">
+              <select id="f_sched_freq">
+                <option value="minutely">Every</option>
+                <option value="hourly">Hourly at minute</option>
+                <option value="daily" selected>Daily at</option>
+                <option value="weekly">Weekly on</option>
+                <option value="monthly">Monthly on day</option>
+                <option value="custom">Custom (cron)</option>
+              </select>
+              <span id="f_s_minutely" style="display:none"><select id="f_sched_nmin"></select> minutes</span>
+              <span id="f_s_dom" style="display:none"><select id="f_sched_dom"></select></span>
+              <span id="f_s_weekday" class="rj-wd" style="display:none"></span>
+              <span id="f_s_clock" style="display:none"><span id="f_s_at" style="display:none">at</span> <select id="f_sched_hour"></select>:<select id="f_sched_min"></select></span>
+              <span id="f_s_hourly" style="display:none"><select id="f_sched_hmin"></select></span>
+            </dd></dl>
+            <dl id="dl_f_schedule" style="display:none"><dt>Cron expression:</dt><dd><input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"></dd></dl>
+            <p id="rj-sched-summary"></p>
+            <blockquote class='inline_help'><p>Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. <em>Custom (cron)</em> accepts the classic five fields <em>minute hour day-of-month month day-of-week</em> (numbers, <em>*</em> and <em>,</em> <em>-</em> <em>/</em> only), e.g. <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
           </div>
-          <div class="rj-fsec"><i class="fa fa-shield"></i> Limits &amp; Notifications</div>
-          <dl><dt>Per-job dry-run:</dt><dd><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select></dd></dl>
-          <blockquote class='inline_help'><p>While <em>yes</em>, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.</p></blockquote>
-          <dl><dt>Notify:</dt><dd><select id="f_notify"><option value="always">always (OK + problems)</option><option value="failures">failures &amp; warnings only</option><option value="off">off (silent)</option></select></dd></dl>
-          <blockquote class='inline_help'><p>When this job sends Unraid notifications: <em>always</em> = an OK notice after each successful run plus notices for any problem; <em>failures</em> = only failures, gate blocks, overlaps and watchdog findings; <em>off</em> = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &rarr; Notification Settings.</p></blockquote>
-          <div class="rj-eng">
-          <dl><dt>Transfers / Checkers:</dt><dd class="rj-inline"><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></dd></dl>
-          <blockquote class='inline_help'><p>rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.</p></blockquote>
-          <dl><dt>Bandwidth limit:</dt><dd><input type="text" id="f_bwlimit" class="rj-size" size="10" placeholder="off"></dd></dl>
-          <blockquote class='inline_help'><p>rclone syntax, e.g. <em>10M</em> (10 MByte/s) or <em>off</em> for unlimited. Only affects the rclone engine.</p></blockquote>
-          <dl><dt>Max deletes / Warn deletes:</dt><dd class="rj-inline"><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"></dd></dl>
-          <blockquote class='inline_help'><p>Sync modes only. <em>Max deletes</em> is a hard cap - rclone aborts rather than deleting more. <em>Warn deletes</em> makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.</p></blockquote>
-          <dl><dt>Backup dir (optional):</dt><dd class="rj-pathrow"><input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></dd></dl>
-          <blockquote class='inline_help'><p>rclone <em>--backup-dir</em>: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like <em>gdrive:trash</em> or a subfolder of the storage folder work well; leave empty to disable.</p></blockquote>
+
+          <div class="rj-form-card">
+            <div class="rj-form-card-title"><i class="fa fa-exchange"></i> Transfer Settings</div>
+            <dl><dt>Engine:</dt><dd><select id="f_engine"><option value="rclone">rclone</option><option value="rsync">rsync</option><option value="custom">custom script</option></select></dd></dl>
+            <blockquote class='inline_help'><p><em>rclone</em> uses the rclone plugin's own remotes (same config, never modified). <em>rsync</em> is for local/remote paths with mount-guard protection. <em>custom script</em> runs your own executable instead - the transfer settings below do not apply to it.</p></blockquote>
+            <div class="rj-eng">
+              <dl><dt>Mode (rclone):</dt><dd><select id="f_mode"><option value="sync">sync</option><option value="copy">copy</option><option value="check">check</option></select></dd></dl>
+              <blockquote class='inline_help'><p><em>sync</em> makes destination identical to source (may delete). <em>copy</em> only adds/updates, never deletes. <em>check</em> only compares and reports differences.</p></blockquote>
+              <dl><dt>Source:</dt><dd class="rj-pathrow"><input type="text" id="f_src" class="variable rj-path" list="rj-paths-dl" placeholder="/mnt/user/data or remote:bucket/folder"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_src"></dd></dl>
+              <blockquote class='inline_help'><p>Folder on this server (shares, array disks, mounts) or an rclone remote path like <em>gdrive:Data</em>. Use Browse... to pick it; typing a not-yet-existing remote folder is allowed. The run refuses (with an alert) if a local source does not exist.</p></blockquote>
+              <dl><dt>Destination:</dt><dd class="rj-pathrow"><input type="text" id="f_dst" class="variable rj-path" list="rj-paths-dl" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
+              <blockquote class='inline_help'><p>Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.</p></blockquote>
+            </div>
+            <p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"></p>
+            <div class="rj-custom" style="display:none">
+              <dl><dt>Script:</dt><dd class="rj-pathrow"><input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></dd></dl>
+              <blockquote class='inline_help'><p>Absolute path of an executable script; Browse... shows <em>.sh</em> files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.</p></blockquote>
+            </div>
           </div>
+
+          <div class="rj-form-card">
+            <div class="rj-form-card-title"><i class="fa fa-shield"></i> Limits &amp; Safety</div>
+            <dl><dt>Per-job dry-run:</dt><dd><select id="f_dryrun"><option value="yes">yes (preview only)</option><option value="no">no (real transfer)</option></select></dd></dl>
+            <blockquote class='inline_help'><p>While <em>yes</em>, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.</p></blockquote>
+            <dl><dt>Notify:</dt><dd><select id="f_notify"><option value="always">always (OK + problems)</option><option value="failures">failures &amp; warnings only</option><option value="off">off (silent)</option></select></dd></dl>
+            <blockquote class='inline_help'><p>When this job sends Unraid notifications: <em>always</em> = an OK notice after each successful run plus notices for any problem; <em>failures</em> = only failures, gate blocks, overlaps and watchdog findings; <em>off</em> = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &rarr; Notification Settings.</p></blockquote>
+            <div class="rj-eng">
+              <dl><dt>Transfers / Checkers:</dt><dd class="rj-inline"><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></dd></dl>
+              <blockquote class='inline_help'><p>rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.</p></blockquote>
+              <dl><dt>Bandwidth limit:</dt><dd><input type="text" id="f_bwlimit" class="rj-size" size="10" placeholder="off"></dd></dl>
+              <blockquote class='inline_help'><p>rclone syntax, e.g. <em>10M</em> (10 MByte/s) or <em>off</em> for unlimited. Only affects the rclone engine.</p></blockquote>
+              <dl><dt>Max deletes / Warn deletes:</dt><dd class="rj-inline"><input type="number" id="f_maxdelete" min="0" max="999999999" value="100"> / <input type="number" id="f_warndelete" min="0" max="999999999" value="100"></dd></dl>
+              <blockquote class='inline_help'><p>Sync modes only. <em>Max deletes</em> is a hard cap - rclone aborts rather than deleting more. <em>Warn deletes</em> makes a dry-run that wants to delete more of this many require an explicit Ack before a real run is allowed.</p></blockquote>
+              <dl><dt>Backup dir (optional):</dt><dd class="rj-pathrow"><input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></dd></dl>
+              <blockquote class='inline_help'><p>rclone <em>--backup-dir</em>: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like <em>gdrive:trash</em> or a subfolder of the storage folder work well; leave empty to disable.</p></blockquote>
+            </div>
+          </div>
+
           <div class="rj-form-actions">
             <input type="submit" value="Save Job" class="rj-btn">
             <input type="button" id="rj-form-test" value="Test (Dry-run)" class="rj-btn">
