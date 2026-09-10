@@ -1,3 +1,7 @@
+## 2026.09.10c
+Robustness:
+ - Atomic engine CLI refresh: install-engine.sh now writes the storage-side engine copy to a hidden temp file in the same folder and renames it over the target (atomic on same-filesystem renames) instead of `cp -f` truncating in place. A job started directly from the storage copy (manual CLI run, or cron's fallback when the emhttp copy was unavailable) that is still executing during a plugin update or boot re-deploy keeps running on its old (unlinked) inode and finishes cleanly - previously the in-place overwrite could corrupt the script mid-read for that narrow case. Failure paths clean up the temp file; the identical-content short-circuit (`cmp`) is unchanged.
+
 ## 2026.09.10b
 Codebase Quality & Documentation:
  - Code structure & documentation: structured the WebUI glue script (src/emhttp/js/rclone-jobs.js) into 8 clearly demarcated functional sections with JSDoc function descriptions and lifecycle block banners (AJAX helpers, dynamic theme resolution, cron schedule builder & time calculations, async dry-run preview, live SSE status, run history & trend visualization, confirmation modals, and document ready initialization).

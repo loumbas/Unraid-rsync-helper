@@ -66,9 +66,16 @@ if [ -f "$SRC" ]; then
   if cmp -s "$SRC" "$SR/rclone-jobs.sh" 2>/dev/null; then
     log "engine CLI copy already up to date"
   else
-    cp -f "$SRC" "$SR/rclone-jobs.sh" && chmod 0755 "$SR/rclone-jobs.sh" \
-      && log "engine CLI copy refreshed -> $SR/rclone-jobs.sh" \
-      || log "WARNING: could not refresh $SR/rclone-jobs.sh"
+    # atomic swap: write a temp in the SAME dir, then rename over the target.
+    # A bash process still executing the old file keeps its (unlinked) inode
+    # and finishes cleanly - an in-place cp could corrupt a live run.
+    tmp="$SR/.rclone-jobs.sh.new.$$"
+    if cp -f "$SRC" "$tmp" 2>/dev/null && chmod 0755 "$tmp" 2>/dev/null && mv -f "$tmp" "$SR/rclone-jobs.sh"; then
+      log "engine CLI copy refreshed -> $SR/rclone-jobs.sh"
+    else
+      rm -f "$tmp" 2>/dev/null
+      log "WARNING: could not refresh $SR/rclone-jobs.sh"
+    fi
   fi
 else
   log "WARNING: $SRC missing - plugin files not in place yet"
