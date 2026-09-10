@@ -1,3 +1,8 @@
+## 2026.09.10b
+Codebase Quality & Documentation:
+ - Code structure & documentation: structured the WebUI glue script (src/emhttp/js/rclone-jobs.js) into 8 clearly demarcated functional sections with JSDoc function descriptions and lifecycle block banners (AJAX helpers, dynamic theme resolution, cron schedule builder & time calculations, async dry-run preview, live SSE status, run history & trend visualization, confirmation modals, and document ready initialization).
+ - Dead code removal: identified and removed obsolete helper `rjDryShort(d)`, which was superseded by colored difference badge chips (`rjDryChips`) and no longer referenced anywhere in the codebase.
+
 ## 2026.09.10a
 Per-Job Dry-Run Switch & Table Responsiveness:
  - Per-job dry-run toggle switch: added a dedicated "Dry" switch column with an amber/orange indicator (`DRY` vs `LIVE`), allowing jobs to be toggled between simulation and live transfer mode directly from the table row without opening the edit form.

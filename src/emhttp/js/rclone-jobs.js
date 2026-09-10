@@ -1,6 +1,14 @@
 /* rclone-jobs v{{VERSION}} - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
+/* ==========================================================================
+   1. Core AJAX & State Helpers
+   ========================================================================== */
+
+/**
+ * Execute an AJAX POST request to the plugin backend (ajax.php).
+ * Automatically injects the Unraid CSRF token and standardizes error responses.
+ */
 function rjPost(data, cb) {
   data.csrf_token = (typeof rj_csrf !== 'undefined') ? rj_csrf : '';
   $.post('/plugins/rclone-jobs/ajax.php', data)
@@ -8,12 +16,19 @@ function rjPost(data, cb) {
     .fail(function (x) { cb({ ok: false, error: 'ajax failed: ' + (x.status || '?') + ' ' + (x.responseText || '').substring(0, 200) }); });
 }
 
+/**
+ * Update and display a pre-formatted feedback panel (e.g. #rj-result, #rj-preview).
+ */
 function rjPanel(id, text, isError) {
   var p = $('#' + id);
   p.find('pre').text(text).css('color', isError ? '#e6867e' : '');
   p.show();
 }
 
+/**
+ * Retrieve and parse the server-embedded configuration and status state from #rj-data.
+ * Provides resilient fallbacks for jobs, quiet hours, and retention policies.
+ */
 function rjData() {
   /* never let a malformed/missing state blob kill the ready handler */
   var d = null;
@@ -30,7 +45,10 @@ function rjData() {
   return d;
 }
 
-/* solid panel background for the self-built dialogs. The webGui --background
+/* ==========================================================================
+   2. Dynamic Theme & Luminance Resolution
+   ==========================================================================
+   Solid panel background for self-built dialogs and modals. The webGui --background
    variable is unreliable: it can carry alpha (page bleeds through the modal)
    or be 'transparent'/unset. A probe element makes the browser resolve and
    normalize var() to rgb()/rgba(); alpha is then flattened to a solid color
@@ -64,7 +82,9 @@ function rjSolidBg() {
   return 'rgb(' + Math.round(c[0] * c[3] + base * w) + ',' + Math.round(c[1] * c[3] + base * w) + ',' + Math.round(c[2] * c[3] + base * w) + ')';
 }
 
-/* ---------------- schedule builder helpers (SCHEDULE stays 5-field cron) --- */
+/* ==========================================================================
+   3. Schedule Builder Helpers & Cron Calculations
+   ========================================================================== */
 var RJ_DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 var RJ_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var RJ_NMIN = [1, 2, 3, 5, 10, 15, 20, 30];
@@ -176,7 +196,9 @@ function rjHumanize(cron) {
   return 'Monthly on day ' + p.dom + ' at ' + t();
 }
 
-/* ---------------- async dry-run preview (preview_start + 1s polling) -------
+/* ==========================================================================
+   4. Async Dry-Run Preview (preview_start + 1s Polling)
+   ==========================================================================
    Long dry-runs are detached on the box (engine task files), so the php
    request never hangs on a big remote. task_status output is single-consume;
    cancel is a best-effort group kill. A post-save preview survives the table
@@ -219,7 +241,9 @@ function rjRunPreview(job) {
   });
 }
 
-/* ---------------- live status (nchan SSE, 60 s polling fallback) ----------
+/* ==========================================================================
+   5. Live Status (nchan SSE & 60s Polling Fallback)
+   ==========================================================================
    The engine POSTs /pub/rclone-jobs at run start/end; this page subscribes
    with EventSource('/sub/rclone-jobs') (same-origin, Unraid 7 ships nchan)
    and patches the Jobs table in place from the engine's status-json.
@@ -242,12 +266,7 @@ function rjLiveInd(mode) {
   }
 }
 
-/* compact + full dry-run summaries - must match the server-rendered cells in the .page */
-function rjDryShort(d) {
-  var ts = String(d.stamp || '?');
-  var s = ts.length >= 16 ? ts.substring(5, 10) + ' ' + ts.substring(11, 16) : ts;
-  return s + ' +' + (d.copies || 0) + ' -' + (d.deletes || 0) + ' !' + (d.fails || 0);
-}
+/* Dry-run summaries - badge chips and tooltip text matching server-rendered cells */
 function rjDryChips(d) {
   var ts = String(d.stamp || '?');
   var s = ts.length >= 16 ? ts.substring(5, 10) + ' ' + ts.substring(11, 16) : ts;
@@ -347,7 +366,9 @@ function rjLiveStart() {
   };
 }
 
-/* ---------------- run history + size trend (plain CSS bars) -------------- */
+/* ==========================================================================
+   6. Run History & Size Trend Visualization
+   ========================================================================== */
 function rjEsc(s) { var d = document.createElement('div'); d.textContent = String(s === null || s === undefined ? '' : s); return d.innerHTML; }
 
 function rjHistBytes(b) {
@@ -532,6 +553,10 @@ function rjShowHistory(job) {
   });
 }
 
+/* ==========================================================================
+   7. Confirmation & Safety Dialogs
+   ========================================================================== */
+
 /* docs pattern: swal (red confirm for destructive ops) with native confirm fallback */
 function rjConfirm(title, text, btn, danger, cb) {
   if (typeof swal === 'function') {
@@ -575,10 +600,14 @@ function rjAckDialog(job) {
   $('#rj-ack-in').trigger('focus');
 }
 
+/* ==========================================================================
+   8. Document Ready Initialization
+   ========================================================================== */
 $(function () {
   var D = rjData();
 
-  /* tabbed layout: headers are href-less <a class="rj-tab"> on purpose - Unraid's
+  /* --- 8.1 Tabbed Layout Navigation & Deep Linking ---
+     Headers are href-less <a class="rj-tab"> on purpose - Unraid's
      a[href] click interceptor would treat a bare "#hash" as a navigation and show
       the 'External link' dialog. Delegated binding; URL keeps #tab_rj_* for deep links. */
   (function rjTabs() {
@@ -604,7 +633,7 @@ $(function () {
     activate(tabs.indexOf(start) >= 0 ? start : tabs[0]);
   })();
 
-  /* fill Alerts tab from server state */
+  /* --- 8.2 Populate Settings / Alerts Tab State --- */
   $('#a_master').val(D.master === 'no' ? 'no' : 'yes');
   $('#a_qstart').val(D.quiet.start);
   $('#a_qend').val(D.quiet.end);
@@ -616,7 +645,7 @@ $(function () {
   $('#a_faildays').val(D.retention.failDays);
   $('#a_logmax').val(D.retention.logMax);
 
-  /* engine-dependent form rows */
+  /* --- 8.3 Engine-Dependent Form Row Visibility --- */
   function engRows() {
     var e = $('#f_engine').val();
     $('.rj-eng').toggle(e !== 'custom');
@@ -626,7 +655,7 @@ $(function () {
   $('#f_engine').off('.rclonejobs').on('change.rclonejobs', engRows);
   engRows();
 
-  /* ---------------- schedule builder ---------------- */
+  /* --- 8.4 Interactive Schedule Builder --- */
   (function rjSchedInit() {
     var i, $w = $('#f_s_weekday');
     $w.empty();
@@ -741,7 +770,8 @@ $(function () {
   $('#f_schedule, .rj-wd-cb').off('.rjsched').on('input.rjsched change.rjsched', schedSummary);
   schedRows();
 
-  /* humanize the jobs-table Schedule column (raw cron stays in the tooltip),
+  /* --- 8.5 Jobs Table Schedule Column Humanization & Next Run Preview ---
+     Humanize the jobs-table Schedule column (raw cron stays in the tooltip),
      with a small gray "next:" line computed from the same cron builder */
   $('#tab_rj_jobs tbody tr[data-job]').each(function () {
     var j = D.jobs[$(this).data('job')];
@@ -753,7 +783,7 @@ $(function () {
     $(this).find('td.rj-sched').html(html).attr('title', cron);
   });
 
-  /* storage-overlap hint: client-side mirror of the engine's overlap_check */
+  /* --- 8.6 Storage Overlap Validation & Safety Warnings --- */
   function rjNorm(p) { return p.length > 1 ? p.replace(/\/+$/, '') : p; }
   function rjOverlap(p) {
     var s = D.storage ? rjNorm(D.storage) : '';
@@ -781,7 +811,7 @@ $(function () {
   }
   $('#f_src, #f_dst').off('.rjov').on('input.rjov change.rjov', rjOvHint);
   $('#f_engine').off('.rjov').on('change.rjov', rjOvHint);
-  /* inline form placement: attaching form directly below target job row or at top of table */
+  /* --- 8.7 Inline Job Editor Form Management --- */
   function rjAttachForm(jobName) {
     var $wrap = $('#rj-form-wrap');
     // Safely park in bottom slot first so it is never destroyed by remove()
@@ -887,7 +917,7 @@ $(function () {
     rjCloseForm();
   });
 
-  /* In-form Test (Dry-run) button */
+  /* In-form Test (Dry-run) button: initiates preview for current job */
   $('#rj-form-test').off('.rclonejobs').on('click.rclonejobs', function () {
     var orig = $('#f_orig').val(), name = $('#f_name').val().trim();
     var job = orig || name;
@@ -906,7 +936,7 @@ $(function () {
     }
   });
 
-  /* populate path datalist (rclone remotes & unraid shares) */
+  /* --- 8.8 Remote & Share Autocomplete Datalist --- */
   (function rjInitPathDatalist() {
     var $dl = $('#rj-paths-dl').empty();
     var rems = D.remotes || [], shares = D.shares || [];
@@ -918,7 +948,7 @@ $(function () {
     });
   })();
 
-  /* Fleet toolbar filtering (search input + All / Active / Failed pills) */
+  /* --- 8.9 Fleet Toolbar Filtering (Search Input & Status Pills) --- */
   var rjFilter = { text: '', status: 'all' };
   function rjApplyFilter() {
     var q = rjFilter.text.toLowerCase();
@@ -952,9 +982,9 @@ $(function () {
     rjApplyFilter();
   });
 
-  /* table buttons - delegated from document because live status refreshes add
-     and remove the per-row Ack button after the initial page render */
-  /* toggle job on/off directly from table switch */
+  /* --- 8.10 Job Table Quick Switches & Action Buttons --- */
+
+  /* Toggle job enabled/disabled directly from table switch */
   $(document).off('change.rjtoggle', '.rj-toggle-en').on('change.rjtoggle', '.rj-toggle-en', function () {
     var $chk = $(this);
     var job = $chk.data('job') || $chk.attr('data-job');
@@ -997,7 +1027,7 @@ $(function () {
     });
   });
 
-  /* toggle job dry-run mode directly from table switch */
+  /* Toggle job dry-run mode directly from table switch */
   $(document).off('change.rjtoggle-dry', '.rj-toggle-dry').on('change.rjtoggle-dry', '.rj-toggle-dry', function () {
     var $chk = $(this);
     var job = $chk.data('job') || $chk.attr('data-job');
@@ -1033,6 +1063,7 @@ $(function () {
     });
   });
 
+  /* Table row action buttons (Edit, Delete, Dry-run, Run, Stop, Log, History, Ack) */
   $(document).off('click.rjbtn', '.rj-btn').on('click.rjbtn', '.rj-btn', function () {
     var act = $(this).data('act') || $(this).attr('data-act');
     var job = $(this).data('job') || $(this).attr('data-job');
@@ -1105,7 +1136,7 @@ $(function () {
     if (act === 'ack') { rjAckDialog(job); }
   });
 
-  /* save job */
+  /* --- 8.12 Job Editor Form Submission (Save Job) --- */
   $('#rj-jobform').off('.rclonejobs').on('submit.rclonejobs', function (ev) {
     ev.preventDefault();
     var job = $('#f_orig').val() || $('#f_name').val().trim();
@@ -1145,7 +1176,7 @@ $(function () {
     });
   });
 
-  /* alerts tab */
+  /* --- 8.13 Alerts & Safety Settings Save & Notification Test --- */
   $('#rj-save-alerts').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this);
     if ($b.prop('disabled')) return;
@@ -1169,7 +1200,8 @@ $(function () {
     });
   });
 
-  /* job portability: export builds a Blob download client-side; import sends
+  /* --- 8.14 Job Portability: Archive Export & Import ---
+     Export builds a Blob download client-side; import sends
      the archive as base64 inside the urlencoded body (never multipart - the
      ajax CSRF path cannot read one) and the engine re-validates everything */
   $('#rj-export').off('.rclonejobs').on('click.rclonejobs', function () {
@@ -1217,7 +1249,7 @@ $(function () {
     rd.readAsDataURL(f);
   });
 
-  /* ---------------- path browser modal ---------------- */
+  /* --- 8.15 Interactive Server & Remote Path Browser Modal --- */
   var rjB = { scope: 'local', path: '', parent: '', files: false, allowRclone: true, target: '', req: 0, built: false };
 
   function rjBrowseBuild() {
@@ -1373,7 +1405,7 @@ $(function () {
     }
   });
 
-  /* preview cancel + resume of a post-save preview scheduled before the reload */
+  /* --- 8.16 Preview Cancel & Post-Save Auto-Preview Trigger --- */
   $('#rj-preview-cancel').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this);
     if ($b.prop('disabled')) return;
@@ -1388,7 +1420,7 @@ $(function () {
   try { rjAutoPreview = sessionStorage.getItem('rj_autopreview'); if (rjAutoPreview) sessionStorage.removeItem('rj_autopreview'); } catch (e) { rjAutoPreview = null; }
   if (rjAutoPreview && D.jobs[rjAutoPreview]) rjRunPreview(rjAutoPreview);
 
-  /* hourly transfer chart visibility toggle */
+  /* --- 8.17 Hourly Transfer Chart Accordion Toggle --- */
   $('#rj-chart-toggle').off('.rclonejobs').on('click.rclonejobs', function () {
     var $body = $('#rj-chart-body');
     var $icon = $(this).find('i');
@@ -1401,7 +1433,7 @@ $(function () {
     }
   });
 
-  /* doctor tab */
+  /* --- 8.18 Doctor Diagnostic Tool --- */
   $('#rj-doctor').off('.rclonejobs').on('click.rclonejobs', function () {
     var $b = $(this); $b.prop('disabled', true).val('running...');
     $('#rj-doctor-pre').text('running tests (~seconds)...');
@@ -1411,7 +1443,8 @@ $(function () {
     });
   });
 
-  /* live status: opened only after everything else is bound and rendered -
+  /* --- 8.19 Live Status SSE Connection Startup & Teardown ---
+     Opened only after everything else is bound and rendered -
      a dead socket must never delay or break the page */
   rjLiveStart();
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
