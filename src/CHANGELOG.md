@@ -1,3 +1,8 @@
+## 2026.09.10f
+Table Responsiveness (no horizontal scrollbar on narrow windows):
+ - Tablet/small-desktop band (<=1060px): cells and headers may now wrap (`white-space: normal` overriding the Unraid host rule that pinned every table cell to one line - the main driver of the horizontal scrollbar); toggle and actions cells keep their one-line layout, the result pill can no longer break internally, path endpoint badges narrow to 150px.
+ - Extra-tight band (<=940px): slimmer cell padding, 120px endpoint badges, and compact 22px icon buttons with tighter gaps so the full row (including Log/Hist/Edit/Del) fits without scrolling down to ~860px; the mobile card layout takes over below 768px as before.
+
 ## 2026.09.10e
 Mobile Jobs Tab Fix (Unraid 7.2+ responsive WebGUI clash):
  - Fixed overlapping/garbled job-card content on phones: Unraid 7.2+ ships a global `table tbody td { height: 2.6rem; white-space: nowrap }` rule that is harmless on desktop (a table-cell treats height as a minimum) but hard-caps our mobile card layout, where each cell is `display: flex` - every cell taller than one line (path stack, last-run pill + last-OK line, dry-run diff chips, job description) overflowed its 26px box and painted over the rows below. The <=768px media query now neutralizes the host rule for the jobs table (`height: auto; line-height: 1.4; white-space: normal`) and lets card rows wrap (`flex-wrap: wrap` with a small row gap) so long values flow onto a second line instead of bleeding sideways. Covers the inline edit-form and history drawers rendered inside table rows too. Desktop and tablet table layouts are untouched.
