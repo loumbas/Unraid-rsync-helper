@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "rclone-jobs">
 <!ENTITY author    "sir_lou">
-<!ENTITY version   "2026.09.10f">
+<!ENTITY version   "2026.09.10g">
 <!ENTITY desc      "Schedule rclone/rsync jobs with a dry-run gate, mount guard, delete limits and native Unraid alerts (Telegram-capable)">
 <!ENTITY launchApp "Utilities/rclone-jobs">
 <!ENTITY pluginDir "/usr/local/emhttp/plugins/&name;">
@@ -12,6 +12,11 @@
 ]>
 <PLUGIN name="&name;" service="no" author="&author;" version="&version;" desc="&desc;" launch="&launchApp;" icon="&name;.png" min="7.0.0" pluginURL="&pluginURL;" support="&repoURL;/issues" project="&repoURL;">
   <CHANGES>
+## 2026.09.10g
+Exclude Patterns &amp; Parity-Deferral Guard:
+  - Exclude patterns (job key `EXCLUDE`): new multi-line field in the job form (one glob per line or space-separated) appended to rclone and rsync runs as discrete `--exclude` arguments - never eval'd, never word-globbed (split with `read -a`). Globs (`* ? [ ] [a-z]`) are allowed; shell control characters, quotes, backslashes, patterns starting with a dash, and patterns containing spaces are refused by both ajax and the engine (`valid_exclude`). Changing it re-arms the dry-run gate (config hash). The plugin storage auto-exclude is unaffected and `--delete-excluded` remains banned.
+  - Parity/resync deferral (job key `DEFER_ON_PARITY=yes`, default no): a live run that starts while a parity check, disk rebuild, or balance is in progress (`array_resyncing()` reading `/var/local/emhttp/var.ini`, fail-open when unreadable) is skipped with exit 0 before lock/status/gate/history are touched - syslog `DEFERRED` line plus one notice per deferral episode (marker file, cleared by the next live run). Dry-runs and previews are never deferred; the 26h stale-run watchdog and doctor stay quiet while deferrals are active (stale markers are swept after 7 days).
+
 ## 2026.09.10f
 Table Responsiveness (no horizontal scrollbar on narrow windows):
  - Tablet/small-desktop band (&lt;=1060px): cells and headers may now wrap (`white-space: normal` overriding the Unraid host rule that pinned every table cell to one line - the main driver of the horizontal scrollbar); toggle and actions cells keep their one-line layout, the result pill can no longer break internally, path endpoint badges narrow to 150px.
@@ -68,11 +73,6 @@ Responsive Jobs Table &amp; Viewport Adaptations:
 Installed Plugins Table Branding &amp; Title Fix:
  - Plugin Manager icon resolution: updated PLUGIN tag icon attribute from generic FontAwesome 'clone' to '&amp;name;.png' (rclone-jobs.png), allowing Unraid's ShowPlugins parser to locate /usr/local/emhttp/plugins/rclone-jobs/images/rclone-jobs.png and render the official high-resolution icon in the Plugins table.
  - Plugin title &amp; description header: updated emhttp/README.md with a bold title header (**rclone-jobs**), ensuring the plugin name displays prominently above the description in the Plugin column.
-
-## 2026.09.09p
-Extra-Large High-Visibility Calendar Badge:
- - High-visibility calendar scaling: re-engineered the calendar badge to 2.5x larger scale with thick high-contrast binder loops, a bold orange header bar, and vivid schedule indicators for instant legibility at Unraid's 48x48 tile size.
- - Deployed assets: updated vector rclone-jobs.svg, root icon.svg, and rasterized WebUI asset rclone-jobs.png.b64.
   </CHANGES>
   <!--
     rclone-jobs: scheduled rclone/rsync jobs with a dry-run gate and native Unraid
@@ -119,7 +119,7 @@ true
 <INLINE>
 #!/bin/bash
 # =============================================================================
-# rclone-jobs engine v2026.09.10f - scheduled transfers with a dry-run gate
+# rclone-jobs engine v2026.09.10g - scheduled transfers with a dry-run gate
 # for Unraid 7. Runs ALONGSIDE the 'rclone' plugin: never modifies it, never
 # passes --config, never moves its config file.
 #
@@ -141,7 +141,7 @@ true
 # =============================================================================
 set -uo pipefail
 
-ENGINE_VERSION="2026.09.10f"
+ENGINE_VERSION="2026.09.10g"
 NAME="rclone-jobs"
 BOOT_DIR="${RJ_BOOT_DIR:-/boot/config/plugins/rclone-jobs}"
 EMHTTP_DIR="${RJ_EMHTTP_DIR:-/usr/local/emhttp/plugins/rclone-jobs}"
@@ -224,6 +224,28 @@ bad_field() { # &lt;value&gt; -&gt; 0 REJECT (shell metacharacters present)
 valid_jobname() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; }
 valid_remote()  { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
+valid_exclude() { # &lt;EXCLUDE string&gt; -&gt; 0 OK / 1 REJECT (reason on stdout)
+  # globs (* ? [ ] { }) are ALLOWED on purpose: patterns reach rclone/rsync as
+  # discrete array elements (never eval'd, never word-globbed); shell control
+  # and quote characters are not
+  local v="$1" p n=0
+  [ "${#v}" -le 2000 ] || { printf 'EXCLUDE is too long (max 2000 chars)'; return 1; }
+  local -a ex=()
+  IFS=' ' read -r -a ex &lt;&lt;&lt; "$v"
+  for p in "${ex[@]}"; do
+    [ -n "$p" ] || continue
+    n=$(( n + 1 ))
+    [ "$n" -le 64 ] || { printf 'EXCLUDE has too many patterns (max 64)'; return 1; }
+    [ "${#p}" -le 200 ] || { printf 'EXCLUDE pattern %s is too long (max 200 chars)' "$p"; return 1; }
+    case "$p" in
+      -*) printf 'EXCLUDE pattern %s must not start with a dash' "$p"; return 1 ;;
+      *'`'*|*'$'*|*';'*|*'|'*|*'&amp;'*|*'&lt;'*|*'&gt;'*|*'"'*|*"'"*|*\\*|*$'\r'*|*$'\t'*)
+        printf 'EXCLUDE pattern %s contains forbidden characters' "$p"; return 1 ;;
+    esac
+  done
+  return 0
+}
+
 num_clamp() { # &lt;value&gt; &lt;min&gt; &lt;max&gt; &lt;default&gt; -&gt; validated int on stdout (paths.env values are never trusted)
   local v="${1:-}"
   [[ "$v" =~ ^[0-9]{1,5}$ ]] || { printf '%s' "$4"; return 0; }
@@ -245,6 +267,20 @@ detect_storage() { # first /mnt/diskN backed by /dev/md* (array; parity is never
       /dev/md*) printf '%s/.%s\n' "$d" "$NAME"; return 0 ;;
     esac
   done
+  return 1
+}
+
+array_resyncing() { # 0 = parity check / rebuild / balance running. FAIL-OPEN:
+  # unreadable or unparsable var.ini means 'not resyncing' (never block a job)
+  local ini="/var/local/emhttp/var.ini" md pos tot v
+  [ -r "$ini" ] || return 1
+  md="$(sed -n 's/^mdResync=\([0-9]*\)$/\1/p' "$ini" 2&gt;/dev/null)"
+  pos="$(sed -n 's/^mdResyncPos=\([0-9]*\)$/\1/p' "$ini" 2&gt;/dev/null)"
+  if [ -n "$md" ] &amp;&amp; [ "$md" -gt 0 ] &amp;&amp; [ "${pos:-0}" -lt "$md" ]; then return 0; fi
+  tot="$(sed -n 's/^sbSyncedTot=\([0-9]*\)$/\1/p' "$ini" 2&gt;/dev/null)"
+  [ -n "$tot" ] || tot="$(sed -n 's/^sbSyncedTotal=\([0-9]*\)$/\1/p' "$ini" 2&gt;/dev/null)"
+  v="$(sed -n 's/^sbSynced=\([0-9]*\)$/\1/p' "$ini" 2&gt;/dev/null)"
+  if [ -n "$tot" ] &amp;&amp; [ "$tot" -gt 0 ] &amp;&amp; [ "${v:-0}" -lt "$tot" ]; then return 0; fi
   return 1
 }
 
@@ -375,6 +411,7 @@ status_file() { printf '%s/%s.json\n' "$STATUS_DIR" "$1"; }
 dryrun_file() { printf '%s/%s-dryrun.json\n' "$STATUS_DIR" "$1"; }
 run_pid_file()  { printf '%s/%s.run.pid\n' "$STATUS_DIR" "$1"; }
 run_stop_mark() { printf '%s/%s.stop\n' "$STATUS_DIR" "$1"; }
+defer_mark()    { printf '%s/%s.defer\n' "$STATUS_DIR" "$1"; }
 conf_hash()   { sha256sum "$1" 2&gt;/dev/null | cut -c1-16; }
 
 status_set_running() { # &lt;job&gt; &lt;confhash&gt; &lt;logfile&gt;
@@ -424,6 +461,7 @@ J_DRYRUN="yes"; J_ARGS=""; J_TRANSFERS="4"; J_CHECKERS="8"; J_BWLIMIT=""
 J_BUFFER_SIZE=""; J_FAST_LIST="no"; J_ONEDRIVE_CHUNK_SIZE=""
 J_MAXDELETE="$DEFAULT_MAX_DELETE"; J_BACKUPDIR=""; J_WARN_DELETE="$DEFAULT_WARN_DELETE"
 J_UMASK="002"; J_HEARTBEAT="yes"; J_NOTIFY=""; J_DESC=""; J_CUSTOM_SCRIPT=""
+J_EXCLUDE=""; J_DEFER_PARITY="no"
 JOB_NAME=""; JOB_CONF=""
 
 load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/&lt;name&gt;.conf; values never eval'd
@@ -458,6 +496,8 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/&lt;name&gt;.conf; 
       UMASK)       J_UMASK="$val" ;;
       HEARTBEAT)   J_HEARTBEAT="$val" ;;
       NOTIFY)      J_NOTIFY="$val" ;;
+      EXCLUDE)     J_EXCLUDE="$val" ;;
+      DEFER_ON_PARITY) J_DEFER_PARITY="$val" ;;
       CUSTOM_SCRIPT) J_CUSTOM_SCRIPT="$val" ;;
     esac
   done &lt; "$JOB_CONF"
@@ -488,6 +528,10 @@ validate_job() {
     bad_field "$J_SRC" &amp;&amp; die 78 "job $JOB_NAME: SRC contains forbidden characters"
     bad_field "$J_DST" &amp;&amp; die 78 "job $JOB_NAME: DST contains forbidden characters"
     bad_field "$J_BWLIMIT" &amp;&amp; die 78 "job $JOB_NAME: BWLIMIT contains forbidden characters"
+    if [ -n "$J_EXCLUDE" ]; then
+      local xr
+      xr="$(valid_exclude "$J_EXCLUDE")" || die 78 "job $JOB_NAME: $xr"
+    fi
     local a
     for a in $J_ARGS; do
       bad_field "$a" &amp;&amp; die 78 "job $JOB_NAME: ARGS token '$a' contains forbidden characters"
@@ -668,8 +712,12 @@ gate_check() { # refuse LIVE runs without a successful dry-run on the CURRENT co
 # -------------------------------------------------------------- command line --
 CMD=()
 build_command() { # &lt;dry yes|no&gt; - fills CMD array; nothing here is ever string-eval'd
-  local dry="$1" a
+  local dry="$1" a p
   CMD=()
+  # user exclude patterns split with 'read -a' (validated in validate_job): an
+  # unquoted $J_EXCLUDE would be pathname-expanded and corrupt globs like *.tmp
+  local -a EXC=()
+  [ -n "$J_EXCLUDE" ] &amp;&amp; IFS=' ' read -r -a EXC &lt;&lt;&lt; "$J_EXCLUDE"
   case "$J_ENGINE" in
     rclone)
       CMD=("$RCLONE_BIN" "${J_MODE:-copy}" "$J_SRC" "$J_DST")
@@ -681,6 +729,7 @@ build_command() { # &lt;dry yes|no&gt; - fills CMD array; nothing here is ever s
       [ -n "$J_BACKUPDIR" ] &amp;&amp; CMD+=(--backup-dir "$J_BACKUPDIR")
       [ -n "$J_BWLIMIT" ]   &amp;&amp; CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
+      for p in "${EXC[@]}"; do [ -n "$p" ] &amp;&amp; CMD+=(--exclude "$p"); done
       [ -n "$STORAGE_TOP" ] &amp;&amp; CMD+=(--exclude "$STORAGE_TOP" --exclude "$STORAGE_TOP/**")
       if [ "$dry" = yes ]; then CMD+=(-vv --dry-run); else CMD+=(-v --stats 60s --stats-one-line); fi
       ;;
@@ -690,6 +739,7 @@ build_command() { # &lt;dry yes|no&gt; - fills CMD array; nothing here is ever s
       else CMD+=(-v --info=stats2); fi
       [ -n "$J_BWLIMIT" ] &amp;&amp; CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
+      for p in "${EXC[@]}"; do [ -n "$p" ] &amp;&amp; CMD+=(--exclude "$p"); done
       [ -n "$STORAGE_TOP" ] &amp;&amp; CMD+=(--exclude="$STORAGE_TOP/")
       CMD+=("$J_SRC" "$J_DST")
       ;;
@@ -823,6 +873,24 @@ cmd_run() { # &lt;job&gt; [--dry-run] [--sync] [--owned]
   [ "$want_dry" = yes ] &amp;&amp; dry=yes
   [ "$J_DRYRUN" = yes ] &amp;&amp; dry=yes
   if [ "$DRY_RUN_MASTER" = yes ] &amp;&amp; [ "$dry" = no ]; then dry=yes; master_forced=yes; fi
+  # parity deferral (live runs only - dry-runs stay available for the gate):
+  # skip the transfer while the array is busy, exit benign so cron and the
+  # watchdog see neither a failure nor a status change
+  if [ "$dry" = no ] &amp;&amp; [ "$J_DEFER_PARITY" = yes ] &amp;&amp; array_resyncing; then
+    local dmk newep=no
+    dmk="$(defer_mark "$JOB_NAME")"
+    [ -f "$dmk" ] || newep=yes
+    touch "$dmk" 2&gt;/dev/null
+    say "rclone-jobs: $JOB_NAME deferred (array parity check / resync in progress)"
+    syslog_line "DEFERRED job=$JOB_NAME: parity check / resync in progress - live run skipped, nothing was transferred"
+    if [ "$newep" = yes ]; then
+      notify_job normal "rclone-jobs: $JOB_NAME deferred" "array resync in progress - run skipped" \
+        "job: $JOB_NAME
+reason: parity check / rebuild / balance is running (DEFER_ON_PARITY=yes)
+the next scheduled run proceeds normally once the array operation completes"
+    fi
+    exit 0
+  fi
   if [ "$J_ENGINE" = rclone ]; then guard_rclone_available; guard_remotes; fi
   if [ -n "$J_SRC" ]; then is_local "$J_SRC" &amp;&amp; mount_guard "$J_SRC" src; fi
   if [ -n "$J_DST" ]; then is_local "$J_DST" &amp;&amp; mount_guard "$J_DST" dst; fi
@@ -845,6 +913,8 @@ cmd_run() { # &lt;job&gt; [--dry-run] [--sync] [--owned]
   # ever belong to THIS run
   stopmark="$(run_stop_mark "$JOB_NAME")"; runpid="$(run_pid_file "$JOB_NAME")"
   rm -f "$stopmark" "$runpid" 2&gt;/dev/null
+  # a live run that got this far means the deferral episode is over
+  [ "$dry" = yes ] || rm -f "$(defer_mark "$JOB_NAME")" 2&gt;/dev/null
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -1509,7 +1579,7 @@ cmd_status_json() { # every job's run + dry-run state as ONE json object (live U
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
   load_paths
   storage_guard
-  local now f n nn sj last_ok running dedup lk ttf pf2 ppid2 smk pch plg
+  local now f n nn sj last_ok running dedup lk ttf pf2 ppid2 smk pch plg dfr
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -1545,6 +1615,11 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
     fi
     nn="$(job_notify_setting "$n")"
     [ "$nn" = off ] &amp;&amp; continue
+    # DEFER_ON_PARITY deferrals are intentional skips: no staleness alert while
+    # a fresh defer marker exists (refreshed each deferred run, removed by the
+    # next live run that proceeds)
+    dfr="$STATUS_DIR/$n.defer"
+    [ -f "$dfr" ] &amp;&amp; [ $(( now - $(stat -c %Y "$dfr" 2&gt;/dev/null || echo 0) )) -lt 172800 ] &amp;&amp; continue
     last_ok="$(jq -r '.last_ok // 0' "$sj" 2&gt;/dev/null)"
     if [ "${last_ok:-0}" -gt 0 ] &amp;&amp; [ $(( now - last_ok )) -gt 93600 ]; then
       if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2&gt;/dev/null || echo 0) )) -gt 86400 ]; then
@@ -1572,6 +1647,12 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
   for smk in "$STATUS_DIR"/*.stop; do
     [ -e "$smk" ] || continue
     if [ $(( now - $(stat -c %Y "$smk" 2&gt;/dev/null || echo "$now") )) -gt 600 ]; then rm -f "$smk"; fi
+  done
+  # defer markers: a live run clears its own; leftovers older than a week
+  # (job disabled/deleted mid-episode) must not suppress staleness forever
+  for dfr in "$STATUS_DIR"/*.defer; do
+    [ -e "$dfr" ] || continue
+    if [ $(( now - $(stat -c %Y "$dfr" 2&gt;/dev/null || echo "$now") )) -gt 604800 ]; then rm -f "$dfr"; fi
   done
   # history: fold raw runs into hourly/daily rollups (same compaction the runs
   # piggyback, so a job that stopped running still gets its file tiered)
@@ -1810,7 +1891,11 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
           d_line INFO "status $jn: $(jq -c '{rc,secs,run,last_ok_run,running}' "$sj" 2&gt;/dev/null | cut -c1-260)"
           lo="$(jq -r '.last_ok // 0' "$sj" 2&gt;/dev/null)"
           if { [ "${lo:-0}" -eq 0 ] || [ $(( now - lo )) -gt 93600 ]; } &amp;&amp; [ "$(jq -r '.running // false' "$sj" 2&gt;/dev/null)" != "true" ]; then
-            d_line WARN "job $jn has no successful run in over 26h"
+            if [ -f "$(defer_mark "$jn")" ]; then
+              d_line INFO "job $jn is deferring runs: array resync in progress (DEFER_ON_PARITY=yes)"
+            else
+              d_line WARN "job $jn has no successful run in over 26h"
+            fi
           fi
         else d_line INFO "status $jn: never run"; fi
       done
@@ -2000,7 +2085,7 @@ main() {
 
 main "$@"
 </INLINE>
-<SHA256>dc47b65be6638d51ca8fc87e4ba6c0ffb1a501874cfddac865f9cc21bea12c53</SHA256>
+<SHA256>b64782e0d4e6f7735545f6cd110f5e6b9ffa4aff9c2506326f526404eaf84a7b</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/preview.php" Mode="0644">
@@ -2172,7 +2257,7 @@ Title="rclone-jobs"
 Icon="rclone-jobs.png"
 ---
 &lt;?php
-/* rclone-jobs v2026.09.10f - WebUI page (Settings tab).
+/* rclone-jobs v2026.09.10g - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
 
@@ -2426,7 +2511,7 @@ foreach ((array)@glob('/mnt/user/*', GLOB_ONLYDIR) as $sh) {
 }
 
 $rjdata = [
-    'version'    =&gt; '2026.09.10f',
+    'version'    =&gt; '2026.09.10g',
     'storage'    =&gt; $storage,
     'master'     =&gt; $master,
     'quiet'      =&gt; ['start' =&gt; $quietSt, 'end' =&gt; $quietEn],
@@ -2665,7 +2750,7 @@ $rjdata = [
 })();
 &lt;/script&gt;
 &lt;script&gt;var rj_csrf = &lt;?= json_encode($csrf_token) ?&gt;;&lt;/script&gt;
-&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.10f"&gt;&lt;/script&gt;
+&lt;script src="/plugins/rclone-jobs/js/rclone-jobs.js?v=2026.09.10g"&gt;&lt;/script&gt;
 &lt;?php /* script content is RAW TEXT: entities are never decoded there, so the JSON
          goes out unescaped but with &lt; &gt; &amp; ' " hex-escaped (no &lt;/script&gt; breakout). */ ?&gt;
 &lt;script type="application/json" id="rj-data"&gt;&lt;?= json_encode($rjdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?&gt;&lt;/script&gt;
@@ -2976,6 +3061,8 @@ $rjdata = [
             &lt;blockquote class='inline_help'&gt;&lt;p&gt;While &lt;em&gt;yes&lt;/em&gt;, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.&lt;/p&gt;&lt;/blockquote&gt;
             &lt;dl&gt;&lt;dt&gt;Notify:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_notify"&gt;&lt;option value="always"&gt;always (OK + problems)&lt;/option&gt;&lt;option value="failures"&gt;failures &amp;amp; warnings only&lt;/option&gt;&lt;option value="off"&gt;off (silent)&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
             &lt;blockquote class='inline_help'&gt;&lt;p&gt;When this job sends Unraid notifications: &lt;em&gt;always&lt;/em&gt; = an OK notice after each successful run plus notices for any problem; &lt;em&gt;failures&lt;/em&gt; = only failures, gate blocks, overlaps and watchdog findings; &lt;em&gt;off&lt;/em&gt; = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &amp;rarr; Notification Settings.&lt;/p&gt;&lt;/blockquote&gt;
+            &lt;dl&gt;&lt;dt&gt;Skip during parity / resync:&lt;/dt&gt;&lt;dd&gt;&lt;select id="f_deferparity"&gt;&lt;option value="no"&gt;no - run as scheduled&lt;/option&gt;&lt;option value="yes"&gt;yes - skip live runs while parity / rebuild / balance runs&lt;/option&gt;&lt;/select&gt;&lt;/dd&gt;&lt;/dl&gt;
+            &lt;blockquote class='inline_help'&gt;&lt;p&gt;When &lt;em&gt;yes&lt;/em&gt;, a live run that starts while Unraid's parity check, a disk rebuild, or a balance is in progress is skipped (nothing transferred, logged to syslog, one notice per resync episode) so the array is not thrashed by both at once. Dry-runs and previews are never deferred, and the stale-run watchdog does not complain while deferrals are active.&lt;/p&gt;&lt;/blockquote&gt;
             &lt;div class="rj-eng"&gt;
               &lt;dl&gt;&lt;dt&gt;Transfers / Checkers:&lt;/dt&gt;&lt;dd class="rj-inline"&gt;&lt;input type="number" id="f_transfers" min="1" max="999" value="4"&gt; / &lt;input type="number" id="f_checkers" min="1" max="999" value="8"&gt;&lt;/dd&gt;&lt;/dl&gt;
               &lt;blockquote class='inline_help'&gt;&lt;p&gt;rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.&lt;/p&gt;&lt;/blockquote&gt;
@@ -3000,6 +3087,8 @@ $rjdata = [
             &lt;/div&gt;
             &lt;dl&gt;&lt;dt&gt;Additional flags:&lt;/dt&gt;&lt;dd&gt;&lt;input type="text" id="f_args" placeholder="e.g. --order-by size,desc --drive-export-formats docx"&gt;&lt;/dd&gt;&lt;/dl&gt;
             &lt;blockquote class='inline_help'&gt;&lt;p&gt;Extra CLI arguments passed directly to the engine (rclone or rsync). Note: live transfer progress, speed, and bytes are automatically tracked and logged by the engine without needing &lt;em&gt;--progress&lt;/em&gt;.&lt;/p&gt;&lt;/blockquote&gt;
+            &lt;dl&gt;&lt;dt&gt;Exclude patterns:&lt;/dt&gt;&lt;dd&gt;&lt;textarea id="f_exclude" rows="3" cols="60" placeholder="*.tmp&amp;#10;.DS_Store&amp;#10;@eaDir/**&amp;#10;.Trash-*/**"&gt;&lt;/textarea&gt;&lt;/dd&gt;&lt;/dl&gt;
+            &lt;blockquote class='inline_help'&gt;&lt;p&gt;Files matching these globs are skipped by both engines - one &lt;em&gt;--exclude&lt;/em&gt; argument per pattern (rclone and rsync alike). One pattern per line or space-separated; a pattern cannot contain spaces or shell characters and cannot start with a dash. Saving a change re-arms the dry-run gate. The plugin's own storage folder is always auto-excluded and cannot be un-excluded.&lt;/p&gt;&lt;/blockquote&gt;
           &lt;/div&gt;
 
           &lt;div class="rj-form-actions"&gt;
@@ -3079,15 +3168,15 @@ $rjdata = [
     &lt;pre id="rj-doctor-pre" style="white-space:pre-wrap;min-height:120px"&gt;Not run yet.&lt;/pre&gt;
   &lt;/div&gt;
 
-&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.10f &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
+&lt;p class="gray" style="margin-top:16px;font-size:11px"&gt;rclone-jobs v2026.09.10g &amp;middot; storage: &lt;?= htmlspecialchars($storage !== '' ? $storage : 'not set (start the array)') ?&gt;&lt;/p&gt;
 </INLINE>
-<SHA256>f57484b7e3d92b99321be658c4b99558f8185a4850bda8de11966500cdefb334</SHA256>
+<SHA256>ea2805e79f570defb4ec1f03feadf8851a57e57e51e260e7954ec0e7e15f2413</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/ajax.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.10f - ajax endpoint. POST + CSRF only.
+/* rclone-jobs v2026.09.10g - ajax endpoint. POST + CSRF only.
    Every engine/config mutation goes through the whitelisted validators below;
    values are written as plain KEY=VALUE config lines and are NEVER shell-eval'd. */
 
@@ -3213,6 +3302,8 @@ case 'save_job':
     $fastlist = rj_str($_POST['fast_list'] ?? 'no') === 'yes' ? 'yes' : 'no';
     $odchunk  = trim(rj_str($_POST['onedrive_chunk_size'] ?? ''));
     $args     = trim(rj_str($_POST['args'] ?? ''));
+    $exclude  = trim(rj_str($_POST['exclude'] ?? ''));
+    $deferp   = rj_str($_POST['deferparity'] ?? 'no') === 'yes' ? 'yes' : 'no';
     $maxdel   = rj_num($_POST['maxdelete'] ?? 100);
     $warndel  = rj_num($_POST['warndelete'] ?? 100);
     $bdir     = trim(rj_str($_POST['backupdir'] ?? ''));
@@ -3221,6 +3312,21 @@ case 'save_job':
     if (stripos($args, '--delete-excluded') !== false)
         rj_out(['ok' =&gt; false, 'error' =&gt; 'ARGS --delete-excluded is refused (defeats storage auto-exclude)']);
 
+    /* exclude patterns: whitespace-separated globs, stored space-joined in the
+       conf. Globs (* ? [ ] { }) are legal - the engine appends each pattern as a
+       discrete array element, never eval'd - but shell control characters,
+       quotes, backslashes and leading dashes are refused (mirrors engine
+       valid_exclude; patterns containing spaces are impossible by design) */
+    $ex_pats = $exclude === '' ? [] : preg_split('/\s+/', $exclude, -1, PREG_SPLIT_NO_EMPTY);
+    if (count($ex_pats) &gt; 64) rj_out(['ok' =&gt; false, 'error' =&gt; 'exclude: too many patterns (max 64)']);
+    foreach ($ex_pats as $p) {
+        if (strlen($p) &gt; 200) rj_out(['ok' =&gt; false, 'error' =&gt; 'exclude pattern too long (max 200 chars): '.substr($p, 0, 40)]);
+        if (strpos($p, '-') === 0) rj_out(['ok' =&gt; false, 'error' =&gt; 'exclude pattern must not start with a dash: '.substr($p, 0, 40)]);
+        if (preg_match('/[`$;|&amp;&lt;&gt;"\'\\\\\0]/', $p) === 1) rj_out(['ok' =&gt; false, 'error' =&gt; 'exclude pattern contains forbidden characters: '.substr($p, 0, 40)]);
+    }
+    $exclude = implode(' ', $ex_pats);
+    if (strlen($exclude) &gt; 2000) rj_out(['ok' =&gt; false, 'error' =&gt; 'exclude: too long (max 2000 chars total)']);
+
     /* every engine is scheduled by cron - a job without a valid SCHEDULE would be
        written to disk but silently skipped by regen-cron.sh: refuse at save time */
     if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' =&gt; false, 'error' =&gt; 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
@@ -3228,7 +3334,7 @@ case 'save_job':
     if ($engine === 'custom') {
         if ($script === '' || rj_badfield($script)) rj_out(['ok' =&gt; false, 'error' =&gt; 'custom job needs a Script path without shell metacharacters']);
         if (strpos($script, '/') !== 0) rj_out(['ok' =&gt; false, 'error' =&gt; 'Script must be an absolute path']);
-        $mode = ''; $src = ''; $dst = '';
+        $mode = ''; $src = ''; $dst = ''; $exclude = '';
     } else {
         if ($src === '' || $dst === '') rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC and DST are required']);
         if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' =&gt; false, 'error' =&gt; 'SRC/DST contain forbidden characters']);
@@ -3250,6 +3356,7 @@ case 'save_job':
     $L[] = "ENABLED=$enabled";
     $L[] = "DRYRUN=$dryrun";
     $L[] = "NOTIFY=$notify";
+    if ($deferp === 'yes') $L[] = "DEFER_ON_PARITY=yes";
     if ($engine !== 'custom') {
         $L[] = "TRANSFERS=$trans"; $L[] = "CHECKERS=$check";
         if ($bwlimit !== '') $L[] = "BWLIMIT=$bwlimit";
@@ -3261,6 +3368,7 @@ case 'save_job':
         $L[] = "MAXDELETE=$maxdel"; $L[] = "WARN_DELETE=$warndel";
         if ($bdir !== '') $L[] = "BACKUPDIR=$bdir";
         if ($args !== '') $L[] = "ARGS=$args";
+        if ($exclude !== '') $L[] = "EXCLUDE=$exclude";
     }
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
     $isNew = !file_exists($conf);
@@ -3465,13 +3573,13 @@ default:
     rj_out(['ok' =&gt; false, 'error' =&gt; 'unknown action']);
 }
 </INLINE>
-<SHA256>e0578a72603c4c48f14377ea768e8812b0eae6bd7564218604cac7f966a046d7</SHA256>
+<SHA256>6184a3896e872aee554399a85a67a2dde4c0ba80516adf25b9be0cf9bd7251fd</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/log.php" Mode="0644">
 <INLINE>
 &lt;?php
-/* rclone-jobs v2026.09.10f - standalone job-log window: read-only live tail.
+/* rclone-jobs v2026.09.10g - standalone job-log window: read-only live tail.
    Only ?job=NAME is accepted (same regex as ajax); content always goes
    through the ajax tail_log action, which takes the path from the validated
    status file and re-applies the engine redaction. No path, ever, comes from
@@ -3579,12 +3687,12 @@ $tokJS = json_encode($tok, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HE
 &lt;/body&gt;
 &lt;/html&gt;
 </INLINE>
-<SHA256>0ecea43dbe9cf0bdaf9ffcf8ae8e53195944d863fddec190836d306cced3ebff</SHA256>
+<SHA256>be60a80c51bfc02d815b86407f12c29d080d3a81b171f078cf96107c6dd09c2f</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js" Mode="0644">
 <INLINE>
-/* rclone-jobs v2026.09.10f - WebUI glue (jQuery provided by the Unraid webgui) */
+/* rclone-jobs v2026.09.10g - WebUI glue (jQuery provided by the Unraid webgui) */
 'use strict';
 
 /* ==========================================================================
@@ -4492,6 +4600,8 @@ $(function () {
     $('#f_fastlist').val(j &amp;&amp; j.conf.FAST_LIST === 'yes' ? 'yes' : 'no');
     $('#f_onedrive_chunksize').val(j &amp;&amp; j.conf.ONEDRIVE_CHUNK_SIZE ? j.conf.ONEDRIVE_CHUNK_SIZE : '');
     $('#f_args').val(j &amp;&amp; j.conf.ARGS ? j.conf.ARGS : '');
+    $('#f_exclude').val(j &amp;&amp; j.conf.EXCLUDE ? j.conf.EXCLUDE : '');
+    $('#f_deferparity').val(j &amp;&amp; j.conf.DEFER_ON_PARITY === 'yes' ? 'yes' : 'no');
     engRows();
     rjOvHint();
     rjAttachForm(j ? j.name : null);
@@ -4738,13 +4848,15 @@ $(function () {
       engine: $('#f_engine').val(), mode: $('#f_mode').val(),
       src: $('#f_src').val().trim(), dst: $('#f_dst').val().trim(), script: $('#f_script').val().trim(),
       dryrun: $('#f_dryrun').val(), notify: $('#f_notify').val(),
+      deferparity: $('#f_deferparity').val(),
       transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
       warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim(),
       buffer_size: $('#f_buffersize').val().trim(),
       fast_list: $('#f_fastlist').val(),
       onedrive_chunk_size: $('#f_onedrive_chunksize').val().trim(),
-      args: $('#f_args').val().trim()
+      args: $('#f_args').val().trim(),
+      exclude: $('#f_exclude').val().trim()
     };
     var $sub = $('#rj-jobform input[type=submit]');
     if ($sub.prop('disabled')) return; /* double-submit guard (save previews take seconds) */
@@ -5037,13 +5149,13 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>10e5c863c04c6e44521d1d818edce5db6ade15f16f3dcd17e1fd1ff950d93f4a</SHA256>
+<SHA256>fa98d2ec06e695a596ace766325bf17872f96cd5fc4d93d403d3b08950e911bd</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.10f - manage our block inside /var/spool/cron/crontabs/root
+# rclone-jobs v2026.09.10g - manage our block inside /var/spool/cron/crontabs/root
 #
 # Unraid's scheduler is Dillon's cron 4.5: it does NOT read /etc/cron.d, does NOT
 # re-read changed crontabs, and does NOT support environment (PATH=) lines inside
@@ -5202,13 +5314,13 @@ elif [ -n "${RJ_SKIP_RESTART:-}" ]; then
 fi
 exit "$errs"
 </INLINE>
-<SHA256>9acdc47012b4fcf993b9114ef98c515f197751a266e7171f01bfe9a180c0ad46</SHA256>
+<SHA256>c47f6aa2faeccc38fe79ec4c3aaaad5906c1b70e03b4ba081a1c35cec3ccc737</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.10f - idempotent engine deployment (run at install/update/array_started).
+# rclone-jobs v2026.09.10g - idempotent engine deployment (run at install/update/array_started).
 # Creates the storage tree and refreshes the CLI copy of the engine.
 # NEVER touches: jobs/, paths.env, logs/, status/, backup/ - and a legacy notify.env
 # (pre-2026.09.07a Telegram secret file) is left in place untouched; see CHANGELOG.
@@ -5294,13 +5406,13 @@ chmod 700 "$SR" 2&gt;/dev/null || true
 log "done (storage: $SR)"
 exit 0
 </INLINE>
-<SHA256>d9aa0964eafb82cd1e5d09249bf4f15184192dc5191e1db30aabf0a99d9a2a84</SHA256>
+<SHA256>4babb60b5df664f5b42163954b8ae32e26aaad4ce3a6515901fba2572fb964a4</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh" Mode="0755">
 <INLINE>
 #!/bin/bash
-# rclone-jobs v2026.09.10f - boot/install setup, called from the .plg install script and
+# rclone-jobs v2026.09.10g - boot/install setup, called from the .plg install script and
 # the 'installed' event. Safe to run at any time (array may be down, files half-deployed).
 # Creates the /boot config skeleton + default paths.env (NEVER overwrites), and deploys
 # engine copy + crontab block when an array disk is mounted. Always exits 0.
@@ -5481,7 +5593,7 @@ fi
 
 exit 0
 </INLINE>
-<SHA256>9974f5f7a90d32c3ebbed942f322f158980d23e6fa3be6cb9a27182ed7d5e050</SHA256>
+<SHA256>124f4f962bc45f054c213ec64700b402c19e3555b004af93031ae2c91a88da98</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/event/installed" Mode="0755">
@@ -6541,17 +6653,17 @@ VrtmtX9WP0DGvaHys95PaKjM/I689Aj1nXBUAPh2uz9RJzSiEGJ4n+nrMT4wwcwvabI7diuCoJG6
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/installed-checksums.txt" Mode="0644">
 <INLINE>
-# rclone-jobs installed checksums v2026.09.10f - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
+# rclone-jobs installed checksums v2026.09.10g - GENERATED at build time; do not edit on the box - reinstall the plugin instead.
 # sha256  deployed-path  mode   (every packaged file except this one, MANIFEST order)
-dc47b65be6638d51ca8fc87e4ba6c0ffb1a501874cfddac865f9cc21bea12c53  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
+b64782e0d4e6f7735545f6cd110f5e6b9ffa4aff9c2506326f526404eaf84a7b  /usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh  0755
 1e56c2bc57fbd1410adb79093d6d5050309c1056b30adef329f2a28e13e9f4bf  /usr/local/emhttp/plugins/rclone-jobs/preview.php  0644
-f57484b7e3d92b99321be658c4b99558f8185a4850bda8de11966500cdefb334  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
-e0578a72603c4c48f14377ea768e8812b0eae6bd7564218604cac7f966a046d7  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
-0ecea43dbe9cf0bdaf9ffcf8ae8e53195944d863fddec190836d306cced3ebff  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-10e5c863c04c6e44521d1d818edce5db6ade15f16f3dcd17e1fd1ff950d93f4a  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
-9acdc47012b4fcf993b9114ef98c515f197751a266e7171f01bfe9a180c0ad46  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
-d9aa0964eafb82cd1e5d09249bf4f15184192dc5191e1db30aabf0a99d9a2a84  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
-9974f5f7a90d32c3ebbed942f322f158980d23e6fa3be6cb9a27182ed7d5e050  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
+ea2805e79f570defb4ec1f03feadf8851a57e57e51e260e7954ec0e7e15f2413  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
+6184a3896e872aee554399a85a67a2dde4c0ba80516adf25b9be0cf9bd7251fd  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
+be60a80c51bfc02d815b86407f12c29d080d3a81b171f078cf96107c6dd09c2f  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
+fa98d2ec06e695a596ace766325bf17872f96cd5fc4d93d403d3b08950e911bd  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+c47f6aa2faeccc38fe79ec4c3aaaad5906c1b70e03b4ba081a1c35cec3ccc737  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
+4babb60b5df664f5b42163954b8ae32e26aaad4ce3a6515901fba2572fb964a4  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
+124f4f962bc45f054c213ec64700b402c19e3555b004af93031ae2c91a88da98  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
 52c15a64a25d13568b8180e1a8deedd51453bb33503f2ad08de8aba25c580111  /usr/local/emhttp/plugins/rclone-jobs/event/installed  0755
 4212f162129b3b54e0e69243c67cd2433f3812d87601f6a23cf4a0f6836f9f3e  /usr/local/emhttp/plugins/rclone-jobs/event/updating  0755
 361fffcc2806c5708e158ca935bdd9173eb5137cb4dd64e38c3fa08ff34df4cf  /usr/local/emhttp/plugins/rclone-jobs/event/array_started  0755
@@ -6562,7 +6674,7 @@ b4c53901e7dc6407590c3ae456ff75ed77fe831e535a100a25c437091c10262f  /usr/local/emh
 f47d1a633c1a0e05b28e3203e1a5b8d21def406e0a17c0c4b97d8d1e66c521b0  /usr/local/emhttp/plugins/rclone-jobs/README.md  0644
 190bc6d19281056d2a7508f6bff1a6ddeffdf3218f808cd102d1579656f85f22  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.png.b64  0644
 </INLINE>
-<SHA256>63f158d3f441bdfe8323de8b960957b1018d9dffc885872f3112ac0f4eb9fde9</SHA256>
+<SHA256>882d4423cce3d21df260d2b9f694e6e8a907b689c251a480027c393748deca7d</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->

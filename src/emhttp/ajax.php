@@ -125,6 +125,8 @@ case 'save_job':
     $fastlist = rj_str($_POST['fast_list'] ?? 'no') === 'yes' ? 'yes' : 'no';
     $odchunk  = trim(rj_str($_POST['onedrive_chunk_size'] ?? ''));
     $args     = trim(rj_str($_POST['args'] ?? ''));
+    $exclude  = trim(rj_str($_POST['exclude'] ?? ''));
+    $deferp   = rj_str($_POST['deferparity'] ?? 'no') === 'yes' ? 'yes' : 'no';
     $maxdel   = rj_num($_POST['maxdelete'] ?? 100);
     $warndel  = rj_num($_POST['warndelete'] ?? 100);
     $bdir     = trim(rj_str($_POST['backupdir'] ?? ''));
@@ -133,6 +135,21 @@ case 'save_job':
     if (stripos($args, '--delete-excluded') !== false)
         rj_out(['ok' => false, 'error' => 'ARGS --delete-excluded is refused (defeats storage auto-exclude)']);
 
+    /* exclude patterns: whitespace-separated globs, stored space-joined in the
+       conf. Globs (* ? [ ] { }) are legal - the engine appends each pattern as a
+       discrete array element, never eval'd - but shell control characters,
+       quotes, backslashes and leading dashes are refused (mirrors engine
+       valid_exclude; patterns containing spaces are impossible by design) */
+    $ex_pats = $exclude === '' ? [] : preg_split('/\s+/', $exclude, -1, PREG_SPLIT_NO_EMPTY);
+    if (count($ex_pats) > 64) rj_out(['ok' => false, 'error' => 'exclude: too many patterns (max 64)']);
+    foreach ($ex_pats as $p) {
+        if (strlen($p) > 200) rj_out(['ok' => false, 'error' => 'exclude pattern too long (max 200 chars): '.substr($p, 0, 40)]);
+        if (strpos($p, '-') === 0) rj_out(['ok' => false, 'error' => 'exclude pattern must not start with a dash: '.substr($p, 0, 40)]);
+        if (preg_match('/[`$;|&<>"\'\\\\\0]/', $p) === 1) rj_out(['ok' => false, 'error' => 'exclude pattern contains forbidden characters: '.substr($p, 0, 40)]);
+    }
+    $exclude = implode(' ', $ex_pats);
+    if (strlen($exclude) > 2000) rj_out(['ok' => false, 'error' => 'exclude: too long (max 2000 chars total)']);
+
     /* every engine is scheduled by cron - a job without a valid SCHEDULE would be
        written to disk but silently skipped by regen-cron.sh: refuse at save time */
     if ($sched === '' || rj_sched_ok($sched) === false) rj_out(['ok' => false, 'error' => 'invalid schedule: 5 cron fields expected (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; * , - / allowed)']);
@@ -140,7 +157,7 @@ case 'save_job':
     if ($engine === 'custom') {
         if ($script === '' || rj_badfield($script)) rj_out(['ok' => false, 'error' => 'custom job needs a Script path without shell metacharacters']);
         if (strpos($script, '/') !== 0) rj_out(['ok' => false, 'error' => 'Script must be an absolute path']);
-        $mode = ''; $src = ''; $dst = '';
+        $mode = ''; $src = ''; $dst = ''; $exclude = '';
     } else {
         if ($src === '' || $dst === '') rj_out(['ok' => false, 'error' => 'SRC and DST are required']);
         if (rj_badfield($src) || rj_badfield($dst)) rj_out(['ok' => false, 'error' => 'SRC/DST contain forbidden characters']);
@@ -162,6 +179,7 @@ case 'save_job':
     $L[] = "ENABLED=$enabled";
     $L[] = "DRYRUN=$dryrun";
     $L[] = "NOTIFY=$notify";
+    if ($deferp === 'yes') $L[] = "DEFER_ON_PARITY=yes";
     if ($engine !== 'custom') {
         $L[] = "TRANSFERS=$trans"; $L[] = "CHECKERS=$check";
         if ($bwlimit !== '') $L[] = "BWLIMIT=$bwlimit";
@@ -173,6 +191,7 @@ case 'save_job':
         $L[] = "MAXDELETE=$maxdel"; $L[] = "WARN_DELETE=$warndel";
         if ($bdir !== '') $L[] = "BACKUPDIR=$bdir";
         if ($args !== '') $L[] = "ARGS=$args";
+        if ($exclude !== '') $L[] = "EXCLUDE=$exclude";
     }
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
     $isNew = !file_exists($conf);

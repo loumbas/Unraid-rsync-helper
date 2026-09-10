@@ -1,3 +1,8 @@
+## 2026.09.10g
+Exclude Patterns & Parity-Deferral Guard:
+  - Exclude patterns (job key `EXCLUDE`): new multi-line field in the job form (one glob per line or space-separated) appended to rclone and rsync runs as discrete `--exclude` arguments - never eval'd, never word-globbed (split with `read -a`). Globs (`* ? [ ] [a-z]`) are allowed; shell control characters, quotes, backslashes, patterns starting with a dash, and patterns containing spaces are refused by both ajax and the engine (`valid_exclude`). Changing it re-arms the dry-run gate (config hash). The plugin storage auto-exclude is unaffected and `--delete-excluded` remains banned.
+  - Parity/resync deferral (job key `DEFER_ON_PARITY=yes`, default no): a live run that starts while a parity check, disk rebuild, or balance is in progress (`array_resyncing()` reading `/var/local/emhttp/var.ini`, fail-open when unreadable) is skipped with exit 0 before lock/status/gate/history are touched - syslog `DEFERRED` line plus one notice per deferral episode (marker file, cleared by the next live run). Dry-runs and previews are never deferred; the 26h stale-run watchdog and doctor stay quiet while deferrals are active (stale markers are swept after 7 days).
+
 ## 2026.09.10f
 Table Responsiveness (no horizontal scrollbar on narrow windows):
  - Tablet/small-desktop band (<=1060px): cells and headers may now wrap (`white-space: normal` overriding the Unraid host rule that pinned every table cell to one line - the main driver of the horizontal scrollbar); toggle and actions cells keep their one-line layout, the result pill can no longer break internally, path endpoint badges narrow to 150px.

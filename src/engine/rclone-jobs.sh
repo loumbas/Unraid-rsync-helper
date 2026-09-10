@@ -105,6 +105,28 @@ bad_field() { # <value> -> 0 REJECT (shell metacharacters present)
 valid_jobname() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; }
 valid_remote()  { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
+valid_exclude() { # <EXCLUDE string> -> 0 OK / 1 REJECT (reason on stdout)
+  # globs (* ? [ ] { }) are ALLOWED on purpose: patterns reach rclone/rsync as
+  # discrete array elements (never eval'd, never word-globbed); shell control
+  # and quote characters are not
+  local v="$1" p n=0
+  [ "${#v}" -le 2000 ] || { printf 'EXCLUDE is too long (max 2000 chars)'; return 1; }
+  local -a ex=()
+  IFS=' ' read -r -a ex <<< "$v"
+  for p in "${ex[@]}"; do
+    [ -n "$p" ] || continue
+    n=$(( n + 1 ))
+    [ "$n" -le 64 ] || { printf 'EXCLUDE has too many patterns (max 64)'; return 1; }
+    [ "${#p}" -le 200 ] || { printf 'EXCLUDE pattern %s is too long (max 200 chars)' "$p"; return 1; }
+    case "$p" in
+      -*) printf 'EXCLUDE pattern %s must not start with a dash' "$p"; return 1 ;;
+      *'`'*|*'$'*|*';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'"'*|*"'"*|*\\*|*$'\r'*|*$'\t'*)
+        printf 'EXCLUDE pattern %s contains forbidden characters' "$p"; return 1 ;;
+    esac
+  done
+  return 0
+}
+
 num_clamp() { # <value> <min> <max> <default> -> validated int on stdout (paths.env values are never trusted)
   local v="${1:-}"
   [[ "$v" =~ ^[0-9]{1,5}$ ]] || { printf '%s' "$4"; return 0; }
@@ -126,6 +148,20 @@ detect_storage() { # first /mnt/diskN backed by /dev/md* (array; parity is never
       /dev/md*) printf '%s/.%s\n' "$d" "$NAME"; return 0 ;;
     esac
   done
+  return 1
+}
+
+array_resyncing() { # 0 = parity check / rebuild / balance running. FAIL-OPEN:
+  # unreadable or unparsable var.ini means 'not resyncing' (never block a job)
+  local ini="/var/local/emhttp/var.ini" md pos tot v
+  [ -r "$ini" ] || return 1
+  md="$(sed -n 's/^mdResync=\([0-9]*\)$/\1/p' "$ini" 2>/dev/null)"
+  pos="$(sed -n 's/^mdResyncPos=\([0-9]*\)$/\1/p' "$ini" 2>/dev/null)"
+  if [ -n "$md" ] && [ "$md" -gt 0 ] && [ "${pos:-0}" -lt "$md" ]; then return 0; fi
+  tot="$(sed -n 's/^sbSyncedTot=\([0-9]*\)$/\1/p' "$ini" 2>/dev/null)"
+  [ -n "$tot" ] || tot="$(sed -n 's/^sbSyncedTotal=\([0-9]*\)$/\1/p' "$ini" 2>/dev/null)"
+  v="$(sed -n 's/^sbSynced=\([0-9]*\)$/\1/p' "$ini" 2>/dev/null)"
+  if [ -n "$tot" ] && [ "$tot" -gt 0 ] && [ "${v:-0}" -lt "$tot" ]; then return 0; fi
   return 1
 }
 
@@ -256,6 +292,7 @@ status_file() { printf '%s/%s.json\n' "$STATUS_DIR" "$1"; }
 dryrun_file() { printf '%s/%s-dryrun.json\n' "$STATUS_DIR" "$1"; }
 run_pid_file()  { printf '%s/%s.run.pid\n' "$STATUS_DIR" "$1"; }
 run_stop_mark() { printf '%s/%s.stop\n' "$STATUS_DIR" "$1"; }
+defer_mark()    { printf '%s/%s.defer\n' "$STATUS_DIR" "$1"; }
 conf_hash()   { sha256sum "$1" 2>/dev/null | cut -c1-16; }
 
 status_set_running() { # <job> <confhash> <logfile>
@@ -305,6 +342,7 @@ J_DRYRUN="yes"; J_ARGS=""; J_TRANSFERS="4"; J_CHECKERS="8"; J_BWLIMIT=""
 J_BUFFER_SIZE=""; J_FAST_LIST="no"; J_ONEDRIVE_CHUNK_SIZE=""
 J_MAXDELETE="$DEFAULT_MAX_DELETE"; J_BACKUPDIR=""; J_WARN_DELETE="$DEFAULT_WARN_DELETE"
 J_UMASK="002"; J_HEARTBEAT="yes"; J_NOTIFY=""; J_DESC=""; J_CUSTOM_SCRIPT=""
+J_EXCLUDE=""; J_DEFER_PARITY="no"
 JOB_NAME=""; JOB_CONF=""
 
 load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values never eval'd
@@ -339,6 +377,8 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values
       UMASK)       J_UMASK="$val" ;;
       HEARTBEAT)   J_HEARTBEAT="$val" ;;
       NOTIFY)      J_NOTIFY="$val" ;;
+      EXCLUDE)     J_EXCLUDE="$val" ;;
+      DEFER_ON_PARITY) J_DEFER_PARITY="$val" ;;
       CUSTOM_SCRIPT) J_CUSTOM_SCRIPT="$val" ;;
     esac
   done < "$JOB_CONF"
@@ -369,6 +409,10 @@ validate_job() {
     bad_field "$J_SRC" && die 78 "job $JOB_NAME: SRC contains forbidden characters"
     bad_field "$J_DST" && die 78 "job $JOB_NAME: DST contains forbidden characters"
     bad_field "$J_BWLIMIT" && die 78 "job $JOB_NAME: BWLIMIT contains forbidden characters"
+    if [ -n "$J_EXCLUDE" ]; then
+      local xr
+      xr="$(valid_exclude "$J_EXCLUDE")" || die 78 "job $JOB_NAME: $xr"
+    fi
     local a
     for a in $J_ARGS; do
       bad_field "$a" && die 78 "job $JOB_NAME: ARGS token '$a' contains forbidden characters"
@@ -549,8 +593,12 @@ gate_check() { # refuse LIVE runs without a successful dry-run on the CURRENT co
 # -------------------------------------------------------------- command line --
 CMD=()
 build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-eval'd
-  local dry="$1" a
+  local dry="$1" a p
   CMD=()
+  # user exclude patterns split with 'read -a' (validated in validate_job): an
+  # unquoted $J_EXCLUDE would be pathname-expanded and corrupt globs like *.tmp
+  local -a EXC=()
+  [ -n "$J_EXCLUDE" ] && IFS=' ' read -r -a EXC <<< "$J_EXCLUDE"
   case "$J_ENGINE" in
     rclone)
       CMD=("$RCLONE_BIN" "${J_MODE:-copy}" "$J_SRC" "$J_DST")
@@ -562,6 +610,7 @@ build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-
       [ -n "$J_BACKUPDIR" ] && CMD+=(--backup-dir "$J_BACKUPDIR")
       [ -n "$J_BWLIMIT" ]   && CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
+      for p in "${EXC[@]}"; do [ -n "$p" ] && CMD+=(--exclude "$p"); done
       [ -n "$STORAGE_TOP" ] && CMD+=(--exclude "$STORAGE_TOP" --exclude "$STORAGE_TOP/**")
       if [ "$dry" = yes ]; then CMD+=(-vv --dry-run); else CMD+=(-v --stats 60s --stats-one-line); fi
       ;;
@@ -571,6 +620,7 @@ build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-
       else CMD+=(-v --info=stats2); fi
       [ -n "$J_BWLIMIT" ] && CMD+=(--bwlimit "$J_BWLIMIT")
       for a in $J_ARGS; do CMD+=("$a"); done
+      for p in "${EXC[@]}"; do [ -n "$p" ] && CMD+=(--exclude "$p"); done
       [ -n "$STORAGE_TOP" ] && CMD+=(--exclude="$STORAGE_TOP/")
       CMD+=("$J_SRC" "$J_DST")
       ;;
@@ -704,6 +754,24 @@ cmd_run() { # <job> [--dry-run] [--sync] [--owned]
   [ "$want_dry" = yes ] && dry=yes
   [ "$J_DRYRUN" = yes ] && dry=yes
   if [ "$DRY_RUN_MASTER" = yes ] && [ "$dry" = no ]; then dry=yes; master_forced=yes; fi
+  # parity deferral (live runs only - dry-runs stay available for the gate):
+  # skip the transfer while the array is busy, exit benign so cron and the
+  # watchdog see neither a failure nor a status change
+  if [ "$dry" = no ] && [ "$J_DEFER_PARITY" = yes ] && array_resyncing; then
+    local dmk newep=no
+    dmk="$(defer_mark "$JOB_NAME")"
+    [ -f "$dmk" ] || newep=yes
+    touch "$dmk" 2>/dev/null
+    say "rclone-jobs: $JOB_NAME deferred (array parity check / resync in progress)"
+    syslog_line "DEFERRED job=$JOB_NAME: parity check / resync in progress - live run skipped, nothing was transferred"
+    if [ "$newep" = yes ]; then
+      notify_job normal "rclone-jobs: $JOB_NAME deferred" "array resync in progress - run skipped" \
+        "job: $JOB_NAME
+reason: parity check / rebuild / balance is running (DEFER_ON_PARITY=yes)
+the next scheduled run proceeds normally once the array operation completes"
+    fi
+    exit 0
+  fi
   if [ "$J_ENGINE" = rclone ]; then guard_rclone_available; guard_remotes; fi
   if [ -n "$J_SRC" ]; then is_local "$J_SRC" && mount_guard "$J_SRC" src; fi
   if [ -n "$J_DST" ]; then is_local "$J_DST" && mount_guard "$J_DST" dst; fi
@@ -726,6 +794,8 @@ cmd_run() { # <job> [--dry-run] [--sync] [--owned]
   # ever belong to THIS run
   stopmark="$(run_stop_mark "$JOB_NAME")"; runpid="$(run_pid_file "$JOB_NAME")"
   rm -f "$stopmark" "$runpid" 2>/dev/null
+  # a live run that got this far means the deferral episode is over
+  [ "$dry" = yes ] || rm -f "$(defer_mark "$JOB_NAME")" 2>/dev/null
   chash="$(conf_hash "$JOB_CONF")"
   sj="$(status_file "$JOB_NAME")"
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -1390,7 +1460,7 @@ cmd_status_json() { # every job's run + dry-run state as ONE json object (live U
 cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + task pruning
   load_paths
   storage_guard
-  local now f n nn sj last_ok running dedup lk ttf pf2 ppid2 smk pch plg
+  local now f n nn sj last_ok running dedup lk ttf pf2 ppid2 smk pch plg dfr
   now="$(unix_now)"
   for f in "$BOOT_DIR/jobs"/*.conf; do
     [ -e "$f" ] || continue
@@ -1426,6 +1496,11 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
     fi
     nn="$(job_notify_setting "$n")"
     [ "$nn" = off ] && continue
+    # DEFER_ON_PARITY deferrals are intentional skips: no staleness alert while
+    # a fresh defer marker exists (refreshed each deferred run, removed by the
+    # next live run that proceeds)
+    dfr="$STATUS_DIR/$n.defer"
+    [ -f "$dfr" ] && [ $(( now - $(stat -c %Y "$dfr" 2>/dev/null || echo 0) )) -lt 172800 ] && continue
     last_ok="$(jq -r '.last_ok // 0' "$sj" 2>/dev/null)"
     if [ "${last_ok:-0}" -gt 0 ] && [ $(( now - last_ok )) -gt 93600 ]; then
       if [ ! -f "$dedup" ] || [ $(( now - $(stat -c %Y "$dedup" 2>/dev/null || echo 0) )) -gt 86400 ]; then
@@ -1453,6 +1528,12 @@ cmd_watchdog() { # stale-success alerts, stuck-run alerts (deduped 24h), log + t
   for smk in "$STATUS_DIR"/*.stop; do
     [ -e "$smk" ] || continue
     if [ $(( now - $(stat -c %Y "$smk" 2>/dev/null || echo "$now") )) -gt 600 ]; then rm -f "$smk"; fi
+  done
+  # defer markers: a live run clears its own; leftovers older than a week
+  # (job disabled/deleted mid-episode) must not suppress staleness forever
+  for dfr in "$STATUS_DIR"/*.defer; do
+    [ -e "$dfr" ] || continue
+    if [ $(( now - $(stat -c %Y "$dfr" 2>/dev/null || echo "$now") )) -gt 604800 ]; then rm -f "$dfr"; fi
   done
   # history: fold raw runs into hourly/daily rollups (same compaction the runs
   # piggyback, so a job that stopped running still gets its file tiered)
@@ -1691,7 +1772,11 @@ cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
           d_line INFO "status $jn: $(jq -c '{rc,secs,run,last_ok_run,running}' "$sj" 2>/dev/null | cut -c1-260)"
           lo="$(jq -r '.last_ok // 0' "$sj" 2>/dev/null)"
           if { [ "${lo:-0}" -eq 0 ] || [ $(( now - lo )) -gt 93600 ]; } && [ "$(jq -r '.running // false' "$sj" 2>/dev/null)" != "true" ]; then
-            d_line WARN "job $jn has no successful run in over 26h"
+            if [ -f "$(defer_mark "$jn")" ]; then
+              d_line INFO "job $jn is deferring runs: array resync in progress (DEFER_ON_PARITY=yes)"
+            else
+              d_line WARN "job $jn has no successful run in over 26h"
+            fi
           fi
         else d_line INFO "status $jn: never run"; fi
       done

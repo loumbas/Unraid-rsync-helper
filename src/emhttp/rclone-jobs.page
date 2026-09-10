@@ -807,6 +807,8 @@ $rjdata = [
             <blockquote class='inline_help'><p>While <em>yes</em>, scheduled runs only simulate. The master switch on the Alerts and Safety tab always wins: when it is ON, every scheduled run is a dry-run regardless of this setting.</p></blockquote>
             <dl><dt>Notify:</dt><dd><select id="f_notify"><option value="always">always (OK + problems)</option><option value="failures">failures &amp; warnings only</option><option value="off">off (silent)</option></select></dd></dl>
             <blockquote class='inline_help'><p>When this job sends Unraid notifications: <em>always</em> = an OK notice after each successful run plus notices for any problem; <em>failures</em> = only failures, gate blocks, overlaps and watchdog findings; <em>off</em> = nothing for this job (syslog and the job log are still written). The OK notice is additionally held back inside the quiet window. Delivery channels (bell, email, Telegram, ...) are chosen in Settings &rarr; Notification Settings.</p></blockquote>
+            <dl><dt>Skip during parity / resync:</dt><dd><select id="f_deferparity"><option value="no">no - run as scheduled</option><option value="yes">yes - skip live runs while parity / rebuild / balance runs</option></select></dd></dl>
+            <blockquote class='inline_help'><p>When <em>yes</em>, a live run that starts while Unraid's parity check, a disk rebuild, or a balance is in progress is skipped (nothing transferred, logged to syslog, one notice per resync episode) so the array is not thrashed by both at once. Dry-runs and previews are never deferred, and the stale-run watchdog does not complain while deferrals are active.</p></blockquote>
             <div class="rj-eng">
               <dl><dt>Transfers / Checkers:</dt><dd class="rj-inline"><input type="number" id="f_transfers" min="1" max="999" value="4"> / <input type="number" id="f_checkers" min="1" max="999" value="8"></dd></dl>
               <blockquote class='inline_help'><p>rclone parallelism: simultaneous file transfers and hash-check workers. Raise for many small files; lower on weak links.</p></blockquote>
@@ -831,6 +833,8 @@ $rjdata = [
             </div>
             <dl><dt>Additional flags:</dt><dd><input type="text" id="f_args" placeholder="e.g. --order-by size,desc --drive-export-formats docx"></dd></dl>
             <blockquote class='inline_help'><p>Extra CLI arguments passed directly to the engine (rclone or rsync). Note: live transfer progress, speed, and bytes are automatically tracked and logged by the engine without needing <em>--progress</em>.</p></blockquote>
+            <dl><dt>Exclude patterns:</dt><dd><textarea id="f_exclude" rows="3" cols="60" placeholder="*.tmp&#10;.DS_Store&#10;@eaDir/**&#10;.Trash-*/**"></textarea></dd></dl>
+            <blockquote class='inline_help'><p>Files matching these globs are skipped by both engines - one <em>--exclude</em> argument per pattern (rclone and rsync alike). One pattern per line or space-separated; a pattern cannot contain spaces or shell characters and cannot start with a dash. Saving a change re-arms the dry-run gate. The plugin's own storage folder is always auto-excluded and cannot be un-excluded.</p></blockquote>
           </div>
 
           <div class="rj-form-actions">

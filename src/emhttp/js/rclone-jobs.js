@@ -906,6 +906,8 @@ $(function () {
     $('#f_fastlist').val(j && j.conf.FAST_LIST === 'yes' ? 'yes' : 'no');
     $('#f_onedrive_chunksize').val(j && j.conf.ONEDRIVE_CHUNK_SIZE ? j.conf.ONEDRIVE_CHUNK_SIZE : '');
     $('#f_args').val(j && j.conf.ARGS ? j.conf.ARGS : '');
+    $('#f_exclude').val(j && j.conf.EXCLUDE ? j.conf.EXCLUDE : '');
+    $('#f_deferparity').val(j && j.conf.DEFER_ON_PARITY === 'yes' ? 'yes' : 'no');
     engRows();
     rjOvHint();
     rjAttachForm(j ? j.name : null);
@@ -1152,13 +1154,15 @@ $(function () {
       engine: $('#f_engine').val(), mode: $('#f_mode').val(),
       src: $('#f_src').val().trim(), dst: $('#f_dst').val().trim(), script: $('#f_script').val().trim(),
       dryrun: $('#f_dryrun').val(), notify: $('#f_notify').val(),
+      deferparity: $('#f_deferparity').val(),
       transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
       warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim(),
       buffer_size: $('#f_buffersize').val().trim(),
       fast_list: $('#f_fastlist').val(),
       onedrive_chunk_size: $('#f_onedrive_chunksize').val().trim(),
-      args: $('#f_args').val().trim()
+      args: $('#f_args').val().trim(),
+      exclude: $('#f_exclude').val().trim()
     };
     var $sub = $('#rj-jobform input[type=submit]');
     if ($sub.prop('disabled')) return; /* double-submit guard (save previews take seconds) */

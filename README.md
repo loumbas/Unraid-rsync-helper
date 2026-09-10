@@ -20,6 +20,13 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 - Deletion safety: `--max-delete` hard cap, warn threshold, optional delete-confirmation
   (`Ack`) in the WebUI, optional `BACKUPDIR` (before-delete copy to a remote or the
   storage folder).
+- Exclude patterns: per-job globs (`EXCLUDE`, e.g. `*.tmp .DS_Store @eaDir/**`) passed as
+  discrete `--exclude` arguments to rclone/rsync; whitelist-validated on save, never
+  shell-evaluated. Editing them re-arms the dry-run gate.
+- Parity-friendly: optional `DEFER_ON_PARITY=yes` skips a *live* run (exit 0, syslog line,
+  one notice per episode) while a parity check, disk rebuild or balance is running, so the
+  array is not thrashed by both at once. Dry-runs always work; the stale-run watchdog stays
+  quiet while deferrals are active.
 - Alerts: native Unraid notifications only. Delivery (bell, email, Telegram, Discord,
   Pushover) is configured once under *Settings → Notification Settings*; nothing to set
   up here and no credentials stored. Per-job `NOTIFY=always|failures|off` plus a quiet

@@ -83,7 +83,16 @@ job log does not contain `--delete`; verify a file deleted at source remains on 
 
 ---
 
-## 3. Filter & exclude patterns in the WebUI (`--exclude` / `--filter`)
+## 3. Filter & exclude patterns in the WebUI (`--exclude` / `--filter`) — DONE in 2026.09.10g
+
+**Implemented as:** engine `EXCLUDE` job key + `valid_exclude()` + discrete
+`CMD+=(--exclude "$p")` for rclone and rsync; ajax + WebUI "Exclude patterns"
+textarea. Deviations from the draft: stored space-separated on one line (the
+line-based `.conf` parser cannot hold newline-separated values; the UI textarea
+normalizes whitespace, patterns with spaces are rejected); `--filter` not
+exposed (per-pattern `--exclude` only); patterns starting with `-` are refused;
+split with `read -a`, never `for x in $J_EXCLUDE` (unquoted expansion would
+pathname-expand `*.tmp` against CWD and corrupt the pattern).
 
 **Motivation.** The backend engine already has internal plumbing for `J_ARGS` (`rclone-jobs.sh:307`),
 but it is not exposed in `ajax.php` or `rclone-jobs.page`. Unraid users frequently need to
@@ -111,7 +120,17 @@ skip matching files; verify forbidden characters trigger validation errors on sa
 
 ---
 
-## 4. Parity check / array resync deferral guard
+## 4. Parity check / array resync deferral guard — DONE in 2026.09.10g
+
+**Implemented as:** engine `array_resyncing()` (parses `mdResync`/`mdResyncPos`
+and `sbSynced`/`sbSyncedTot` — plus the `sbSyncedTotal` spelling — fail-open on
+unreadable var.ini), `DEFER_ON_PARITY=yes` job key, skip before lock/status/
+gate/history are touched (syslog `DEFERRED`, exit 0), WebUI select under
+Limits & Safety. Deviations from the draft: **live runs only** — dry-runs and
+previews are never deferred; one notice per deferral episode via a
+`<job>.defer` marker (refreshed per deferred run, removed by the next live
+run, swept after 7 days) instead of one per skip; the watchdog and doctor
+suppress the 26h-staleness alert while a fresh defer marker exists.
 
 **Motivation.** Heavy scheduled sync jobs running concurrently with Unraid's monthly parity
 check, disk rebuild, or balance operation cause extreme disk thrashing, slowing down both
