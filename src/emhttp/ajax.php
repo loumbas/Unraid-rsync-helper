@@ -196,6 +196,14 @@ case 'toggle_job':
     $rg = []; rj_regen($rg);
     rj_out(['ok' => true, 'job' => $name, 'enabled' => $enabled]);
 
+case 'toggle_dryrun':
+    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
+    $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
+    if (!is_file($conf)) rj_out(['ok' => false, 'error' => 'job not found']);
+    $dryrun = rj_str($_POST['dryrun'] ?? 'yes') === 'no' ? 'no' : 'yes';
+    rj_env_upsert($conf, ['DRYRUN' => $dryrun], 0600);
+    rj_out(['ok' => true, 'job' => $name, 'dryrun' => $dryrun]);
+
 case 'delete_job':
     if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';

@@ -1,3 +1,11 @@
+## 2026.09.10a
+Per-Job Dry-Run Switch & Table Responsiveness:
+ - Per-job dry-run toggle switch: added a dedicated "Dry" switch column with an amber/orange indicator (`DRY` vs `LIVE`), allowing jobs to be toggled between simulation and live transfer mode directly from the table row without opening the edit form.
+ - Backend dry-run toggle handler: added `toggle_dryrun` AJAX action updating `DRYRUN` in the job config via `rj_env_upsert`.
+ - Table layout & responsive spacing: adjusted cell padding and eliminated the restrictive actions wrapper constraint, preventing header truncation (`ACT` vs `ACTIONS`) and horizontal scroll overflow on 1000px-1366px screens.
+ - Compact button toolbar: on viewports <= 1250px, secondary button labels (`Log`, `Hist`, `Edit`, `Del`) collapse into compact icon buttons with rich tooltips, keeping action buttons neatly aligned without wrapping across multiple rows.
+ - Mobile card view: standardized the mobile breakpoint at 768px, formatting both `Enabled:` and `Dry-run mode:` as dedicated switch rows in each job card.
+
 ## 2026.09.10
 Schedule Ergonomics & Advanced Rclone Settings:
  - Schedule UI revamp: fixed CSS override that caused conditional schedule fields to display simultaneously; added dedicated layout spacing, minimum selector widths, and flex wrapping so selected options are never clipped or hidden.

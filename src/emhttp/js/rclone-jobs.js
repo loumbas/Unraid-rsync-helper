@@ -289,7 +289,7 @@ function rjApplyStatus(jobs) {
     }
     var $ack = $tr.find("[data-act='ack']");
     if (needAck && $ack.length === 0) {
-      $tr.find("[data-act='run']").after(" <button type='button' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'><i class='fa fa-exclamation-triangle'></i> Ack</button>");
+      $tr.find("[data-act='run']").after(" <button type='button' class='rj-btn rj-warn' data-act='ack' data-job='" + name + "' title='This dry-run wants to delete files - acknowledge before a real run'><i class='fa fa-exclamation-triangle'></i><span class='rj-btn-lbl'> Ack</span></button>");
     } else if (!needAck && $ack.length) {
       $ack.remove();
     }
@@ -299,10 +299,10 @@ function rjApplyStatus(jobs) {
     var $run = $tr.find("[data-act='run']"), $stop = $tr.find("[data-act='stop']");
     if (running) {
       $run.hide();
-      $stop.show().prop('disabled', false).html('<i class="fa fa-stop"></i> Stop');
+      $stop.show().prop('disabled', false).html('<i class="fa fa-stop"></i><span class="rj-btn-lbl"> Stop</span>');
     } else {
       $stop.hide();
-      $run.show().prop('disabled', false).html('<i class="fa fa-play"></i> Run');
+      $run.show().prop('disabled', false).html('<i class="fa fa-play"></i><span class="rj-btn-lbl"> Run</span>');
     }
     /* refresh the row cue: running > needs-ack > ok / failed (rj-off is config-side, untouched) */
     $tr.removeClass('rj-st-ok rj-st-bad rj-st-ack rj-st-run');
@@ -961,8 +961,9 @@ $(function () {
     var isChecked = $chk.is(':checked');
     var newEn = isChecked ? 'yes' : 'no';
     var $wrap = $chk.closest('.rj-switch');
+    var $cell = $chk.closest('td');
     var $row = $chk.closest('tr');
-    var $label = $row.find('.rj-switch-text');
+    var $label = $cell.find('.rj-switch-text');
 
     $wrap.addClass('rj-busy');
     rjPost({ action: 'toggle_job', job: job, enabled: newEn }, function (res) {
@@ -992,6 +993,42 @@ $(function () {
       } else {
         $chk.prop('checked', !isChecked);
         rjPanel('rj-result', 'ERROR: ' + (res && res.error ? res.error : 'Failed to toggle job'), true);
+      }
+    });
+  });
+
+  /* toggle job dry-run mode directly from table switch */
+  $(document).off('change.rjtoggle-dry', '.rj-toggle-dry').on('change.rjtoggle-dry', '.rj-toggle-dry', function () {
+    var $chk = $(this);
+    var job = $chk.data('job') || $chk.attr('data-job');
+    var isChecked = $chk.is(':checked');
+    var newDry = isChecked ? 'yes' : 'no';
+    var $wrap = $chk.closest('.rj-switch');
+    var $cell = $chk.closest('td');
+    var $label = $cell.find('.rj-dry-text');
+
+    $wrap.addClass('rj-busy');
+    rjPost({ action: 'toggle_dryrun', job: job, dryrun: newDry }, function (res) {
+      $wrap.removeClass('rj-busy');
+      if (res && res.ok) {
+        if (D.jobs && D.jobs[job] && D.jobs[job].conf) {
+          D.jobs[job].conf.DRYRUN = newDry;
+        }
+        if (newDry === 'yes') {
+          $label.text('DRY').removeClass('live').addClass('dry');
+          $wrap.attr('title', 'Dry-run active (simulated) - click to toggle');
+        } else {
+          $label.text('LIVE').removeClass('dry').addClass('live');
+          $wrap.attr('title', 'Live transfers active - click to toggle');
+        }
+        if ($('#rj-form-wrap').is(':visible') && $('.rj-row-editing').data('job') === job) {
+          $('#f_dryrun').val(newDry);
+        }
+        rjPanel('rj-result', 'Job "' + job + '" dry-run mode set to ' + (newDry === 'yes' ? 'DRY (simulated)' : 'LIVE (real transfers)') + '.');
+        setTimeout(function () { $('#rj-result').fadeOut(); }, 4000);
+      } else {
+        $chk.prop('checked', !isChecked);
+        rjPanel('rj-result', 'ERROR: ' + (res && res.error ? res.error : 'Failed to toggle dry-run mode'), true);
       }
     });
   });
