@@ -121,11 +121,17 @@ case 'save_job':
     $trans    = rj_num($_POST['transfers'] ?? 4);
     $check    = rj_num($_POST['checkers'] ?? 8);
     $bwlimit  = trim(rj_str($_POST['bwlimit'] ?? ''));
+    $bufsize  = trim(rj_str($_POST['buffer_size'] ?? ''));
+    $fastlist = rj_str($_POST['fast_list'] ?? 'no') === 'yes' ? 'yes' : 'no';
+    $odchunk  = trim(rj_str($_POST['onedrive_chunk_size'] ?? ''));
+    $args     = trim(rj_str($_POST['args'] ?? ''));
     $maxdel   = rj_num($_POST['maxdelete'] ?? 100);
     $warndel  = rj_num($_POST['warndelete'] ?? 100);
     $bdir     = trim(rj_str($_POST['backupdir'] ?? ''));
-    if (rj_badfield($desc) || rj_badfield($bwlimit) || rj_badfield($bdir))
-        rj_out(['ok' => false, 'error' => 'description/limit/backupdir contain forbidden characters']);
+    if (rj_badfield($desc) || rj_badfield($bwlimit) || rj_badfield($bdir) || rj_badfield($bufsize) || rj_badfield($odchunk) || rj_badfield($args))
+        rj_out(['ok' => false, 'error' => 'description/limit/backupdir/rclone options contain forbidden characters']);
+    if (stripos($args, '--delete-excluded') !== false)
+        rj_out(['ok' => false, 'error' => 'ARGS --delete-excluded is refused (defeats storage auto-exclude)']);
 
     /* every engine is scheduled by cron - a job without a valid SCHEDULE would be
        written to disk but silently skipped by regen-cron.sh: refuse at save time */
@@ -159,8 +165,14 @@ case 'save_job':
     if ($engine !== 'custom') {
         $L[] = "TRANSFERS=$trans"; $L[] = "CHECKERS=$check";
         if ($bwlimit !== '') $L[] = "BWLIMIT=$bwlimit";
+        if ($engine === 'rclone') {
+            if ($bufsize !== '') $L[] = "BUFFER_SIZE=$bufsize";
+            if ($fastlist === 'yes') $L[] = "FAST_LIST=yes";
+            if ($odchunk !== '') $L[] = "ONEDRIVE_CHUNK_SIZE=$odchunk";
+        }
         $L[] = "MAXDELETE=$maxdel"; $L[] = "WARN_DELETE=$warndel";
         if ($bdir !== '') $L[] = "BACKUPDIR=$bdir";
+        if ($args !== '') $L[] = "ARGS=$args";
     }
     $conf = $RJ_BOOT.'/jobs/'.$name.'.conf';
     $isNew = !file_exists($conf);

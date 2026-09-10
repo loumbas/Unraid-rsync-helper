@@ -1,3 +1,11 @@
+## 2026.09.10
+Schedule Ergonomics & Advanced Rclone Settings:
+ - Schedule UI revamp: fixed CSS override that caused conditional schedule fields to display simultaneously; added dedicated layout spacing, minimum selector widths, and flex wrapping so selected options are never clipped or hidden.
+ - Interactive weekday pills: replaced cramped weekday checkboxes with toggleable Monday-Sunday pill buttons with distinct active states for intuitive weekly scheduling.
+ - Enhanced live schedule summary: upgraded the cron helper into a high-visibility badge card with clear calendar indicators, human-readable run schedule, exact cron syntax, and upcoming run countdowns.
+ - Advanced rclone settings: added first-class WebUI and backend engine support for `--buffer-size` (memory buffer per stream), `--fast-list` (recursive cloud listing for OneDrive, Google Drive, S3), and `--onedrive-chunk-size` (accelerates large file uploads to OneDrive).
+ - Custom CLI flags: added an Additional Flags field allowing arbitrary extra parameters to be passed safely to rclone or rsync without shell-injection risk.
+
 ## 2026.09.09r
 Responsive Jobs Table & Viewport Adaptations:
  - Fluid table resizing: eliminated rigid minimum width and inflexible cell nowrap constraints, allowing the jobs table to fluidly resize to fit standard laptop, tablet, and windowed viewports without blowing out the page.

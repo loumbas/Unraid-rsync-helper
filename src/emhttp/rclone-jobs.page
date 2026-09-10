@@ -280,11 +280,16 @@ $rjdata = [
     '#tab_rj_alerts #a_qstart,#tab_rj_alerts #a_qend{width:64px}',
     '#tab_rj_alerts #a_ntlevel{width:150px;max-width:100%}',
     '#tab_rj_jobs input[type=number],#tab_rj_alerts input[type=number]{width:64px}',
-    '#tab_rj_jobs #f_sched_hour,#tab_rj_jobs #f_sched_min,#tab_rj_jobs #f_sched_hmin,#tab_rj_jobs #f_sched_dom{width:64px}',
-    '#tab_rj_jobs #f_s_at{margin:0 2px 0 6px}',
-    '#tab_rj_jobs .rj-wd label{margin-right:8px;white-space:nowrap}',
-    '#rj-sched-summary{margin:4px 0 2px;font-size:11px;color:#9aa7b2}',
-    '#rj-sched-summary.rj-warn{color:#e6867e}',
+    '#tab_rj_jobs #f_sched_freq{width:180px;min-width:180px}',
+    '#tab_rj_jobs #f_sched_hour,#tab_rj_jobs #f_sched_min,#tab_rj_jobs #f_sched_hmin,#tab_rj_jobs #f_sched_dom,#tab_rj_jobs #f_sched_nmin{width:64px}',
+    '#tab_rj_jobs #f_s_at{margin:0 4px 0 6px;color:#8b98a3}',
+    '#tab_rj_jobs .rj-wd{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center}',
+    '#tab_rj_jobs .rj-wd-btn{display:inline-flex;align-items:center;justify-content:center;background:#181e24;border:1px solid #333d47;color:#9aa7b2;padding:4px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;user-select:none;transition:all 0.15s ease}',
+    '#tab_rj_jobs .rj-wd-btn:hover{border-color:#ff8c2f;color:#e8eef3}',
+    '#tab_rj_jobs .rj-wd-btn.active{background:#ff8c2f;border-color:#ff8c2f;color:#111;font-weight:700}',
+    '#tab_rj_jobs .rj-wd-btn input[type=checkbox]{display:none}',
+    '#rj-sched-summary{margin:8px 0 8px 160px!important;padding:8px 12px!important;background:#141920!important;border:1px solid #28323c!important;border-radius:6px!important;font-size:11px!important;color:#9aa7b2!important;white-space:normal!important;line-height:1.5!important;max-width:680px!important}',
+    '#rj-sched-summary.rj-warn{border-color:#e6867e!important;color:#e6867e!important;background:rgba(230,134,126,0.08)!important}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
     /* Tabs styling */
     'ul.tabs#rj-tabs{list-style:none!important;display:flex!important;flex-wrap:wrap;justify-content:flex-start!important;justify-content:start;margin:18px 0 0!important;padding:0!important;width:auto!important;max-width:100%!important;background:transparent!important;border:none;border-bottom:1px solid #333d47}',
@@ -452,9 +457,9 @@ $rjdata = [
     '#rj-jobform dl{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;max-width:850px!important;margin:6px 0!important;padding:0!important;float:none!important;clear:both!important;text-align:left!important}',
     '#rj-jobform dt{width:160px!important;min-width:160px!important;max-width:160px!important;float:none!important;text-align:left!important;font-weight:600!important;color:#c0ccd6!important;font-size:12px!important;padding:0!important;margin:0!important}',
     '#rj-jobform dd{width:auto!important;flex:1 1 auto!important;float:none!important;text-align:left!important;display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;margin:0!important;padding:0!important}',
-    '#rj-jobform dd.rj-inline{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;white-space:nowrap!important;flex-wrap:nowrap!important}',
+    '#rj-jobform dd.rj-inline{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;flex-wrap:wrap!important}',
     '#rj-jobform dd.rj-inline select,#rj-jobform dd.rj-inline input{margin:0!important;text-align:left!important}',
-    '#rj-jobform dd.rj-inline span{display:inline-flex!important;align-items:center!important;gap:4px!important}',
+    '#rj-jobform dd.rj-inline span{display:inline-flex;align-items:center;gap:6px}',
     '#rj-jobform dd.rj-pathrow{width:100%!important;max-width:650px!important;display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important}',
     '#rj-jobform dd.rj-pathrow input[type=text]{flex:1 1 auto!important;max-width:440px!important}',
     '#rj-jobform input[type=text],#rj-jobform select{background:#111519!important;border:1px solid #333d47!important;border-radius:5px!important;color:#e8eef3!important;padding:5px 10px!important;height:30px!important;font-size:12px!important;box-sizing:border-box!important;text-align:left!important;margin:0!important}',
@@ -753,22 +758,22 @@ $rjdata = [
             <div class="rj-form-card-title"><i class="fa fa-calendar"></i> Schedule</div>
             <dl><dt>Schedule:</dt><dd class="rj-inline">
               <select id="f_sched_freq">
-                <option value="minutely">Every</option>
-                <option value="hourly">Hourly at minute</option>
-                <option value="daily" selected>Daily at</option>
-                <option value="weekly">Weekly on</option>
-                <option value="monthly">Monthly on day</option>
+                <option value="daily" selected>Daily</option>
+                <option value="hourly">Hourly</option>
+                <option value="minutely">Every (minutes)</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
                 <option value="custom">Custom (cron)</option>
               </select>
-              <span id="f_s_minutely" style="display:none"><select id="f_sched_nmin"></select> minutes</span>
-              <span id="f_s_dom" style="display:none"><select id="f_sched_dom"></select></span>
-              <span id="f_s_weekday" class="rj-wd" style="display:none"></span>
-              <span id="f_s_clock" style="display:none"><span id="f_s_at" style="display:none">at</span> <select id="f_sched_hour"></select>:<select id="f_sched_min"></select></span>
-              <span id="f_s_hourly" style="display:none"><select id="f_sched_hmin"></select></span>
+              <span id="f_s_minutely" class="rj-sched-field" style="display:none">every <select id="f_sched_nmin"></select> minutes</span>
+              <span id="f_s_hourly" class="rj-sched-field" style="display:none">at minute <select id="f_sched_hmin"></select></span>
+              <span id="f_s_dom" class="rj-sched-field" style="display:none">on day <select id="f_sched_dom"></select></span>
+              <span id="f_s_weekday" class="rj-sched-field rj-wd" style="display:none"></span>
+              <span id="f_s_clock" class="rj-sched-field" style="display:none"><span id="f_s_at" style="display:none">at</span> <select id="f_sched_hour"></select>:<select id="f_sched_min"></select></span>
             </dd></dl>
             <dl id="dl_f_schedule" style="display:none"><dt>Cron expression:</dt><dd><input type="text" id="f_schedule" class="rj-size" size="24" placeholder="30 3 * * *"></dd></dl>
             <p id="rj-sched-summary"></p>
-            <blockquote class='inline_help'><p>Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right below the fields. Times are the server's local time zone. <em>Custom (cron)</em> accepts the classic five fields <em>minute hour day-of-month month day-of-week</em> (numbers, <em>*</em> and <em>,</em> <em>-</em> <em>/</em> only), e.g. <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
+            <blockquote class='inline_help'><p>Pick how often the job runs - no cron knowledge needed; the generated expression and the next run times appear right above. Times are the server's local time zone. <em>Custom (cron)</em> accepts the classic five fields <em>minute hour day-of-month month day-of-week</em> (numbers, <em>*</em> and <em>,</em> <em>-</em> <em>/</em> only), e.g. <em>0 5 * * 6</em> = Saturday 05:00.</p></blockquote>
           </div>
 
           <div class="rj-form-card">
@@ -806,6 +811,20 @@ $rjdata = [
               <dl><dt>Backup dir (optional):</dt><dd class="rj-pathrow"><input type="text" id="f_backupdir" class="variable rj-path" placeholder="remote:trash or STORAGE_ROOT subfolder - before-delete copy"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_backupdir"></dd></dl>
               <blockquote class='inline_help'><p>rclone <em>--backup-dir</em>: files that would be deleted or overwritten are moved here first instead of disappearing. A remote like <em>gdrive:trash</em> or a subfolder of the storage folder work well; leave empty to disable.</p></blockquote>
             </div>
+          </div>
+
+          <div class="rj-form-card rj-eng">
+            <div class="rj-form-card-title"><i class="fa fa-sliders"></i> Advanced Settings</div>
+            <div class="rj-rclone-adv">
+              <dl><dt>Buffer size:</dt><dd><input type="text" id="f_buffersize" class="rj-size" size="14" placeholder="e.g. 64M (default: 16M)"></dd></dl>
+              <blockquote class='inline_help'><p>rclone <em>--buffer-size</em>: Memory buffer per active transfer stream. Setting <em>64M</em> or <em>128M</em> can improve speed and reduce disk I/O at the cost of higher RAM usage.</p></blockquote>
+              <dl><dt>Fast list:</dt><dd><select id="f_fastlist"><option value="no">no (default)</option><option value="yes">yes (--fast-list)</option></select></dd></dl>
+              <blockquote class='inline_help'><p>rclone <em>--fast-list</em>: Uses recursive listing on cloud remotes (OneDrive, Google Drive, S3, Dropbox) to crawl directory trees in far fewer API transactions. Speeds up sync at the expense of temporary RAM for file lists.</p></blockquote>
+              <dl><dt>OneDrive chunk size:</dt><dd><input type="text" id="f_onedrive_chunksize" class="rj-size" size="14" placeholder="e.g. 60M (default: 10M)"></dd></dl>
+              <blockquote class='inline_help'><p>rclone <em>--onedrive-chunk-size</em>: Upload chunk size for OneDrive / SharePoint remotes (must be a multiple of <em>320k</em>, e.g. <em>60M</em>, <em>100M</em>, <em>250M</em>). Greatly increases upload speed on fast connections.</p></blockquote>
+            </div>
+            <dl><dt>Additional flags:</dt><dd><input type="text" id="f_args" placeholder="e.g. --order-by size,desc --drive-export-formats docx"></dd></dl>
+            <blockquote class='inline_help'><p>Extra CLI arguments passed directly to the engine (rclone or rsync). Note: live transfer progress, speed, and bytes are automatically tracked and logged by the engine without needing <em>--progress</em>.</p></blockquote>
           </div>
 
           <div class="rj-form-actions">

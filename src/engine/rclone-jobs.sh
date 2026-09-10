@@ -307,6 +307,7 @@ sse_publish() { # <job> <running true|false> <rc number|null>
 # --------------------------------------------------------------------- jobs --
 J_ENGINE=""; J_MODE=""; J_SRC=""; J_DST=""; J_SCHEDULE=""; J_ENABLED="yes"
 J_DRYRUN="yes"; J_ARGS=""; J_TRANSFERS="4"; J_CHECKERS="8"; J_BWLIMIT=""
+J_BUFFER_SIZE=""; J_FAST_LIST="no"; J_ONEDRIVE_CHUNK_SIZE=""
 J_MAXDELETE="$DEFAULT_MAX_DELETE"; J_BACKUPDIR=""; J_WARN_DELETE="$DEFAULT_WARN_DELETE"
 J_UMASK="002"; J_HEARTBEAT="yes"; J_NOTIFY=""; J_DESC=""; J_CUSTOM_SCRIPT=""
 JOB_NAME=""; JOB_CONF=""
@@ -334,6 +335,9 @@ load_job() { # whitelisted KEY=VALUE parse of $BOOT_DIR/jobs/<name>.conf; values
       TRANSFERS)     J_TRANSFERS="$val" ;;
       CHECKERS)      J_CHECKERS="$val" ;;
       BWLIMIT)       J_BWLIMIT="$val" ;;
+      BUFFER_SIZE)   J_BUFFER_SIZE="$val" ;;
+      FAST_LIST)     J_FAST_LIST="$val" ;;
+      ONEDRIVE_CHUNK_SIZE) J_ONEDRIVE_CHUNK_SIZE="$val" ;;
       MAXDELETE)     J_MAXDELETE="$val" ;;
       BACKUPDIR)     J_BACKUPDIR="$val" ;;
       WARN_DELETE)   J_WARN_DELETE="$val" ;;
@@ -353,6 +357,13 @@ validate_job() {
   case "$J_DRYRUN"    in yes|no) ;; *) J_DRYRUN=yes ;; esac
   case "$J_HEARTBEAT" in yes|no) ;; *) J_HEARTBEAT=yes ;; esac
   case "$J_NOTIFY"    in always|failures|off) ;; *) J_NOTIFY=always ;; esac
+  case "$J_FAST_LIST" in yes|no) ;; *) J_FAST_LIST=no ;; esac
+  if [ -n "$J_BUFFER_SIZE" ]; then
+    bad_field "$J_BUFFER_SIZE" && die 78 "job $JOB_NAME: BUFFER_SIZE contains forbidden characters"
+  fi
+  if [ -n "$J_ONEDRIVE_CHUNK_SIZE" ]; then
+    bad_field "$J_ONEDRIVE_CHUNK_SIZE" && die 78 "job $JOB_NAME: ONEDRIVE_CHUNK_SIZE contains forbidden characters"
+  fi
   [[ "$J_TRANSFERS"   =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: TRANSFERS must be 0-999"
   [[ "$J_CHECKERS"    =~ ^[0-9]{1,3}$ ]] || die 78 "job $JOB_NAME: CHECKERS must be 0-999"
   [[ "$J_MAXDELETE"   =~ ^[0-9]{1,9}$ ]] || die 78 "job $JOB_NAME: MAXDELETE must be numeric"
@@ -549,6 +560,9 @@ build_command() { # <dry yes|no> - fills CMD array; nothing here is ever string-
     rclone)
       CMD=("$RCLONE_BIN" "${J_MODE:-copy}" "$J_SRC" "$J_DST")
       CMD+=(--transfers "$J_TRANSFERS" --checkers "$J_CHECKERS")
+      [ -n "$J_BUFFER_SIZE" ] && CMD+=(--buffer-size "$J_BUFFER_SIZE")
+      [ "$J_FAST_LIST" = yes ] && CMD+=(--fast-list)
+      [ -n "$J_ONEDRIVE_CHUNK_SIZE" ] && CMD+=(--onedrive-chunk-size "$J_ONEDRIVE_CHUNK_SIZE")
       CMD+=(--max-delete "$J_MAXDELETE")
       [ -n "$J_BACKUPDIR" ] && CMD+=(--backup-dir "$J_BACKUPDIR")
       [ -n "$J_BWLIMIT" ]   && CMD+=(--bwlimit "$J_BWLIMIT")

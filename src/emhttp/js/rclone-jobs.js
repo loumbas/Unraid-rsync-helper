@@ -621,6 +621,7 @@ $(function () {
     var e = $('#f_engine').val();
     $('.rj-eng').toggle(e !== 'custom');
     $('.rj-custom').toggle(e === 'custom');
+    $('.rj-rclone-adv').toggle(e === 'rclone');
   }
   $('#f_engine').off('.rclonejobs').on('change.rclonejobs', engRows);
   engRows();
@@ -628,6 +629,7 @@ $(function () {
   /* ---------------- schedule builder ---------------- */
   (function rjSchedInit() {
     var i, $w = $('#f_s_weekday');
+    $w.empty();
     for (i = 0; i < 24; i++) $('#f_sched_hour').append($('<option></option>').val(i).text(rjPad2(i)));
     for (i = 0; i < 60; i++) {
       $('#f_sched_min').append($('<option></option>').val(i).text(rjPad2(i)));
@@ -636,10 +638,20 @@ $(function () {
     for (i = 1; i <= 31; i++) $('#f_sched_dom').append($('<option></option>').val(i).text(i));
     RJ_NMIN.forEach(function (n) { $('#f_sched_nmin').append($('<option></option>').val(n).text(n)); });
     RJ_DOWS.forEach(function (nm, d) {
-      $w.append($('<label></label>').append($('<input type="checkbox" class="rj-wd-cb">').val(d)).append(' ' + nm));
+      var $btn = $('<button type="button" class="rj-wd-btn" data-dow="' + d + '">' + nm + '<input type="checkbox" class="rj-wd-cb" value="' + d + '"></button>');
+      $w.append($btn);
     });
     $('#f_sched_hour').val(3); $('#f_sched_min').val(30); /* sensible new-job default */
   })();
+
+  $(document).off('click.rjwd', '.rj-wd-btn').on('click.rjwd', '.rj-wd-btn', function (e) {
+    e.preventDefault();
+    var $cb = $(this).find('.rj-wd-cb');
+    var chk = !$cb.prop('checked');
+    $cb.prop('checked', chk);
+    $(this).toggleClass('active', chk);
+    schedSummary();
+  });
 
   function schedRows() {
     var f = $('#f_sched_freq').val();
@@ -675,34 +687,52 @@ $(function () {
 
   function schedSummary() {
     var f = $('#f_sched_freq').val();
-    if (f === 'custom' && !$('#f_schedule').val().trim()) { $('#rj-sched-summary').removeClass('rj-warn').text('Enter a 5-field cron expression, e.g. 30 3 * * *'); return; }
+    if (f === 'custom' && !$('#f_schedule').val().trim()) { $('#rj-sched-summary').removeClass('rj-warn').html('<i class="fa fa-info-circle"></i> Enter a 5-field cron expression, e.g. <code>30 3 * * *</code>'); return; }
     var cron = rjBuildCron();
-    if (!cron) { $('#rj-sched-summary').addClass('rj-warn').text('Pick at least one weekday.'); return; }
+    if (!cron) { $('#rj-sched-summary').addClass('rj-warn').html('<i class="fa fa-exclamation-triangle"></i> Pick at least one weekday.'); return; }
     var fields = cron.split(/\s+/);
     if (f === 'custom') {
       var lim = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]], bad = fields.length !== 5;
       if (!bad) for (var i = 0; i < 5; i++) if (!rjFieldSet(fields[i], lim[i][0], lim[i][1])) { bad = true; break; }
-      if (bad) { $('#rj-sched-summary').addClass('rj-warn').text('Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; 7 = Sunday).'); return; }
+      if (bad) { $('#rj-sched-summary').addClass('rj-warn').html('<i class="fa fa-exclamation-triangle"></i> Not a valid 5-field cron expression (minute 0-59, hour 0-23, day 1-31, month 1-12, weekday 0-7; 7 = Sunday).'); return; }
     }
-    var msgs = [rjHumanize(cron) || 'Custom cron', 'cron: ' + cron];
+    var human = rjHumanize(cron) || 'Custom cron';
+    var msgs = ['<strong style="color:#e8eef3"><i class="fa fa-calendar-check-o" style="color:#ff8c2f"></i> ' + rjEsc(human) + '</strong>', 'cron: <code>' + rjEsc(cron) + '</code>'];
     var runs = rjNextRuns(cron, 3);
-    if (runs.length) msgs.push('next: ' + runs.map(rjFmtRun).join(' · '));
-    if (fields[2] !== '*' && fields[4] !== '*') msgs.push('note: with both day-of-month and day-of-week set, cron fires when EITHER matches.');
-    if (f === 'monthly' && +fields[2] > 28) msgs.push('note: months without day ' + fields[2] + ' are skipped.');
-    $('#rj-sched-summary').removeClass('rj-warn').text(msgs.join('  |  '));
+    if (runs.length) msgs.push('next: ' + runs.map(function (r) { return rjEsc(rjFmtRun(r)); }).join(' · '));
+    if (fields[2] !== '*' && fields[4] !== '*') msgs.push('<em>note: with both day-of-month and day-of-week set, cron fires when EITHER matches.</em>');
+    if (f === 'monthly' && +fields[2] > 28) msgs.push('<em>note: months without day ' + fields[2] + ' are skipped.</em>');
+    $('#rj-sched-summary').removeClass('rj-warn').html(msgs.join('&nbsp;&nbsp;|&nbsp;&nbsp;'));
   }
 
   function rjFormSetSchedule(cron) {
     var p = cron ? rjParseCron(cron) : null;
-    if (!cron) { $('#f_sched_freq').val('daily'); $('#f_sched_hour').val(3); $('#f_sched_min').val(30); }
-    else if (p) {
+    if (!cron) {
+      $('#f_sched_freq').val('daily');
+      $('#f_sched_hour').val(3);
+      $('#f_sched_min').val(30);
+      $('.rj-wd-cb').prop('checked', false);
+      $('.rj-wd-btn').removeClass('active');
+    } else if (p) {
       $('#f_sched_freq').val(p.freq);
       if (p.freq === 'minutely') $('#f_sched_nmin').val(p.nmin);
       if (p.freq === 'hourly') $('#f_sched_hmin').val(p.hmin);
-      if (p.freq === 'weekly') { $('.rj-wd-cb').prop('checked', false); p.dow.forEach(function (d) { $('.rj-wd-cb').filter('[value="' + d + '"]').prop('checked', true); }); }
+      if (p.freq === 'weekly') {
+        $('.rj-wd-cb').prop('checked', false);
+        $('.rj-wd-btn').removeClass('active');
+        p.dow.forEach(function (d) {
+          $('.rj-wd-cb').filter('[value="' + d + '"]').prop('checked', true);
+          $('.rj-wd-btn[data-dow="' + d + '"]').addClass('active');
+        });
+      }
       if (p.freq !== 'minutely' && p.freq !== 'hourly') { $('#f_sched_hour').val(p.hour); $('#f_sched_min').val(p.min); }
       if (p.freq === 'monthly') $('#f_sched_dom').val(p.dom);
-    } else { $('#f_sched_freq').val('custom'); $('#f_schedule').val(cron); }
+    } else {
+      $('#f_sched_freq').val('custom');
+      $('#f_schedule').val(cron);
+      $('.rj-wd-cb').prop('checked', false);
+      $('.rj-wd-btn').removeClass('active');
+    }
     schedRows();
   }
 
@@ -841,6 +871,10 @@ $(function () {
     $('#f_maxdelete').val(j && j.conf.MAXDELETE !== undefined ? j.conf.MAXDELETE : 100);
     $('#f_warndelete').val(j && j.conf.WARN_DELETE !== undefined ? j.conf.WARN_DELETE : 100);
     $('#f_backupdir').val(j && j.conf.BACKUPDIR ? j.conf.BACKUPDIR : '');
+    $('#f_buffersize').val(j && j.conf.BUFFER_SIZE ? j.conf.BUFFER_SIZE : '');
+    $('#f_fastlist').val(j && j.conf.FAST_LIST === 'yes' ? 'yes' : 'no');
+    $('#f_onedrive_chunksize').val(j && j.conf.ONEDRIVE_CHUNK_SIZE ? j.conf.ONEDRIVE_CHUNK_SIZE : '');
+    $('#f_args').val(j && j.conf.ARGS ? j.conf.ARGS : '');
     engRows();
     rjOvHint();
     rjAttachForm(j ? j.name : null);
@@ -1049,7 +1083,11 @@ $(function () {
       dryrun: $('#f_dryrun').val(), notify: $('#f_notify').val(),
       transfers: $('#f_transfers').val(), checkers: $('#f_checkers').val(),
       bwlimit: $('#f_bwlimit').val().trim(), maxdelete: $('#f_maxdelete').val(),
-      warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim()
+      warndelete: $('#f_warndelete').val(), backupdir: $('#f_backupdir').val().trim(),
+      buffer_size: $('#f_buffersize').val().trim(),
+      fast_list: $('#f_fastlist').val(),
+      onedrive_chunk_size: $('#f_onedrive_chunksize').val().trim(),
+      args: $('#f_args').val().trim()
     };
     var $sub = $('#rj-jobform input[type=submit]');
     if ($sub.prop('disabled')) return; /* double-submit guard (save previews take seconds) */
