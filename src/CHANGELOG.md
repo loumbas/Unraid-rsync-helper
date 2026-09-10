@@ -1,3 +1,7 @@
+## 2026.09.10e
+Mobile Jobs Tab Fix (Unraid 7.2+ responsive WebGUI clash):
+ - Fixed overlapping/garbled job-card content on phones: Unraid 7.2+ ships a global `table tbody td { height: 2.6rem; white-space: nowrap }` rule that is harmless on desktop (a table-cell treats height as a minimum) but hard-caps our mobile card layout, where each cell is `display: flex` - every cell taller than one line (path stack, last-run pill + last-OK line, dry-run diff chips, job description) overflowed its 26px box and painted over the rows below. The <=768px media query now neutralizes the host rule for the jobs table (`height: auto; line-height: 1.4; white-space: normal`) and lets card rows wrap (`flex-wrap: wrap` with a small row gap) so long values flow onto a second line instead of bleeding sideways. Covers the inline edit-form and history drawers rendered inside table rows too. Desktop and tablet table layouts are untouched.
+
 ## 2026.09.10d
 Codebase Quality (dead-code removal, no behavior changes):
   - Engine: removed never-called `valid_schedule()` (PHP and regen-cron carry their own validators), write-only `CLS_EMOJI` classification token (only `CLS_HEAD` is consumed), unused locals in `cmd_import_jobs`/`cmd_browse`/`cmd_doctor`, and a stale duplicate `watchdog` line in `usage()`.
