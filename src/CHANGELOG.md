@@ -5,6 +5,7 @@ Schedule Ergonomics & Advanced Rclone Settings:
  - Enhanced live schedule summary: upgraded the cron helper into a high-visibility badge card with clear calendar indicators, human-readable run schedule, exact cron syntax, and upcoming run countdowns.
  - Advanced rclone settings: added first-class WebUI and backend engine support for `--buffer-size` (memory buffer per stream), `--fast-list` (recursive cloud listing for OneDrive, Google Drive, S3), and `--onedrive-chunk-size` (accelerates large file uploads to OneDrive).
  - Custom CLI flags: added an Additional Flags field allowing arbitrary extra parameters to be passed safely to rclone or rsync without shell-injection risk.
+ - Save without auto dry-run: saving a job now saves configuration and reloads cleanly without automatically starting an unsolicited dry run (testing remains explicitly available via the Test button and table actions).
 
 ## 2026.09.09r
 Responsive Jobs Table & Viewport Adaptations:

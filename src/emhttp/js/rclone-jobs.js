@@ -902,7 +902,7 @@ $(function () {
       if ($p.length) $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
       rjPanel('rj-result', 'Saving "' + job + '" to start dry-run preview...', false);
-      $('#rj-jobform').trigger('submit');
+      $('#rj-jobform').data('test_preview', true).trigger('submit');
     }
   });
 
@@ -1075,6 +1075,8 @@ $(function () {
     if (!job) return;
     var cron = rjBuildCron();
     if (!cron) { schedSummary(); return; }
+    var wantsPreview = $('#rj-jobform').data('test_preview') === true;
+    $('#rj-jobform').data('test_preview', false);
     var data = {
       action: 'save_job', job: job,
       desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: cron,
@@ -1096,10 +1098,10 @@ $(function () {
       $sub.prop('disabled', false).val('Save job');
       if (res.ok) {
         rjPanel('rj-result', res.msg, false);
-        /* start the dry-run AFTER the table reload: the detached task survives
-           it and the fresh page resumes polling from the sessionStorage flag */
-        try { sessionStorage.setItem('rj_autopreview', job); } catch (e) { /* private mode: skip auto-preview */ }
-        setTimeout(function () { location.reload(); }, 1200);
+        if (wantsPreview) {
+          try { sessionStorage.setItem('rj_autopreview', job); } catch (e) { /* private mode: skip auto-preview */ }
+        }
+        setTimeout(function () { location.reload(); }, 1000);
       } else {
         rjPanel('rj-result', 'ERROR: ' + res.error, true);
       }

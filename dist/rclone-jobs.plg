@@ -19,6 +19,7 @@ Schedule Ergonomics &amp; Advanced Rclone Settings:
  - Enhanced live schedule summary: upgraded the cron helper into a high-visibility badge card with clear calendar indicators, human-readable run schedule, exact cron syntax, and upcoming run countdowns.
  - Advanced rclone settings: added first-class WebUI and backend engine support for `--buffer-size` (memory buffer per stream), `--fast-list` (recursive cloud listing for OneDrive, Google Drive, S3), and `--onedrive-chunk-size` (accelerates large file uploads to OneDrive).
  - Custom CLI flags: added an Additional Flags field allowing arbitrary extra parameters to be passed safely to rclone or rsync without shell-injection risk.
+ - Save without auto dry-run: saving a job now saves configuration and reloads cleanly without automatically starting an unsolicited dry run (testing remains explicitly available via the Test button and table actions).
 
 ## 2026.09.09r
 Responsive Jobs Table &amp; Viewport Adaptations:
@@ -4491,7 +4492,7 @@ $(function () {
       if ($p.length) $p[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
       rjPanel('rj-result', 'Saving "' + job + '" to start dry-run preview...', false);
-      $('#rj-jobform').trigger('submit');
+      $('#rj-jobform').data('test_preview', true).trigger('submit');
     }
   });
 
@@ -4664,6 +4665,8 @@ $(function () {
     if (!job) return;
     var cron = rjBuildCron();
     if (!cron) { schedSummary(); return; }
+    var wantsPreview = $('#rj-jobform').data('test_preview') === true;
+    $('#rj-jobform').data('test_preview', false);
     var data = {
       action: 'save_job', job: job,
       desc: $('#f_desc').val(), enabled: $('#f_enabled').val(), schedule: cron,
@@ -4685,10 +4688,10 @@ $(function () {
       $sub.prop('disabled', false).val('Save job');
       if (res.ok) {
         rjPanel('rj-result', res.msg, false);
-        /* start the dry-run AFTER the table reload: the detached task survives
-           it and the fresh page resumes polling from the sessionStorage flag */
-        try { sessionStorage.setItem('rj_autopreview', job); } catch (e) { /* private mode: skip auto-preview */ }
-        setTimeout(function () { location.reload(); }, 1200);
+        if (wantsPreview) {
+          try { sessionStorage.setItem('rj_autopreview', job); } catch (e) { /* private mode: skip auto-preview */ }
+        }
+        setTimeout(function () { location.reload(); }, 1000);
       } else {
         rjPanel('rj-result', 'ERROR: ' + res.error, true);
       }
@@ -4967,7 +4970,7 @@ $(function () {
   $(window).on('beforeunload.rjlive', function () { if (rjLive.es) { try { rjLive.es.close(); } catch (e) { /* noop */ } } });
 });
 </INLINE>
-<SHA256>a2470ef6fb9cbc92e606fd6b25808a25197f386cdbce30df47f5d7fb935cdafd</SHA256>
+<SHA256>afb38c8311cb020e29363ed4de8aec4d5377914eafeb7738603183e17df83e00</SHA256>
   </FILE>
 
   <FILE Name="/usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh" Mode="0755">
@@ -6471,7 +6474,7 @@ ca9d1d9081a4d04fa8bca8fbebe14514ffa6d121a502c8a82c356bd2d42c9e88  /usr/local/emh
 b14219001dd20fa3f0bfcd3af2bbb62db40b98d86ac97714d2ac6c321367461a  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.page  0644
 a074699db7a4b643861bc61f48f71f7117a82e7e39f2ecc8f685817fd33fde2e  /usr/local/emhttp/plugins/rclone-jobs/ajax.php  0644
 848a3f938ed30fe95fb9c61480ff9b6da2717301a995c213016f076e454e43b1  /usr/local/emhttp/plugins/rclone-jobs/log.php  0644
-a2470ef6fb9cbc92e606fd6b25808a25197f386cdbce30df47f5d7fb935cdafd  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
+afb38c8311cb020e29363ed4de8aec4d5377914eafeb7738603183e17df83e00  /usr/local/emhttp/plugins/rclone-jobs/js/rclone-jobs.js  0644
 a98ab261833e73864bdf4cc9aa3fb301aa2e777ea45ed7243da2921236ff528d  /usr/local/emhttp/plugins/rclone-jobs/scripts/regen-cron.sh  0755
 6bbc091bded68b1eac0f6e8df670235eea27187044ebfb6df417c79e42a3cd1d  /usr/local/emhttp/plugins/rclone-jobs/scripts/install-engine.sh  0755
 8712ae82ed526f126688cc22c8621751082b24b2eac242c90f742b2155a5ef68  /usr/local/emhttp/plugins/rclone-jobs/scripts/boot-setup.sh  0755
@@ -6485,7 +6488,7 @@ b4c53901e7dc6407590c3ae456ff75ed77fe831e535a100a25c437091c10262f  /usr/local/emh
 f47d1a633c1a0e05b28e3203e1a5b8d21def406e0a17c0c4b97d8d1e66c521b0  /usr/local/emhttp/plugins/rclone-jobs/README.md  0644
 190bc6d19281056d2a7508f6bff1a6ddeffdf3218f808cd102d1579656f85f22  /usr/local/emhttp/plugins/rclone-jobs/rclone-jobs.png.b64  0644
 </INLINE>
-<SHA256>ce0d562e574050f4bffd5d2dcf2ad6b3ef786705c82e177e2a40e1293a57959a</SHA256>
+<SHA256>b992c4e11998e277cacba3d1782d23e0e020b7f64d877a14161737e330df9f1e</SHA256>
   </FILE>
   <!-- INSTALL: runs after the files above are in place, at install/upgrade AND at every
        boot (array may be down). Boot-safe and idempotent by design. -->
