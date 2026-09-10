@@ -61,7 +61,7 @@ function rj_sched_part($x, $lo, $hi) {
     return true;
 }
 function rj_sched_ok($s) {
-    /* charset rule of the engine (valid_schedule) plus per-field ranges:
+    /* cron-injection defense: numerics plus * , - / only, plus per-field ranges:
        min 0-59, hour 0-23, dom 1-31, mon 1-12, dow 0-7 (7 = Sunday alias) */
     if (!is_string($s) || $s === '') return false;
     $f = preg_split('/\s+/', trim($s));
@@ -212,14 +212,6 @@ case 'delete_job':
     rename($conf, $bk);
     $rg = []; rj_regen($rg);
     rj_out(['ok' => true, 'msg' => 'Job deleted (config kept as '.$bk.') '.implode(' ', $rg)]);
-
-case 'run_dry':
-    /* DEPRECATED sync path (kept one release for old cached pages) - the UI now
-       uses preview_start + task_status so long dry-runs never block php-fpm. */
-    if (!rj_name_ok($name)) rj_out(['ok' => false, 'error' => 'invalid job name']);
-    $eo = []; $erc = 0;
-    rj_engine('preview ' . escapeshellarg($name), $eo, $erc);
-    rj_out(['ok' => true, 'out' => implode("\n", $eo), 'rc' => $erc]);
 
 case 'preview_start':
 case 'task_status':

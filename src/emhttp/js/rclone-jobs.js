@@ -405,6 +405,19 @@ function rjAttachHistory(job) {
   $('#rj-history-slot-bottom').append($p).show();
 }
 
+/* top-level (not ready-closure scoped) so rjShowHistory can call it */
+function rjCloseForm() {
+  var $wrap = $('#rj-form-wrap');
+  $wrap.hide();
+  $('#rj-form-slot-bottom').append($wrap).show();
+  $('#rj-inline-form-tr').remove();
+  $('.rj-row-editing').removeClass('rj-row-editing');
+  $('#rj-form-chev').attr('class', 'fa fa-chevron-down');
+  $('#rj-form-toggle').attr('aria-expanded', 'false');
+  $('#rj-form-title-accordion').text('Add job');
+  $('#rj-result').hide();
+}
+
 function rjShowHistory(job) {
   /* toggle off if already open for this job */
   if ($('#rj-inline-hist-tr').length && $('.rj-row-hist').data('job') === job && $('#rj-history').is(':visible')) {
@@ -412,7 +425,7 @@ function rjShowHistory(job) {
     return;
   }
   /* close edit form if open to prevent visual clutter */
-  if (typeof rjCloseForm === 'function') rjCloseForm();
+  rjCloseForm();
   rjAttachHistory(job);
 
   /* tiered view: 24h summary + hourly sparkline (raw runs merged with hourly
@@ -841,18 +854,6 @@ $(function () {
     $('#rj-form-slot-bottom').append($wrap).show();
   }
 
-  function rjCloseForm() {
-    var $wrap = $('#rj-form-wrap');
-    $wrap.hide();
-    $('#rj-form-slot-bottom').append($wrap).show();
-    $('#rj-inline-form-tr').remove();
-    $('.rj-row-editing').removeClass('rj-row-editing');
-    $('#rj-form-chev').attr('class', 'fa fa-chevron-down');
-    $('#rj-form-toggle').attr('aria-expanded', 'false');
-    $('#rj-form-title-accordion').text('Add job');
-    $('#rj-result').hide();
-  }
-
   function rjSetFormOpen(open) {
     if (!open) {
       rjCloseForm();
@@ -879,7 +880,7 @@ $(function () {
   if (!Object.keys(D.jobs).length) showForm('Add job', null);
 
   function showForm(title, j) {
-    if (typeof rjCloseHistory === 'function') rjCloseHistory();
+    rjCloseHistory();
     $('#rj-form-title').text(title);
     $('#rj-form-title-accordion').text(title);
     $('#f_orig').val(j ? j.name : '');

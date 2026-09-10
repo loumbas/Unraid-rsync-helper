@@ -2,7 +2,7 @@
 /*
  * rclone-jobs preview renderer - turns rclone/rsync dry-run logs into a
  * structured report (JSON for status/<job>-dryrun.json, text for humans).
- * Used by the engine via PHP CLI and by the WebUI via include.
+ * Used by the engine via PHP CLI only (the WebUI reads the JSON it produces).
  *
  * License: GPL-2.0-or-later. PHP 8.x clean.
  * CLI: preview.php --mode json|text [--engine rclone|rsync] [--rc N]
@@ -97,7 +97,7 @@ function rj_preview_parse(string $file, string $engine): array
     return $r;
 }
 
-function rj_preview_text(array $r, int $rc, bool $emptyDestArg, int $warnDelete): string
+function rj_preview_text(array $r, int $rc, bool $emptyDestArg): string
 {
     $out = [];
     $out[] = 'DRY RUN - nothing was changed';
@@ -122,11 +122,6 @@ function rj_preview_text(array $r, int $rc, bool $emptyDestArg, int $warnDelete)
         $out[] = '*** WARNING: destination looks EMPTY or new - a live sync would now mirror the source onto it.';
         $out[] = '*** If the source is wrong or partially missing, this is exactly how destinations get wiped.';
         $out[] = '*** Check SRC and DST before ever running live.';
-    }
-    if ($warnDelete > 0 && $r['deletes'] > $warnDelete) {
-        $out[] = '';
-        $out[] = '*** RED BLOCK: this run would DELETE ' . $r['deletes'] . ' files (threshold WARN_DELETE=' . $warnDelete . ').';
-        $out[] = '*** The live [Run] button stays blocked until you acknowledge this number.';
     }
     if ($rc !== 0) {
         $out[] = '';
@@ -153,7 +148,7 @@ if (PHP_SAPI === 'cli') {
     $r['engine'] = $engine;
     if ($ed) { $r['emptyDest'] = true; }
     if ($mode === 'text') {
-        echo rj_preview_text($r, $rc, $ed, 0);
+        echo rj_preview_text($r, $rc, $ed);
     } else {
         echo json_encode($r, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";
     }

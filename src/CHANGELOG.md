@@ -1,3 +1,11 @@
+## 2026.09.10d
+Codebase Quality (dead-code removal, no behavior changes):
+  - Engine: removed never-called `valid_schedule()` (PHP and regen-cron carry their own validators), write-only `CLS_EMOJI` classification token (only `CLS_HEAD` is consumed), unused locals in `cmd_import_jobs`/`cmd_browse`/`cmd_doctor`, and a stale duplicate `watchdog` line in `usage()`.
+  - ajax.php: removed the deprecated synchronous `run_dry` action (kept for old cached pages since 2026.09.07f; the UI has used `preview-start` + `task-status` ever since).
+  - preview.php: dropped the always-zero `$warnDelete` parameter and its unreachable RED BLOCK text branch (the WebUI gets the threshold via the JSON `warnDelete` field injected by the engine); fixed stale header comment (no file includes preview.php).
+  - WebUI page: removed dead `$RJ_PLUGIN`/`$RJ_ENGINE` variables (the page never shells out - all engine calls go through ajax.php), unreferenced `.rj-badge` CSS rules, the dead `#rj-counts` span, and inline styles already overridden by `!important` rules; merged the duplicate `#rj-sched-summary` rule (identical computed style, one rule now).
+  - WebUI script: hoisted `rjCloseForm()` to top level so opening a job's history now actually closes an open edit form (the existing call site was dead due to closure scoping); simplified the now-redundant `typeof` guards to direct calls.
+
 ## 2026.09.10c
 Robustness:
  - Atomic engine CLI refresh: install-engine.sh now writes the storage-side engine copy to a hidden temp file in the same folder and renames it over the target (atomic on same-filesystem renames) instead of `cp -f` truncating in place. A job started directly from the storage copy (manual CLI run, or cron's fallback when the emhttp copy was unavailable) that is still executing during a plugin update or boot re-deploy keeps running on its old (unlinked) inode and finishes cleanly - previously the in-place overwrite could corrupt the script mid-read for that narrow case. Failure paths clean up the temp file; the identical-content short-circuit (`cmp`) is unchanged.

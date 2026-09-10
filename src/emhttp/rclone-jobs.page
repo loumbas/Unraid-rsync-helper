@@ -5,9 +5,7 @@ Icon="rclone-jobs.png"
 <?php
 /* rclone-jobs v{{VERSION}} - WebUI page (Settings tab).
    Rendered server-side; all mutations go through ajax.php (CSRF-checked). */
-$RJ_PLUGIN = '/usr/local/emhttp/plugins/rclone-jobs';
 $RJ_BOOT   = '/boot/config/plugins/rclone-jobs';
-$RJ_ENGINE = $RJ_PLUGIN.'/engine/rclone-jobs.sh';
 
 $csrf_token = $csrf_token ?? (parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '');
 
@@ -288,7 +286,6 @@ $rjdata = [
     '#tab_rj_jobs .rj-wd-btn:hover{border-color:#ff8c2f;color:#e8eef3}',
     '#tab_rj_jobs .rj-wd-btn.active{background:#ff8c2f;border-color:#ff8c2f;color:#111;font-weight:700}',
     '#tab_rj_jobs .rj-wd-btn input[type=checkbox]{display:none}',
-    '#rj-sched-summary{margin:8px 0 8px 160px!important;padding:8px 12px!important;background:#141920!important;border:1px solid #28323c!important;border-radius:6px!important;font-size:11px!important;color:#9aa7b2!important;white-space:normal!important;line-height:1.5!important;max-width:680px!important}',
     '#rj-sched-summary.rj-warn{border-color:#e6867e!important;color:#e6867e!important;background:rgba(230,134,126,0.08)!important}',
     '#tab_rj_jobs dd.rj-inline,#tab_rj_alerts dd.rj-inline{white-space:nowrap}',
     /* Tabs styling */
@@ -360,10 +357,7 @@ $rjdata = [
     '.rj-switch input:checked+.rj-slider-dry:before{transform:translateX(16px);background:#fff}',
     '.rj-switch-text.rj-dry-text.dry{color:#ffa75e}',
     '.rj-switch-text.rj-dry-text.live{color:#38bdf8}',
-    /* Badges & Chips */
-    '#tab_rj_jobs .rj-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}',
-    '#tab_rj_jobs .rj-badge.on{background:#2f8f46;color:#fff}',
-    '#tab_rj_jobs .rj-badge.off{background:#4a5560;color:#cbd5e1}',
+    /* Chips */
     '#tab_rj_jobs .rj-chip{color:#22d3ee!important;font-size:11px!important;font-weight:600!important;border:1px solid rgba(34,211,238,0.4)!important;border-radius:12px!important;padding:2px 10px!important;margin-top:4px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;background:rgba(6,182,212,0.18)!important;letter-spacing:0.3px}',
     '#tab_rj_jobs .rj-chip.rsync{color:#a78bfa!important;border-color:rgba(167,139,250,0.4)!important;background:rgba(167,139,250,0.18)!important}',
     '#tab_rj_jobs .rj-chip.custom{color:#fbbf24!important;border-color:rgba(251,191,36,0.4)!important;background:rgba(251,191,36,0.18)!important}',
@@ -474,7 +468,7 @@ $rjdata = [
     '#rj-form-wrap blockquote.inline_help,#rj-jobform blockquote.inline_help,#tab_rj_jobs blockquote.inline_help,#tab_rj_alerts blockquote.inline_help{margin:6px 0 12px 160px!important;padding:8px 14px!important;max-width:680px!important;width:calc(100% - 180px)!important;box-sizing:border-box!important;font-size:11px!important;color:#9aa7b2!important;border:1px solid #2e3842!important;border-left:3px solid #ff8c2f!important;background:#14191f!important;border-radius:4px!important;clear:both!important;text-align:left!important;white-space:normal!important;line-height:1.5!important;overflow-wrap:break-word!important;word-wrap:break-word!important}',
     '#rj-form-wrap blockquote.inline_help p,#rj-jobform blockquote.inline_help p,#tab_rj_jobs blockquote.inline_help p,#tab_rj_alerts blockquote.inline_help p{margin:0!important;padding:0!important;color:#9aa7b2!important;font-size:11px!important;line-height:1.5!important;white-space:normal!important;overflow-wrap:break-word!important;word-wrap:break-word!important}',
     '#rj-form-wrap blockquote.inline_help em,#rj-jobform blockquote.inline_help em,#tab_rj_jobs blockquote.inline_help em,#tab_rj_alerts blockquote.inline_help em{color:#22d3ee!important;font-style:normal!important;font-weight:600!important}',
-    '#rj-sched-summary{margin:6px 0 6px 160px!important;font-size:11px!important;color:#9aa7b2!important;white-space:normal!important;line-height:1.4!important;max-width:680px!important}',
+    '#rj-sched-summary{margin:6px 0 6px 160px!important;padding:8px 12px!important;background:#141920!important;border:1px solid #28323c!important;border-radius:6px!important;font-size:11px!important;color:#9aa7b2!important;white-space:normal!important;line-height:1.4!important;max-width:680px!important}',
     '#rj-ov-note{margin:6px 0 6px 160px!important;font-size:11px!important;color:#e6867e!important;white-space:normal!important;line-height:1.4!important;max-width:680px!important}',
     '#rj-jobform .rj-browse-btn{height:28px!important;line-height:26px!important;padding:0 12px!important;font-size:11px!important;font-weight:600!important;text-transform:none!important;border:1px solid #ff8c2f!important;border-radius:4px!important;background:#20262d!important;color:#ff8c2f!important;cursor:pointer!important;transition:all 0.15s ease!important}',
     '#rj-jobform .rj-browse-btn:hover{background:#ff8c2f!important;color:#111!important}',
@@ -538,7 +532,6 @@ $rjdata = [
         <div class="rj-card-sub" id="rj-live-sub">Live status stream</div>
       </div>
     </div>
-    <span id="rj-counts" style="display:none"><?= count($jobs).' jobs · '.$nEnabled.' enabled' ?></span>
 
     <div class="rj-toolbar">
       <div class="rj-tb-search">
@@ -680,8 +673,8 @@ $rjdata = [
       </tbody>
     </table>
     </div>
-    <div id="rj-result" style="display:none;margin-top:10px"><pre id="rj-result-pre" style="white-space:pre-wrap"></pre></div>
-    <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre" style="white-space:pre-wrap"></pre></div>
+    <div id="rj-result" style="display:none;margin-top:10px"><pre id="rj-result-pre"></pre></div>
+    <div id="rj-preview" style="display:none;margin-top:10px"><pre id="rj-preview-pre"></pre></div>
     <div id="rj-preview-ctl" style="display:none;margin-top:6px"><input type="button" id="rj-preview-cancel" value="Cancel preview" class="rj-btn rj-del"></div>
     <div id="rj-history-slot-bottom" style="display:none"><div id="rj-history"></div></div>
 
@@ -800,7 +793,7 @@ $rjdata = [
               <dl><dt>Destination:</dt><dd class="rj-pathrow"><input type="text" id="f_dst" class="variable rj-path" list="rj-paths-dl" placeholder="remote:backup/folder or /mnt/disk2/mirror"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_dst"></dd></dl>
               <blockquote class='inline_help'><p>Where files land. A local destination must already be a mounted directory - it is never auto-created, so an unmounted array/share is refused instead of filling RAM. New folders inside a valid destination are created by the engine.</p></blockquote>
             </div>
-            <p id="rj-ov-note" style="display:none;margin:6px 0 2px;font-size:11px"></p>
+            <p id="rj-ov-note" style="display:none"></p>
             <div class="rj-custom" style="display:none">
               <dl><dt>Script:</dt><dd class="rj-pathrow"><input type="text" id="f_script" class="variable rj-path" placeholder="/usr/local/emhttp/plugins/rclone-jobs/scripts/my-script.sh"> <input type="button" value="Browse..." class="rj-btn rj-browse-btn" data-target="f_script"></dd></dl>
               <blockquote class='inline_help'><p>Absolute path of an executable script; Browse... shows <em>.sh</em> files under the plugins folder. The script runs as root with a hardened PATH; its exit code and output go into the job status and logs.</p></blockquote>

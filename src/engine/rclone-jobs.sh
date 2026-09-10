@@ -105,11 +105,6 @@ bad_field() { # <value> -> 0 REJECT (shell metacharacters present)
 valid_jobname() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,40}$ ]]; }
 valid_remote()  { [[ "$1" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 
-valid_schedule() { # 5 cron fields, numerics plus * , - / only (cron-injection defense)
-  local re='^[0-9,*/-]+( [0-9,*/-]+){4}$'
-  [[ "$1" =~ $re ]]
-}
-
 num_clamp() { # <value> <min> <max> <default> -> validated int on stdout (paths.env values are never trusted)
   local v="${1:-}"
   [[ "$v" =~ ^[0-9]{1,5}$ ]] || { printf '%s' "$4"; return 0; }
@@ -605,7 +600,7 @@ find_php() {
 
 # --------------------------------------------------------- result processing --
 ERR_COUNT=0; ERR_LAST=""; ERR_FILES=""; TR="0"
-CLS_EMOJI="!"; CLS_HEAD="Failed"
+CLS_HEAD="Failed"
 
 parse_counters() { # <logfile>
   local lf="$1" n t rbytes
@@ -636,26 +631,26 @@ parse_counters() { # <logfile>
 classify() { # <rc> <error text> - headline used by log, UI and notifications
   local rc="$1" e="$2"
   if printf '%s' "$e" | grep -Eqi 'invalid_grant|AADSTS|refresh token|status code 401|401 Unauthorized'; then
-    CLS_EMOJI="LOCK";  CLS_HEAD="re-login needed for the remote - open the rclone plugin page and re-authenticate"
+    CLS_HEAD="re-login needed for the remote - open the rclone plugin page and re-authenticate"
   elif printf '%s' "$e" | grep -Eqi 'no space left|quota'; then
-    CLS_EMOJI="DISK";  CLS_HEAD="storage full or quota exceeded"
+    CLS_HEAD="storage full or quota exceeded"
   elif printf '%s' "$e" | grep -Eqi '429|throttl'; then
-    CLS_EMOJI="SLOW";  CLS_HEAD="rate-limited / throttled by the remote"
+    CLS_HEAD="rate-limited / throttled by the remote"
   elif printf '%s' "$e" | grep -Eqi 'reserved name|name too long|illegal'; then
-    CLS_EMOJI="NAME";  CLS_HEAD="invalid filenames (reserved name / path too long) - fix the source before retrying"
+    CLS_HEAD="invalid filenames (reserved name / path too long) - fix the source before retrying"
   elif [ "$rc" -eq 24 ]; then
-    CLS_EMOJI="OK";    CLS_HEAD="OK (rsync: some source files vanished during transfer - benign)"
+    CLS_HEAD="OK (rsync: some source files vanished during transfer - benign)"
   elif [ "$rc" -eq 0 ]; then
-    CLS_EMOJI="OK";    CLS_HEAD="OK"
+    CLS_HEAD="OK"
   elif [ "$J_ENGINE" = rsync ]; then
     case "$rc" in
-      23)          CLS_EMOJI="WARN"; CLS_HEAD="rsync partial transfer (some files skipped with errors)" ;;
-      10|12|30|35) CLS_EMOJI="NET";  CLS_HEAD="rsync network/protocol error (exit $rc)" ;;
-      11|13|14)    CLS_EMOJI="DISK"; CLS_HEAD="rsync disk/IO error (exit $rc)" ;;
-      *)           CLS_EMOJI="ERR";  CLS_HEAD="Failed (exit $rc)" ;;
+      23)          CLS_HEAD="rsync partial transfer (some files skipped with errors)" ;;
+      10|12|30|35) CLS_HEAD="rsync network/protocol error (exit $rc)" ;;
+      11|13|14)    CLS_HEAD="rsync disk/IO error (exit $rc)" ;;
+      *)           CLS_HEAD="Failed (exit $rc)" ;;
     esac
   else
-    CLS_EMOJI="ERR"; CLS_HEAD="Failed (exit $rc)"
+    CLS_HEAD="Failed (exit $rc)"
   fi
 }
 
@@ -1092,7 +1087,7 @@ cmd_export_jobs() { # -> JSON {ok,name,count,archive(b64)} - no STORAGE_ROOT nee
 }
 
 cmd_import_jobs() { # <ask|overwrite|skip> <b64-file> -> JSON report; nothing is written before validation
-  local mode="${1:-ask}" src="${2:-}" m n f bad="" members mcount=0 tmp b64
+  local mode="${1:-ask}" src="${2:-}" m n f bad="" members mcount=0 tmp
   local dest added=0 replaced=0 skipped=0 conflicts="" rejected="" first=true
   case "$mode" in ask|overwrite|skip) ;; *) mode=ask ;; esac
   [ -f "$src" ] || { imp_err "no uploaded archive"; return 0; }
@@ -1559,7 +1554,7 @@ d_line() { # <PASS|WARN|FAIL|INFO> <text> - buffered once, printed once in the f
 }
 
 cmd_doctor() { # self-diagnosis; opt-in test notification with --notify
-  local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn save ov ovl nsc n
+  local opt_notify=no a pv ro rv cf b missing rp regen drift drc probe_rc now sj lo jn ov ovl nsc n
   local njobs nact jen jsched csf csha cpath cmode cscount csbad csmiss csmod cswant csgot
   for a in "$@"; do [ "$a" = "--notify" ] && opt_notify=yes; done
   DOCTOR_BUF="$(mktemp)"
@@ -1742,7 +1737,7 @@ bj_run() { # <secs> <cmd...> - run with 'timeout' when coreutils provides it
 
 cmd_browse() { # browse <local|rclone> <path> [files]
   local scope="${1:-local}" p="${2:-}" with_files="${3:-}"
-  local jf rc rp pp n cnt=0 truncated=false outs lo child
+  local jf rc rp pp cnt=0 truncated=false outs lo child
 
   case "$scope" in local|rclone) ;; *) bj_json_err "scope must be local|rclone" ;; esac
   command -v jq >/dev/null 2>&1 || bj_json_err "jq not available"
@@ -1849,7 +1844,6 @@ usage:
   rclone-jobs.sh export-jobs             job set as tar.gz, base64 on stdout (JSON)
   rclone-jobs.sh import-jobs <ask|overwrite|skip> <b64-file>   validated import
   rclone-jobs.sh browse <local|rclone> <path> [files]   read-only listing as JSON
-  rclone-jobs.sh watchdog                stale/stuck alerts + prune logs older than 14d
   rclone-jobs.sh shutdown-notice         'stopping' event: trace jobs cut off mid-run (fast, exit 0)
   rclone-jobs.sh notify-test [level]     test notification via Unraid's notify script
                                          (level: normal|warning|alert, default normal)
