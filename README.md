@@ -6,6 +6,20 @@ Scheduled **rclone / rsync / custom-script** jobs for Unraid 7, built around one
 Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 (`/boot/config/plugins/rclone/.rclone.conf`).
 
+**Documentation:** [Operator Manual](MANUAL.md) (full guide) ·
+[Install guide](INSTALL.md) · [Changelog](src/CHANGELOG.md)
+
+## Quick start
+
+1. Install the plugin (URL or `.plg` — see [INSTALL.md](INSTALL.md)), array started,
+   `rclone` plugin present with your remotes configured.
+2. Open **Utilities → rclone-jobs** → Doctor tab → *Run doctor* (expect all PASS/INFO).
+3. Create a job, press **Dry-run**, read the `+N -N !N` preview summary.
+4. Leave the **master dry-run switch ON** (default) while you build your set — every
+   scheduled run stays a simulation.
+5. When the dry-runs look right: per-job **Dry → LIVE** toggle, then master switch OFF.
+   Live runs stay gated by a fresh matching dry-run (plus Ack for deletion-heavy jobs).
+
 ## What it does
 
 - Job types: `rclone` (sync/copy/check), `rsync`, `custom` (any script, no shell metachars in config).
@@ -57,19 +71,34 @@ Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
 
 ## WebUI
 
-**Utilities → rclone-jobs**: Jobs (table, dry-run/run/ack/edit/delete, per-job notify
-level), Alerts & Safety (master switch, quiet window, test notification), Doctor
-(one-click self-test). Source, Destination,
-Backup dir and Script fields have a **Browse...** picker: modal dialog with a Server tab
-(shares/array disks/mounts) and an Rclone remotes tab (folders via `rclone lsf`); free
-typing stays possible for not-yet-existing destinations.
+**Utilities → rclone-jobs** — three tabs:
+
+- **Jobs** — KPI cards (job counts, master-switch state, live SSE status), a rolling
+  16-hour transfer chart, search/filter toolbar and the jobs table: enabled and
+  dry-run/live toggle switches, human-readable schedule with next-run countdown,
+  source→destination endpoint chips, last-run pill (duration + transferred bytes),
+  last dry-run diff chips, and per-row actions: **Dry** (cancelable async preview),
+  **Run/Stop**, **Ack**, **Log** (dedicated live-tail window), **Hist** (inline history
+  drawer with sparkline + rollups), **Edit** (inline form with a visual schedule
+  builder), **Del**. The table updates live via Server-Sent Events and degrades to
+  60 s polling. Source, Destination, Backup dir and Script fields have a **Browse...**
+  picker (Server shares/disks + Rclone remotes); responsive down to phone width.
+- **Alerts & Safety** — master dry-run switch, quiet window, the seven retention
+  knobs, test-notification button, and job-set export/import for fleet setup.
+- **Doctor** — one-click read-only self-test with a pasteable PASS/FAIL report
+  (also verifies deployed-file checksums against the release manifest).
 
 ## CLI
 
 ```
-/usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh list|status|preview <job>|run <job>|ack <job>|notify-test [level]|doctor [--notify]|watchdog
+/usr/local/emhttp/plugins/rclone-jobs/engine/rclone-jobs.sh <command> ...
+# commands: list | status | status-json | run <job> [--dry-run] | preview <job> |
+#           stop <job> | ack <job> | tail-log <job> | history <job> [n] |
+#           preview-start | task-status | task-cancel | export-jobs | import-jobs |
+#           validate-job | browse | watchdog | notify-test [level] | doctor [--notify]
 ```
 A copy of the engine is kept in the storage folder (`/mnt/diskN/.rclone-jobs/rclone-jobs.sh`).
+Exit codes 0/75/77/78/127/143 are contract — full reference in the [manual](MANUAL.md).
 
 ## Storage location & upgrades
 
@@ -91,7 +120,9 @@ the fallback if an update ever leaves stale files behind.
 | `/mnt/diskN/.rclone-jobs/` | logs, status JSON, backups |
 | `/var/spool/cron/crontabs/root` | managed block (BEGIN/END markers) |
 
-See `src/CHANGELOG.md` for release notes and `INSTALL.md` for install instructions.
+See the [Operator Manual](MANUAL.md) for the complete guide (job form reference,
+scheduling, retention, CLI, troubleshooting), `src/CHANGELOG.md` for release notes
+and `INSTALL.md` for install instructions.
 
 ## Deviations from the community plugin guidelines
 
