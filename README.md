@@ -4,7 +4,9 @@ Scheduled **rclone / rsync / custom-script** jobs for Unraid 7, built around one
 **nothing ever deletes or overwrites data you have not previewed first.**
 
 Runs alongside (never inside) the `rclone` plugin by Waseh and reuses its config
-(`/boot/config/plugins/rclone/.rclone.conf`).
+(`/boot/config/plugins/rclone/.rclone.conf`). **Tested on-box with the `rclone` plugin
+by Waseh as currently installed on the test box — no other rclone installation has
+been tested.**
 
 **Documentation:** [Operator Manual](MANUAL.md) (full guide) ·
 [Install guide](INSTALL.md) · [Changelog](src/CHANGELOG.md)
